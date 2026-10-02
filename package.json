@@ -1,0 +1,16 @@
+{
+  "name": "whatsapp-audio-billing-bot",
+  "version": "1.0.0",
+  "description": "WhatsApp Bot for measuring audio document duration and calculating customer bills",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node test/billingCalculator.test.js && node test/ledger.test.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "music-metadata": "^7.14.0",
+    "qrcode-terminal": "^0.12.0",
+    "whatsapp-web.js": "^1.26.0"
+  }
+}
