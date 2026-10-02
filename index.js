@@ -152,7 +152,7 @@ app.get('/', (req, res) => {
         <form id="loginForm" onsubmit="handleLogin(event)">
             <div class="input-group">
                 <label for="password">পাসওয়ার্ড (PIN):</label>
-                <input type="password" id="password" placeholder="যেমন: 6700" required autocomplete="off">
+                <input type="password" id="password" placeholder="পাসওয়ার্ড প্রবেশ করান..." required autocomplete="off">
             </div>
             <button type="submit">Dashboard প্রবেশ করুন ➔</button>
             <p class="error-msg" id="errorText">ভুল পাসওয়ার্ড! আবার চেষ্টা করুন।</p>
