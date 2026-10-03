@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "node test/billingCalculator.test.js && node test/ledger.test.js"
+    "test": "node test/billingCalculator.test.js && node test/ledger.test.js && node test/statusApi.test.js"
   },
   "dependencies": {
     "express": "^4.19.2",
