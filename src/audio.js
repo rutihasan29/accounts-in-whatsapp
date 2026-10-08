@@ -1,4 +1,9 @@
 const mm = require('music-metadata');
+const ffprobe = require('@ffprobe-installer/ffprobe');
+const { execFile } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
 const DIGITS_TO_BENGALI = {
   '0': '০', '1': '১', '2': '২', '3': '৩', '4': '৪',
@@ -54,24 +59,92 @@ function isAudioDocumentMessage(msg) {
   return isAudioExt || isAudioMime;
 }
 
-async function getAudioDurationFromBuffer(buffer, mimeType) {
-  if (!buffer || !Buffer.isBuffer(buffer)) return null;
+/**
+ * Extracts duration using ffprobe binary
+ */
+async function getAudioDurationWithFFprobe(buffer, extension = '.mp3') {
+  if (!buffer || !Buffer.isBuffer(buffer) || !ffprobe?.path) return null;
+
+  const tempFile = path.join(
+    os.tmpdir(),
+    `temp_audio_${Date.now()}_${Math.random().toString(36).slice(2)}${extension}`
+  );
 
   try {
-    const metadata = await mm.parseBuffer(buffer, mimeType, { duration: true });
-    return metadata?.format?.duration ?? null;
-  } catch (err) {
-    console.error('Error parsing audio buffer metadata:', err.message);
+    await fs.promises.writeFile(tempFile, buffer);
+    return await new Promise((resolve) => {
+      execFile(
+        ffprobe.path,
+        [
+          '-v', 'error',
+          '-show_entries', 'format=duration',
+          '-of', 'default=noprint_wrappers=1:nokey=1',
+          tempFile
+        ],
+        (err, stdout) => {
+          if (err || !stdout) {
+            return resolve(null);
+          }
+          const d = parseFloat(stdout.trim());
+          resolve(!isNaN(d) && d >= 0 ? d : null);
+        }
+      );
+    });
+  } catch {
     return null;
+  } finally {
+    try {
+      await fs.promises.unlink(tempFile);
+    } catch {}
   }
 }
 
+/**
+ * Parses duration from audio buffer via ffprobe, falling back to music-metadata
+ */
+async function getAudioDurationFromBuffer(buffer, mimeType, filename = '') {
+  if (!buffer || !Buffer.isBuffer(buffer)) return null;
+
+  // 1. Try ffprobe (requested by user)
+  try {
+    const ext = filename && filename.includes('.')
+      ? path.extname(filename)
+      : (mimeType && mimeType.includes('wav') ? '.wav' : '.mp3');
+    const ffprobeDuration = await getAudioDurationWithFFprobe(buffer, ext);
+    if (ffprobeDuration !== null && ffprobeDuration >= 0) {
+      console.log(`[AUDIO] ffprobe extracted duration: ${ffprobeDuration}s`);
+      return ffprobeDuration;
+    }
+  } catch (err) {
+    console.warn('[AUDIO] ffprobe attempt failed:', err.message);
+  }
+
+  // 2. Fallback to music-metadata
+  try {
+    const metadata = await mm.parseBuffer(buffer, mimeType, { duration: true });
+    if (metadata?.format?.duration !== undefined && metadata?.format?.duration !== null) {
+      console.log(`[AUDIO] music-metadata extracted duration: ${metadata.format.duration}s`);
+      return metadata.format.duration;
+    }
+  } catch (err) {
+    console.warn('[AUDIO] music-metadata parse error:', err.message);
+  }
+
+  return null;
+}
+
+/**
+ * Resolves duration using all available strategies (direct properties, in-page store, DOM, downloadManager, ffprobe)
+ */
 async function resolveAudioDuration({ msg, client }) {
   if (!msg) return null;
 
   const stanzaId = msg.id?.id;
   const targetId = msg.id?._serialized;
   const filename = msg.filename;
+  const targetChat = msg.id?.remote || msg.to || msg.from;
+
+  console.log(`[AUDIO] Resolving duration for "${filename || 'audio'}" (stanzaId: ${stanzaId}, to: ${targetChat})...`);
 
   // Helper to query in-page WhatsApp internal structures safely
   async function queryInPage() {
@@ -80,11 +153,18 @@ async function resolveAudioDuration({ msg, client }) {
     }
 
     try {
-      return await client.pupPage.evaluate(async ({ targetId, stanzaId, filename }) => {
+      return await client.pupPage.evaluate(async ({ targetId, stanzaId, filename, targetChat }) => {
         try {
+          // Ensure chat is loaded into memory
+          if (targetChat && window.WWebJS && typeof window.WWebJS.getChat === 'function') {
+            try {
+              await window.WWebJS.getChat(targetChat, { getAsModel: false });
+            } catch {}
+          }
+
           const collections = window.require('WAWebCollections');
           const msgCollection = collections?.Msg;
-          if (!msgCollection) return null;
+          if (!msgCollection) return { err: 'No Msg collection' };
 
           // 1. Find message by targetId, stanzaId, or filename (handles LID chats)
           let m = targetId ? msgCollection.get(targetId) : null;
@@ -97,9 +177,9 @@ async function resolveAudioDuration({ msg, client }) {
             );
           }
 
-          if (!m) return null;
+          if (!m) return { err: 'Msg model not found in collection' };
 
-          // 2. Check internal duration fields
+          // 2. Direct duration fields on model
           const d = m.duration || m.mediaData?.duration || m._data?.duration || m._data?.seconds;
           if (d !== undefined && d !== null && !isNaN(Number(d)) && Number(d) >= 0) {
             return { duration: Number(d) };
@@ -139,7 +219,14 @@ async function resolveAudioDuration({ msg, client }) {
             } catch {}
           }
 
-          // 5. Try downloadAndMaybeDecrypt with full fallback parameters
+          // 5. Try resolving mediaStage if not already RESOLVED
+          if (m.mediaData && m.mediaData.mediaStage !== 'RESOLVED' && typeof m.downloadMedia === 'function') {
+            try {
+              await m.downloadMedia({ downloadEvenIfExpensive: true, rmrReason: 1 });
+            } catch {}
+          }
+
+          // 6. Try downloadAndMaybeDecrypt with full fallback parameters
           const downloadManager = window.require('WAWebDownloadManager')?.downloadManager;
           const directPath = m.directPath || m.mediaData?.directPath;
           const mediaKey = m.mediaKey || m.mediaData?.mediaKey;
@@ -164,13 +251,23 @@ async function resolveAudioDuration({ msg, client }) {
                 const base64 = await window.WWebJS.arrayBufferToBase64Async(decrypted);
                 return { data: base64, mimetype: m.mimetype || 'audio/mpeg' };
               }
-            } catch {}
+            } catch (decErr) {
+              return { err: 'downloadAndMaybeDecrypt: ' + decErr.message };
+            }
           }
-        } catch {}
-        return null;
-      }, { targetId, stanzaId, filename });
-    } catch {
-      return null;
+
+          return {
+            err: 'Media keys not ready',
+            mediaStage: m.mediaData?.mediaStage,
+            hasDp: !!directPath,
+            hasMk: !!mediaKey
+          };
+        } catch (outer) {
+          return { err: outer.message };
+        }
+      }, { targetId, stanzaId, filename, targetChat });
+    } catch (evalErr) {
+      return { err: evalErr.message };
     }
   }
 
@@ -197,7 +294,7 @@ async function resolveAudioDuration({ msg, client }) {
     }
     if (inPageResult?.data) {
       const buf = Buffer.from(inPageResult.data, 'base64');
-      const d = await getAudioDurationFromBuffer(buf, inPageResult.mimetype || msg.mimetype);
+      const d = await getAudioDurationFromBuffer(buf, inPageResult.mimetype || msg.mimetype, filename);
       if (d !== null && d >= 0) return d;
     }
 
@@ -207,7 +304,7 @@ async function resolveAudioDuration({ msg, client }) {
         const media = await msg.downloadMedia();
         if (media && media.data) {
           const buf = Buffer.from(media.data, 'base64');
-          const d = await getAudioDurationFromBuffer(buf, media.mimetype || msg.mimetype);
+          const d = await getAudioDurationFromBuffer(buf, media.mimetype || msg.mimetype, filename);
           if (d !== null && d >= 0) return d;
         }
       } catch (dmErr) {
@@ -216,6 +313,7 @@ async function resolveAudioDuration({ msg, client }) {
     }
 
     if (attempt < 3) {
+      console.log(`[AUDIO] Attempt ${attempt} waiting for media sync...`);
       await new Promise((resolve) => setTimeout(resolve, 1500));
     }
   }
@@ -228,5 +326,6 @@ module.exports = {
   formatAudioDuration,
   isAudioDocumentMessage,
   getAudioDurationFromBuffer,
+  getAudioDurationWithFFprobe,
   resolveAudioDuration
 };
