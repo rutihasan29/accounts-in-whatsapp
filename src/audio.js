@@ -69,50 +69,50 @@ async function getAudioDurationFromBuffer(buffer, mimeType) {
 async function resolveAudioDuration({ msg, client }) {
   if (!msg) return null;
 
-  // 1. Direct metadata on msg object (instant, zero overhead)
-  if (msg.duration !== undefined && msg.duration !== null) {
-    const d = parseFloat(msg.duration);
-    if (!isNaN(d) && d >= 0) return d;
-  }
-  if (msg._data?.duration) {
-    const d = parseFloat(msg._data.duration);
-    if (!isNaN(d) && d >= 0) return d;
-  }
-  if (msg._data?.seconds) {
-    const d = parseFloat(msg._data.seconds);
-    if (!isNaN(d) && d >= 0) return d;
-  }
-
-  const msgId = msg.id?._serialized;
+  const stanzaId = msg.id?.id;
+  const targetId = msg.id?._serialized;
+  const filename = msg.filename;
 
   // Helper to query in-page WhatsApp internal structures safely
   async function queryInPage() {
-    if (!client?.pupPage || typeof client.pupPage.evaluate !== 'function' || !msgId) {
+    if (!client?.pupPage || typeof client.pupPage.evaluate !== 'function') {
       return null;
     }
 
     try {
-      return await client.pupPage.evaluate(async (targetId) => {
+      return await client.pupPage.evaluate(async ({ targetId, stanzaId, filename }) => {
         try {
           const collections = window.require('WAWebCollections');
-          const m = collections?.Msg?.get(targetId) ||
-            (await collections?.Msg?.getMessagesById([targetId]))?.messages?.[0];
+          const msgCollection = collections?.Msg;
+          if (!msgCollection) return null;
+
+          // 1. Find message by targetId, stanzaId, or filename (handles LID chats)
+          let m = targetId ? msgCollection.get(targetId) : null;
+          if (!m && stanzaId && Array.isArray(msgCollection.models)) {
+            m = msgCollection.models.find((x) => x.id?.id === stanzaId);
+          }
+          if (!m && filename && Array.isArray(msgCollection.models)) {
+            m = msgCollection.models.slice(-30).reverse().find(
+              (x) => x.filename && x.filename.toLowerCase() === filename.toLowerCase()
+            );
+          }
 
           if (!m) return null;
 
-          // Check internal duration fields
+          // 2. Check internal duration fields
           const d = m.duration || m.mediaData?.duration || m._data?.duration || m._data?.seconds;
           if (d !== undefined && d !== null && !isNaN(Number(d)) && Number(d) >= 0) {
             return { duration: Number(d) };
           }
 
-          // Check DOM audio element if already rendered
-          const audioEl = document.querySelector(`[data-id="${targetId}"] audio`);
+          // 3. Check DOM audio element if already rendered in UI
+          const audioEl = (targetId ? document.querySelector(`[data-id="${targetId}"] audio`) : null) ||
+            (stanzaId ? document.querySelector(`[data-id*="${stanzaId}"] audio`) : null);
           if (audioEl && audioEl.duration && !isNaN(audioEl.duration) && isFinite(audioEl.duration) && audioEl.duration >= 0) {
             return { duration: audioEl.duration };
           }
 
-          // Check if media blob or renderableUrl is available directly in memory
+          // 4. Check if media blob or renderableUrl is available directly in memory
           if (m.mediaData?.renderableUrl) {
             try {
               const resp = await fetch(m.mediaData.renderableUrl);
@@ -130,73 +130,94 @@ async function resolveAudioDuration({ msg, client }) {
               return { data: base64, mimetype: m.mimetype || 'audio/mpeg' };
             } catch {}
           }
+
+          if (m.mediaData?.file) {
+            try {
+              const buffer = await m.mediaData.file.arrayBuffer();
+              const base64 = await window.WWebJS.arrayBufferToBase64Async(buffer);
+              return { data: base64, mimetype: m.mimetype || 'audio/mpeg' };
+            } catch {}
+          }
+
+          // 5. Try downloadAndMaybeDecrypt with full fallback parameters
+          const downloadManager = window.require('WAWebDownloadManager')?.downloadManager;
+          const directPath = m.directPath || m.mediaData?.directPath;
+          const mediaKey = m.mediaKey || m.mediaData?.mediaKey;
+          const encFilehash = m.encFilehash || m.mediaData?.encFilehash;
+          const filehash = m.filehash || m.mediaData?.filehash;
+          const mediaKeyTimestamp = m.mediaKeyTimestamp || m.mediaData?.mediaKeyTimestamp;
+
+          if (downloadManager && directPath && mediaKey) {
+            try {
+              const mockQpl = { addAnnotations: () => {}, addPoint: () => {} };
+              const decrypted = await downloadManager.downloadAndMaybeDecrypt({
+                directPath,
+                encFilehash,
+                filehash,
+                mediaKey,
+                mediaKeyTimestamp,
+                type: m.type || 'document',
+                signal: new AbortController().signal,
+                downloadQpl: mockQpl
+              });
+              if (decrypted) {
+                const base64 = await window.WWebJS.arrayBufferToBase64Async(decrypted);
+                return { data: base64, mimetype: m.mimetype || 'audio/mpeg' };
+              }
+            } catch {}
+          }
         } catch {}
         return null;
-      }, msgId);
+      }, { targetId, stanzaId, filename });
     } catch {
       return null;
     }
   }
 
-  // 2. Query in-page state
-  let inPageResult = await queryInPage();
-  if (inPageResult?.duration !== undefined && inPageResult?.duration !== null) {
-    return inPageResult.duration;
-  }
-  if (inPageResult?.data) {
-    const buf = Buffer.from(inPageResult.data, 'base64');
-    const d = await getAudioDurationFromBuffer(buf, inPageResult.mimetype || msg.mimetype);
-    if (d !== null && d >= 0) return d;
-  }
-
-  // 3. Try standard msg.downloadMedia() wrapped safely in try-catch
-  if (typeof msg.downloadMedia === 'function') {
-    try {
-      const media = await msg.downloadMedia();
-      if (media && media.data) {
-        const buf = Buffer.from(media.data, 'base64');
-        const d = await getAudioDurationFromBuffer(buf, media.mimetype || msg.mimetype);
-        if (d !== null && d >= 0) return d;
-      }
-    } catch (dmErr) {
-      console.warn('[AUDIO] msg.downloadMedia initial attempt failed:', dmErr.message);
+  // Multi-attempt retry loop to accommodate media sync timing
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    // 1. Direct metadata on msg object (instant, zero overhead)
+    if (msg.duration !== undefined && msg.duration !== null) {
+      const d = parseFloat(msg.duration);
+      if (!isNaN(d) && d >= 0) return d;
     }
-  }
+    if (msg._data?.duration) {
+      const d = parseFloat(msg._data.duration);
+      if (!isNaN(d) && d >= 0) return d;
+    }
+    if (msg._data?.seconds) {
+      const d = parseFloat(msg._data.seconds);
+      if (!isNaN(d) && d >= 0) return d;
+    }
 
-  // 4. Retry after a short delay (1.5s) in case media was still syncing when message_create fired
-  await new Promise((resolve) => setTimeout(resolve, 1500));
+    // 2. Query in-page state
+    const inPageResult = await queryInPage();
+    if (inPageResult?.duration !== undefined && inPageResult?.duration !== null) {
+      return inPageResult.duration;
+    }
+    if (inPageResult?.data) {
+      const buf = Buffer.from(inPageResult.data, 'base64');
+      const d = await getAudioDurationFromBuffer(buf, inPageResult.mimetype || msg.mimetype);
+      if (d !== null && d >= 0) return d;
+    }
 
-  // Re-check direct properties
-  if (msg.duration !== undefined && msg.duration !== null) {
-    const d = parseFloat(msg.duration);
-    if (!isNaN(d) && d >= 0) return d;
-  }
-  if (msg._data?.duration) {
-    const d = parseFloat(msg._data.duration);
-    if (!isNaN(d) && d >= 0) return d;
-  }
-
-  // Re-query in-page
-  inPageResult = await queryInPage();
-  if (inPageResult?.duration !== undefined && inPageResult?.duration !== null) {
-    return inPageResult.duration;
-  }
-  if (inPageResult?.data) {
-    const buf = Buffer.from(inPageResult.data, 'base64');
-    const d = await getAudioDurationFromBuffer(buf, inPageResult.mimetype || msg.mimetype);
-    if (d !== null && d >= 0) return d;
-  }
-
-  // Final safe attempt with downloadMedia
-  if (typeof msg.downloadMedia === 'function') {
-    try {
-      const media = await msg.downloadMedia();
-      if (media && media.data) {
-        const buf = Buffer.from(media.data, 'base64');
-        const d = await getAudioDurationFromBuffer(buf, media.mimetype || msg.mimetype);
-        if (d !== null && d >= 0) return d;
+    // 3. Try standard msg.downloadMedia() wrapped safely in try-catch
+    if (typeof msg.downloadMedia === 'function') {
+      try {
+        const media = await msg.downloadMedia();
+        if (media && media.data) {
+          const buf = Buffer.from(media.data, 'base64');
+          const d = await getAudioDurationFromBuffer(buf, media.mimetype || msg.mimetype);
+          if (d !== null && d >= 0) return d;
+        }
+      } catch (dmErr) {
+        // Handled via fallback
       }
-    } catch {}
+    }
+
+    if (attempt < 3) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
   }
 
   return null;
@@ -209,4 +230,3 @@ module.exports = {
   getAudioDurationFromBuffer,
   resolveAudioDuration
 };
-
