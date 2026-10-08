@@ -118,4 +118,55 @@ describe('Audio Module', () => {
       assert.strictEqual(Math.round(duration), 1);
     });
   });
+
+  describe('resolveAudioDuration', () => {
+    const { resolveAudioDuration } = require('../src/audio');
+
+    it('resolves duration immediately from msg.duration', async () => {
+      const msg = { duration: '135' };
+      const duration = await resolveAudioDuration({ msg });
+      assert.strictEqual(duration, 135);
+    });
+
+    it('resolves duration immediately from msg._data.duration', async () => {
+      const msg = { _data: { duration: 42 } };
+      const duration = await resolveAudioDuration({ msg });
+      assert.strictEqual(duration, 42);
+    });
+
+    it('resolves duration immediately from msg._data.seconds', async () => {
+      const msg = { _data: { seconds: 75 } };
+      const duration = await resolveAudioDuration({ msg });
+      assert.strictEqual(duration, 75);
+    });
+
+    it('resolves duration from client.pupPage evaluate when direct property is missing', async () => {
+      const msg = { id: { _serialized: 'true_1234@c.us_ABC' } };
+      const client = {
+        pupPage: {
+          evaluate: async () => ({ duration: 88 })
+        }
+      };
+      const duration = await resolveAudioDuration({ msg, client });
+      assert.strictEqual(duration, 88);
+    });
+
+    it('handles downloadMedia throwing "r: r" error gracefully without crashing', async () => {
+      const msg = {
+        id: { _serialized: 'true_1234@c.us_DEF' },
+        downloadMedia: async () => {
+          throw new Error('r: r');
+        }
+      };
+      const client = {
+        pupPage: {
+          evaluate: async () => null
+        }
+      };
+      // Should not throw, returns null after retries
+      const duration = await resolveAudioDuration({ msg, client });
+      assert.strictEqual(duration, null);
+    });
+  });
 });
+

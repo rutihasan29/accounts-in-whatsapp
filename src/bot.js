@@ -3,7 +3,8 @@ const { recordTransaction, getDueList, migrateCustomerPhone } = require('./db');
 const {
   isAudioDocumentMessage,
   getAudioDurationFromBuffer,
-  formatAudioDuration
+  formatAudioDuration,
+  resolveAudioDuration
 } = require('./audio');
 const qrcode = require('qrcode-terminal');
 
@@ -194,23 +195,9 @@ async function handleMessageCreate({ msg, client, db }) {
   // Handle audio document sent from our side
   if (msg.fromMe && isAudioDocumentMessage(msg)) {
     try {
-      let duration = null;
-      let buffer = null;
-      let mimeType = msg.mimetype;
+      const duration = await resolveAudioDuration({ msg, client });
 
-      if (typeof msg.downloadMedia === 'function') {
-        const media = await msg.downloadMedia();
-        if (media && media.data) {
-          buffer = Buffer.from(media.data, 'base64');
-          mimeType = media.mimetype || mimeType;
-        }
-      }
-
-      if (buffer) {
-        duration = await getAudioDurationFromBuffer(buffer, mimeType);
-      }
-
-      if (duration !== null && duration !== undefined) {
+      if (duration !== null && duration !== undefined && duration >= 0) {
         const durationText = formatAudioDuration(duration);
         const targetChat = msg.id?.remote || msg.to || msg.from;
         let sent = false;

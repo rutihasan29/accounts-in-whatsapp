@@ -381,6 +381,66 @@ describe('Bot Message Router', () => {
       const res = await handleMessageCreate({ msg, client: {}, db });
       assert.strictEqual(res.action, 'IGNORED_GROUP');
     });
+
+    it('succeeds using direct msg.duration when msg.downloadMedia would fail with "r: r"', async () => {
+      const db = initDb(':memory:');
+      let sentMessage = null;
+      const client = {
+        info: { wid: { _serialized: '8801999999999@c.us', user: '8801999999999' } },
+        sendMessage: async (to, text) => {
+          sentMessage = text;
+        }
+      };
+      const msg = {
+        fromMe: true,
+        hasMedia: true,
+        type: 'document',
+        isVoice: false,
+        filename: 'sample.mp3',
+        duration: 90, // 1 minute 30 seconds
+        to: '8801712345678@c.us',
+        id: { remote: '8801712345678@c.us' },
+        downloadMedia: async () => {
+          throw new Error('r: r');
+        }
+      };
+
+      const res = await handleMessageCreate({ msg, client, db });
+      assert.strictEqual(res.action, 'SENT_AUDIO_DURATION');
+      assert.strictEqual(sentMessage, 'অডিওর দৈর্ঘ্য: ১ মিনিট ৩০ সেকেন্ড');
+      assert.strictEqual(res.details.duration, 90);
+    });
+
+    it('succeeds using in-page evaluate duration when msg.downloadMedia throws "r: r"', async () => {
+      const db = initDb(':memory:');
+      let sentMessage = null;
+      const client = {
+        info: { wid: { _serialized: '8801999999999@c.us', user: '8801999999999' } },
+        pupPage: {
+          evaluate: async () => ({ duration: 60 })
+        },
+        sendMessage: async (to, text) => {
+          sentMessage = text;
+        }
+      };
+      const msg = {
+        fromMe: true,
+        hasMedia: true,
+        type: 'document',
+        isVoice: false,
+        filename: 'voice_file.wav',
+        to: '8801712345678@c.us',
+        id: { remote: '8801712345678@c.us', _serialized: 'true_8801712345678@c.us_123' },
+        downloadMedia: async () => {
+          throw new Error('r: r');
+        }
+      };
+
+      const res = await handleMessageCreate({ msg, client, db });
+      assert.strictEqual(res.action, 'SENT_AUDIO_DURATION');
+      assert.strictEqual(sentMessage, 'অডিওর দৈর্ঘ্য: ১ মিনিট ০ সেকেন্ড');
+      assert.strictEqual(res.details.duration, 60);
+    });
   });
 });
 
