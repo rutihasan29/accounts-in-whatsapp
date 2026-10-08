@@ -1,5 +1,10 @@
 const { parseMessage } = require('./parser');
 const { recordTransaction, getDueList, migrateCustomerPhone } = require('./db');
+const {
+  isAudioDocumentMessage,
+  getAudioDurationFromBuffer,
+  formatAudioDuration
+} = require('./audio');
 const qrcode = require('qrcode-terminal');
 
 const DIGITS_TO_BENGALI = {
@@ -184,6 +189,59 @@ async function handleMessageCreate({ msg, client, db }) {
   const recipient = msg.to || '';
   if (recipient.endsWith('@g.us') || msg.id?.remote?.endsWith('@g.us')) {
     return { action: 'IGNORED_GROUP' };
+  }
+
+  // Handle audio document sent from our side
+  if (msg.fromMe && isAudioDocumentMessage(msg)) {
+    try {
+      let duration = null;
+      let buffer = null;
+      let mimeType = msg.mimetype;
+
+      if (typeof msg.downloadMedia === 'function') {
+        const media = await msg.downloadMedia();
+        if (media && media.data) {
+          buffer = Buffer.from(media.data, 'base64');
+          mimeType = media.mimetype || mimeType;
+        }
+      }
+
+      if (buffer) {
+        duration = await getAudioDurationFromBuffer(buffer, mimeType);
+      }
+
+      if (duration !== null && duration !== undefined) {
+        const durationText = formatAudioDuration(duration);
+        const targetChat = msg.id?.remote || msg.to || msg.from;
+        let sent = false;
+
+        if (client && typeof client.sendMessage === 'function' && targetChat) {
+          try {
+            await client.sendMessage(targetChat, durationText);
+            sent = true;
+          } catch (err) {
+            console.warn('client.sendMessage failed, falling back to msg.reply:', err.message);
+          }
+        }
+
+        if (!sent && typeof msg.reply === 'function') {
+          await msg.reply(durationText);
+        }
+
+        console.log(`[AUDIO] Sent duration (${durationText}) to ${targetChat}`);
+
+        return {
+          action: 'SENT_AUDIO_DURATION',
+          details: { duration, text: durationText, targetChat }
+        };
+      } else {
+        console.warn('[AUDIO] Could not determine audio duration for message media');
+        return { action: 'IGNORED_AUDIO_NO_DURATION' };
+      }
+    } catch (err) {
+      console.error('[AUDIO] Error processing audio document:', err);
+      return { action: 'ERROR_AUDIO_PROCESSING', error: err.message };
+    }
   }
 
   const parsed = parseMessage(msg.body);

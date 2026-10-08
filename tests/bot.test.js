@@ -263,4 +263,124 @@ describe('Bot Message Router', () => {
     // Old LID record should be gone
     assert.strictEqual(getCustomerSummary(db, '149181746389200@lid'), null);
   });
+
+  describe('Audio Document Duration Handling', () => {
+    function createWavBuffer(durationSeconds = 1) {
+      const sampleRate = 8000;
+      const numChannels = 1;
+      const bitsPerSample = 8;
+      const dataSize = Math.round(durationSeconds * sampleRate * numChannels * (bitsPerSample / 8));
+      const buffer = Buffer.alloc(44 + dataSize);
+
+      buffer.write('RIFF', 0);
+      buffer.writeUInt32LE(36 + dataSize, 4);
+      buffer.write('WAVE', 8);
+      buffer.write('fmt ', 12);
+      buffer.writeUInt32LE(16, 16);
+      buffer.writeUInt16LE(1, 20);
+      buffer.writeUInt16LE(numChannels, 22);
+      buffer.writeUInt32LE(sampleRate, 24);
+      buffer.writeUInt32LE(sampleRate * numChannels * (bitsPerSample / 8), 28);
+      buffer.writeUInt16LE(numChannels * (bitsPerSample / 8), 32);
+      buffer.writeUInt16LE(bitsPerSample, 34);
+      buffer.write('data', 36);
+      buffer.writeUInt32LE(dataSize, 40);
+
+      return buffer;
+    }
+
+    it('calculates duration and sends Bengali duration message when outgoing audio document is sent', async () => {
+      const db = initDb(':memory:');
+      const wavBuffer = createWavBuffer(135); // 2 minutes 15 seconds
+      let sentTo = null;
+      let sentMessage = null;
+
+      const client = {
+        info: { wid: { _serialized: '8801999999999@c.us', user: '8801999999999' } },
+        sendMessage: async (to, text) => {
+          sentTo = to;
+          sentMessage = text;
+        }
+      };
+
+      const msg = {
+        fromMe: true,
+        hasMedia: true,
+        type: 'document',
+        isVoice: false,
+        mimetype: 'audio/wav',
+        filename: 'recording.wav',
+        to: '8801712345678@c.us',
+        id: { remote: '8801712345678@c.us' },
+        downloadMedia: async () => ({
+          data: wavBuffer.toString('base64'),
+          mimetype: 'audio/wav',
+          filename: 'recording.wav'
+        })
+      };
+
+      const res = await handleMessageCreate({ msg, client, db });
+      assert.strictEqual(res.action, 'SENT_AUDIO_DURATION');
+      assert.strictEqual(sentTo, '8801712345678@c.us');
+      assert.strictEqual(sentMessage, 'অডিওর দৈর্ঘ্য: ২ মিনিট ১৫ সেকেন্ড');
+      assert.strictEqual(res.details.text, 'অডিওর দৈর্ঘ্য: ২ মিনিট ১৫ সেকেন্ড');
+    });
+
+    it('ignores outgoing voice note / ptt and does not calculate duration', async () => {
+      const db = initDb(':memory:');
+      let sendMessageCalled = false;
+
+      const client = {
+        info: { wid: { _serialized: '8801999999999@c.us', user: '8801999999999' } },
+        sendMessage: async () => {
+          sendMessageCalled = true;
+        }
+      };
+
+      const msg = {
+        fromMe: true,
+        hasMedia: true,
+        type: 'ptt',
+        isVoice: true,
+        mimetype: 'audio/ogg; codecs=opus',
+        to: '8801712345678@c.us'
+      };
+
+      const res = await handleMessageCreate({ msg, client, db });
+      assert.strictEqual(res.action, 'IGNORED_UNMATCHED');
+      assert.strictEqual(sendMessageCalled, false);
+    });
+
+    it('ignores incoming audio document from customer (fromMe === false)', async () => {
+      const db = initDb(':memory:');
+      const msg = {
+        fromMe: false,
+        hasMedia: true,
+        type: 'document',
+        isVoice: false,
+        filename: 'customer_audio.mp3',
+        to: '8801999999999@c.us'
+      };
+
+      const res = await handleMessageCreate({ msg, client: {}, db });
+      assert.strictEqual(res.action, 'IGNORED_NOT_FROM_ME');
+    });
+
+    it('ignores outgoing audio document sent in group chat', async () => {
+      const db = initDb(':memory:');
+      const msg = {
+        fromMe: true,
+        hasMedia: true,
+        type: 'document',
+        isVoice: false,
+        filename: 'group_audio.mp3',
+        to: '123456789-group@g.us',
+        id: { remote: '123456789-group@g.us' }
+      };
+
+      const res = await handleMessageCreate({ msg, client: {}, db });
+      assert.strictEqual(res.action, 'IGNORED_GROUP');
+    });
+  });
 });
+
