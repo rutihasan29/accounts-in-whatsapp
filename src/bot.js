@@ -394,6 +394,11 @@ function setupBotHandlers({ client, db, botState, onStatusChange }) {
   };
 
   client.on('qr', async (qr) => {
+    // If phone pairing code is in progress or ready, do not overwrite status with QR!
+    if (botState && (botState.status === 'CODE_READY' || botState.status === 'PAIRING_REQUESTED' || botState.pairingCode)) {
+      console.log('[PAIRING] Phone pairing active; ignoring background QR event.');
+      return;
+    }
     console.log('Scan the QR code below to log in:');
     qrcode.generate(qr, { small: true });
     if (botState) {

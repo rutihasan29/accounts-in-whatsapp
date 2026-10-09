@@ -23,14 +23,23 @@ fs.mkdirSync(AUTH_DATA_PATH, { recursive: true });
 
 const db = initDb(DB_PATH);
 
-// Tested & stable Puppeteer args for Docker / Render (excluding --single-process to prevent WebSocket crypto failure)
+// Tested & stable Puppeteer args for Docker / Render (tuned for 512MB RAM free tier, excluding --single-process to prevent WebSocket crypto failure)
 const puppeteerArgs = [
   '--no-sandbox',
   '--disable-setuid-sandbox',
   '--disable-dev-shm-usage',
   '--disable-accelerated-2d-canvas',
   '--no-first-run',
-  '--disable-gpu'
+  '--disable-gpu',
+  '--disable-software-rasterizer',
+  '--no-zygote',
+  '--disable-extensions',
+  '--disable-infobars',
+  '--hide-scrollbars',
+  '--mute-audio',
+  '--disable-background-networking',
+  '--disable-default-apps',
+  '--js-flags=--max-old-space-size=256'
 ];
 
 const puppeteerOptions = {
@@ -44,12 +53,81 @@ if (PUPPETEER_EXECUTABLE_PATH && fs.existsSync(PUPPETEER_EXECUTABLE_PATH)) {
 }
 
 let client = null;
+let syncWatchdogTimer = null;
+
+function startSyncWatchdog() {
+  if (syncWatchdogTimer) clearInterval(syncWatchdogTimer);
+
+  let checkCount = 0;
+  syncWatchdogTimer = setInterval(async () => {
+    checkCount++;
+    if (!client || !client.pupPage || botState.status === 'READY') {
+      clearInterval(syncWatchdogTimer);
+      syncWatchdogTimer = null;
+      return;
+    }
+
+    try {
+      const pageInfo = await client.pupPage.evaluate(() => {
+        try {
+          const Socket = window.require?.('WAWebSocketModel')?.Socket;
+          const Conn = window.require?.('WAWebConnModel')?.Conn;
+          const meUser = window.require?.('WAWebUserPrefsMeUser');
+          const myWid = meUser?.getMaybeMePnUser?.() || meUser?.getMaybeMeLidUser?.() || Conn?.wid;
+          const socketState = Socket?.state;
+          const hasSynced = Socket?.hasSynced === true;
+          const hasPaneSide = !!document.querySelector('#pane-side');
+          const hasChatList = !!document.querySelector('div[data-testid="chat-list"]') || !!document.querySelector('._aigs');
+
+          return {
+            socketState,
+            hasSynced,
+            hasWid: !!myWid,
+            widUser: myWid?._serialized || myWid?.user || (typeof myWid === 'string' ? myWid : null),
+            hasChatPane: hasPaneSide || hasChatList
+          };
+        } catch {
+          return null;
+        }
+      });
+
+      if (!pageInfo) return;
+
+      // When phone confirms pairing, socket connects, wid appears, or chat pane renders
+      if (pageInfo.hasWid || pageInfo.hasSynced || pageInfo.hasChatPane || pageInfo.socketState === 'CONNECTED') {
+        console.log(`[SYNC-WATCHDOG] WhatsApp link confirmed! (socket=${pageInfo.socketState}, wid=${pageInfo.widUser}, hasSynced=${pageInfo.hasSynced}, chatPane=${pageInfo.hasChatPane})`);
+
+        if (botState.status !== 'AUTHENTICATED' && botState.status !== 'READY') {
+          botState.status = 'AUTHENTICATED';
+          if (pageInfo.widUser) {
+            botState.user = String(pageInfo.widUser).replace(/\D/g, '');
+          }
+          broadcastStatus();
+        }
+
+        // Trigger onAppStateHasSyncedEvent so whatsapp-web.js completes transition to ready
+        await client.pupPage.evaluate(() => {
+          if (typeof window.onAppStateHasSyncedEvent === 'function') {
+            window.onAppStateHasSyncedEvent();
+          }
+        });
+      }
+    } catch (e) {
+      // Evaluation can fail momentarily during navigation
+    }
+
+    if (checkCount > 400) {
+      clearInterval(syncWatchdogTimer);
+      syncWatchdogTimer = null;
+    }
+  }, 1500);
+}
 
 function initializeClient() {
   botState.status = 'STARTING';
   broadcastStatus();
 
-  client = new Client({
+  const clientOptions = {
     authStrategy: new LocalAuth({
       dataPath: AUTH_DATA_PATH
     }),
@@ -58,7 +136,21 @@ function initializeClient() {
       remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1049839371-alpha.html'
     },
     puppeteer: puppeteerOptions
-  });
+  };
+
+  const envPhone = normalizePhoneNumber(PAIR_PHONE_NUMBER);
+  if (envPhone && envPhone.length >= 10) {
+    console.log(`[PAIRING] Pre-configuring pairing for phone number +${envPhone}...`);
+    clientOptions.pairWithPhoneNumber = {
+      phoneNumber: envPhone,
+      showNotification: true,
+      intervalMs: 180000
+    };
+    botState.pairingPhone = envPhone;
+    botState.status = 'PAIRING_REQUESTED';
+  }
+
+  client = new Client(clientOptions);
 
   setupBotHandlers({
     client,
@@ -67,32 +159,20 @@ function initializeClient() {
     onStatusChange: broadcastStatus
   });
 
-  if (PAIR_PHONE_NUMBER) {
-    let pairCodeRequested = false;
-    client.on('qr', async () => {
-      if (!pairCodeRequested) {
-        pairCodeRequested = true;
-        try {
-          console.log(`[PAIRING] Auto-requesting pairing code for env PAIR_PHONE_NUMBER: ${PAIR_PHONE_NUMBER}`);
-          await handlePairPhone(PAIR_PHONE_NUMBER);
-        } catch (e) {
-          console.warn('[PAIRING] Auto-pairing request error:', e.message);
-        }
-      }
-    });
-  }
-
   client.initialize().catch((err) => {
     console.error('❌ Error initializing WhatsApp client:', err.message);
     botState.status = 'ERROR';
     broadcastStatus();
   });
+
+  // Start background sync watchdog
+  startSyncWatchdog();
 }
 
 // Handler for phone pairing code requests
 async function handlePairPhone(phoneNumber) {
-  if (!client) {
-    throw new Error('WhatsApp ক্লায়েন্ট প্রস্তুত নয়। কিছুক্ষণ পর চেষ্টা করুন।');
+  if (!client || !client.pupPage) {
+    throw new Error('WhatsApp ক্লায়েন্ট পেজ এখনও লোড হচ্ছে, অনুগ্রহ করে ৫-১০ সেকেন্ড পর আবার চেষ্টা করুন।');
   }
   if (botState.status === 'READY') {
     throw new Error('হোয়াটসঅ্যাপ ইতিমধ্যে সফলভাবে লগইন করা আছে!');
@@ -105,7 +185,35 @@ async function handlePairPhone(phoneNumber) {
   console.log(`[PAIRING] Requesting pairing code for +${cleanPhone}...`);
   botState.status = 'PAIRING_REQUESTED';
   botState.pairingPhone = cleanPhone;
+  botState.qrCode = null;
+  botState.qrDataUrl = null;
   broadcastStatus();
+
+  // Prevent QR refreshes from cancelling alt linking
+  if (client.options) {
+    client.options.pairWithPhoneNumber = {
+      phoneNumber: cleanPhone,
+      showNotification: true,
+      intervalMs: 180000
+    };
+  }
+
+  try {
+    await client.pupPage.evaluate(() => {
+      window.onQRChangedEvent = () => {};
+      if (window.AuthStore?.Conn) {
+        window.AuthStore.Conn.off('change:ref');
+      }
+      if (window.require) {
+        try {
+          const Cmd = window.require('WAWebCmd')?.Cmd;
+          if (Cmd) Cmd.refreshQR = () => {};
+        } catch {}
+      }
+    });
+  } catch (e) {
+    console.warn('[PAIRING] Could not mute QR events:', e.message);
+  }
 
   try {
     const code = await client.requestPairingCode(cleanPhone);
@@ -115,6 +223,8 @@ async function handlePairPhone(phoneNumber) {
     botState.pairingPhone = cleanPhone;
     botState.pairingCodeTimestamp = Date.now();
     broadcastStatus();
+
+    startSyncWatchdog();
     return code;
   } catch (err) {
     console.error('[PAIRING] Failed to get pairing code:', err.message);
@@ -127,6 +237,10 @@ async function handlePairPhone(phoneNumber) {
 // Handler for reset-session endpoint
 async function resetSession() {
   console.log('🔄 Resetting WhatsApp session and clearing auth credentials...');
+  if (syncWatchdogTimer) {
+    clearInterval(syncWatchdogTimer);
+    syncWatchdogTimer = null;
+  }
   botState.status = 'STARTING';
   botState.qrCode = null;
   botState.qrDataUrl = null;

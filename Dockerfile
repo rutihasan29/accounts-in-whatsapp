@@ -43,5 +43,5 @@ COPY . .
 # Expose HTTP port (Render overrides with $PORT, default is 3000)
 EXPOSE 3000
 
-# Start application
-CMD ["node", "index.js"]
+# Start application with capped V8 heap (to leave max memory for Chromium)
+CMD ["node", "--max-old-space-size=256", "index.js"]

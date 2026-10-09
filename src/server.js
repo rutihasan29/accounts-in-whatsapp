@@ -272,19 +272,21 @@ function renderHtmlDashboard({ db }) {
         readyBox.classList.add('hidden');
 
         // Check Pairing Code
-        if (data.pairingCode) {
+        if (data.pairingCode || data.status === 'CODE_READY') {
           badge.className = 'badge badge-info';
           badge.innerText = '● PAIRING CODE READY';
           codeDisplayBox.classList.remove('hidden');
-          codeValue.innerText = formatPairingCode(data.pairingCode);
-        }
-
-        // Check QR code
-        if (data.qr) {
-          if (!data.pairingCode) {
-            badge.className = 'badge badge-warning';
-            badge.innerText = '● SCAN QR / ENTER PHONE';
+          if (data.pairingCode) {
+            codeValue.innerText = formatPairingCode(data.pairingCode);
           }
+          qrBox.classList.add('hidden');
+        } else if (data.status === 'PAIRING_REQUESTED') {
+          badge.className = 'badge badge-info';
+          badge.innerText = '● GENERATING CODE...';
+          qrBox.classList.add('hidden');
+        } else if (data.qr) {
+          badge.className = 'badge badge-warning';
+          badge.innerText = '● SCAN QR / ENTER PHONE';
           qrBox.classList.remove('hidden');
           if (qrImg.src !== data.qr) {
             qrImg.src = data.qr;
