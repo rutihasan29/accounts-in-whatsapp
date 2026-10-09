@@ -388,15 +388,31 @@ async function handleMessageCreate({ msg, client, db }) {
   return { action: 'IGNORED_OTHER' };
 }
 
-function setupBotHandlers({ client, db }) {
-  client.on('qr', (qr) => {
+function setupBotHandlers({ client, db, botState }) {
+  client.on('qr', async (qr) => {
     console.log('Scan the QR code below to log in:');
     qrcode.generate(qr, { small: true });
+    if (botState) {
+      botState.status = 'QR_READY';
+      botState.qrCode = qr;
+      try {
+        const QRCode = require('qrcode');
+        botState.qrDataUrl = await QRCode.toDataURL(qr);
+      } catch (e) {
+        console.warn('Failed to generate QR data URL:', e.message);
+      }
+    }
   });
 
   client.on('ready', async () => {
     console.log('✅ WhatsApp Web Client is ready!');
     console.log(`Logged in as: ${client.info?.wid?.user}`);
+    if (botState) {
+      botState.status = 'READY';
+      botState.user = client.info?.wid?.user || '';
+      botState.qrCode = null;
+      botState.qrDataUrl = null;
+    }
 
     // Auto-migrate any existing LID customer records in the database to actual phone numbers
     try {
@@ -418,10 +434,24 @@ function setupBotHandlers({ client, db }) {
 
   client.on('authenticated', () => {
     console.log('🔐 Authentication successful. Session stored.');
+    if (botState) {
+      botState.status = 'AUTHENTICATED';
+    }
   });
 
   client.on('auth_failure', (msg) => {
     console.error('❌ Authentication failed:', msg);
+    if (botState) {
+      botState.status = 'AUTH_FAILURE';
+    }
+  });
+
+  client.on('disconnected', (reason) => {
+    console.warn('⚠️ WhatsApp Web Client disconnected:', reason);
+    if (botState) {
+      botState.status = 'DISCONNECTED';
+      botState.disconnectedReason = reason;
+    }
   });
 
   client.on('message_create', async (msg) => {

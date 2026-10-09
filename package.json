@@ -12,6 +12,7 @@
     "@ffprobe-installer/ffprobe": "^2.1.2",
     "better-sqlite3": "^11.8.1",
     "music-metadata": "^7.14.0",
+    "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
     "whatsapp-web.js": "^1.26.0"
   }

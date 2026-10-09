@@ -151,18 +151,32 @@ munnisoft/
 ├── data/
 │   └── ledger.db              # SQLite database (auto-generated on startup)
 ├── src/
-│   ├── config.js              # Database and session path configuration
+│   ├── config.js              # Database, port, and session path configuration
 │   ├── parser.js              # Bengali/English numeral normalization & pattern matcher
 │   ├── db.js                  # SQLite database initialization, migrations & queries
+│   ├── audio.js               # Audio duration extraction & tiered billing formula
+│   ├── server.js              # HTTP health check & web dashboard server
 │   └── bot.js                 # WhatsApp Web event handlers, router & formatters
-├── tests/
-│   ├── parser.test.js         # Unit tests for numeral conversion & message parsing
-│   ├── db.test.js             # Unit tests for SQLite migrations, transactions & due queries
-│   └── bot.test.js            # Unit tests for routing, self-chat commands & silent mode
+├── tests/                     # Automated test suites
+├── Dockerfile                 # Production container for Render.com free tier
+├── render.yaml                # Render Blueprint deployment definition
+├── RENDER_DEPLOY.md           # Step-by-step Render cloud hosting guide
 ├── index.js                   # Application bootstrap and graceful shutdown handler
 ├── package.json               # Project manifest & npm scripts
 └── README.md                  # Project documentation & usage guide
 ```
+
+---
+
+## ☁️ Deploying to Render.com (Free Tier)
+
+This bot is fully optimized to run on **Render.com Free Tier ($0/month)**:
+- **Built-in HTTP Health Check**: Listens on `$PORT` with `/healthz` answering `200 OK`.
+- **Web QR Code Viewer**: Open `https://<your-app>.onrender.com/qr` on your phone to scan the WhatsApp QR code easily.
+- **Web Status Dashboard**: View real-time connection status and outstanding customer balances at `https://<your-app>.onrender.com`.
+- **Container Memory Tuning**: Pre-configured flags for Render's 512MB RAM cap.
+
+👉 **See the complete step-by-step cloud guide in [RENDER_DEPLOY.md](RENDER_DEPLOY.md).**
 
 ---
 
