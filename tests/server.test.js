@@ -58,18 +58,16 @@ describe('HTTP Web Server & Health Check Module', () => {
 
     const html = await res.text();
     assert.ok(html.includes('WhatsApp Business Ledger Bot'));
-    assert.ok(html.includes('Render Free Tier Hosting Tips'));
+    assert.ok(html.includes('Render Free Tier'));
   });
 
   it('GET /qr returns HTML QR page', async () => {
-    botState.qrDataUrl = 'data:image/png;base64,mockqrdata';
     const res = await fetch(`http://localhost:${testPort}/qr`);
     assert.strictEqual(res.status, 200);
 
     const html = await res.text();
-    assert.ok(html.includes('Scan with WhatsApp'));
-    assert.ok(html.includes('mockqrdata'));
-    botState.qrDataUrl = null;
+    assert.ok(html.includes('WhatsApp'));
+    assert.ok(html.includes('qrImg'));
   });
 
   it('GET /api/backup enforces ADMIN_SECRET and rejects unauthorized requests', async () => {
@@ -90,8 +88,42 @@ describe('HTTP Web Server & Health Check Module', () => {
     assert.ok(buf.byteLength > 0);
   });
 
+  it('GET /api/status returns JSON state object', async () => {
+    botState.status = 'QR_READY';
+    botState.qrDataUrl = 'data:image/png;base64,mockqrdata';
+    const res = await fetch(`http://localhost:${testPort}/api/status`);
+    assert.strictEqual(res.status, 200);
+    const json = await res.json();
+    assert.strictEqual(json.status, 'QR_READY');
+    assert.strictEqual(json.qr, 'data:image/png;base64,mockqrdata');
+    botState.qrDataUrl = null;
+  });
+
+  it('POST /api/reset-session triggers onResetSession callback', async () => {
+    let resetCalled = false;
+    const customPort = 38998;
+    const tempServer = startWebServer({
+      db: testDb,
+      port: customPort,
+      onResetSession: async () => {
+        resetCalled = true;
+      }
+    });
+
+    try {
+      const res = await fetch(`http://localhost:${customPort}/api/reset-session`, { method: 'POST' });
+      assert.strictEqual(res.status, 200);
+      const json = await res.json();
+      assert.strictEqual(json.success, true);
+      assert.strictEqual(resetCalled, true);
+    } finally {
+      await new Promise((resolve) => tempServer.close(resolve));
+    }
+  });
+
   it('returns 404 for unknown routes', async () => {
     const res = await fetch(`http://localhost:${testPort}/unknown-route`);
     assert.strictEqual(res.status, 404);
   });
 });
+

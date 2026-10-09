@@ -388,19 +388,25 @@ async function handleMessageCreate({ msg, client, db }) {
   return { action: 'IGNORED_OTHER' };
 }
 
-function setupBotHandlers({ client, db, botState }) {
+function setupBotHandlers({ client, db, botState, onStatusChange }) {
+  const notifyChange = () => {
+    if (typeof onStatusChange === 'function') onStatusChange();
+  };
+
   client.on('qr', async (qr) => {
     console.log('Scan the QR code below to log in:');
     qrcode.generate(qr, { small: true });
     if (botState) {
       botState.status = 'QR_READY';
       botState.qrCode = qr;
+      botState.lastQrTimestamp = Date.now();
       try {
         const QRCode = require('qrcode');
         botState.qrDataUrl = await QRCode.toDataURL(qr);
       } catch (e) {
         console.warn('Failed to generate QR data URL:', e.message);
       }
+      notifyChange();
     }
   });
 
@@ -412,6 +418,8 @@ function setupBotHandlers({ client, db, botState }) {
       botState.user = client.info?.wid?.user || '';
       botState.qrCode = null;
       botState.qrDataUrl = null;
+      botState.lastQrTimestamp = null;
+      notifyChange();
     }
 
     // Auto-migrate any existing LID customer records in the database to actual phone numbers
@@ -436,6 +444,7 @@ function setupBotHandlers({ client, db, botState }) {
     console.log('🔐 Authentication successful. Session stored.');
     if (botState) {
       botState.status = 'AUTHENTICATED';
+      notifyChange();
     }
   });
 
@@ -443,6 +452,7 @@ function setupBotHandlers({ client, db, botState }) {
     console.error('❌ Authentication failed:', msg);
     if (botState) {
       botState.status = 'AUTH_FAILURE';
+      notifyChange();
     }
   });
 
@@ -451,6 +461,7 @@ function setupBotHandlers({ client, db, botState }) {
     if (botState) {
       botState.status = 'DISCONNECTED';
       botState.disconnectedReason = reason;
+      notifyChange();
     }
   });
 
