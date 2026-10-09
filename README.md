@@ -123,6 +123,9 @@ The application comes with sensible defaults and supports optional environment v
 | :--- | :--- | :--- |
 | `DB_PATH` | `./data/ledger.db` | Path to the SQLite ledger database file. |
 | `AUTH_DATA_PATH` | `./.wwebjs_auth` | Path to the WhatsApp session storage directory. |
+| `PORT` | `3000` | HTTP port for web dashboard and health check. |
+| `ADMIN_SECRET` | `""` | Secret token to secure `/api/backup` database downloads. |
+| `PAIR_PHONE_NUMBER` | `""` | (Optional) Phone number (e.g. `01712345678`) to auto-request an 8-character login pairing code instead of scanning QR code. |
 
 ---
 
@@ -171,8 +174,9 @@ munnisoft/
 ## ☁️ Deploying to Render.com (Free Tier)
 
 This bot is fully optimized to run on **Render.com Free Tier ($0/month)**:
+- **Phone Number Login (No Camera/QR Required)**: Enter your WhatsApp phone number on the web dashboard to instantly generate an 8-character pairing code (`ABCD - 1234`) and link directly from your phone!
 - **Built-in HTTP Health Check**: Listens on `$PORT` with `/healthz` answering `200 OK`.
-- **Web QR Code Viewer**: Open `https://<your-app>.onrender.com/qr` on your phone to scan the WhatsApp QR code easily.
+- **Web QR Code Viewer**: Open `https://<your-app>.onrender.com/qr` if you prefer scanning QR code.
 - **Web Status Dashboard**: View real-time connection status and outstanding customer balances at `https://<your-app>.onrender.com`.
 - **Container Memory Tuning**: Pre-configured flags for Render's 512MB RAM cap.
 

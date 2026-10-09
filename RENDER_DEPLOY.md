@@ -9,9 +9,10 @@ This guide explains how to deploy the WhatsApp Business Ledger Bot (`munnisoft-v
 1. **HTTP Health Check & Port Binding**: Listens on `PORT` (automatically provided by Render) with `/healthz` answering `200 OK`.
 2. **Web QR Code Viewer**: Open `https://<your-service>.onrender.com/qr` in any browser or phone to scan the QR code without checking terminal logs.
 3. **Web Status Dashboard**: View bot connection status, uptime, and outstanding customer due balances at `https://<your-service>.onrender.com`.
-4. **Optimized for 512 MB RAM**: Chromium flags tuned to prevent memory leaks and container sandbox errors (`--disable-dev-shm-usage`, `--single-process`, etc.).
-5. **Database Backup Endpoint**: Download SQLite database backups anytime from `/api/backup`.
-6. **Automatic Keep-Alive**: Prevents Render's 15-minute inactivity sleep when configured with external pingers.
+4. **Optimized for 512 MB RAM**: Chromium flags tuned to prevent memory leaks and container sandbox errors (`--disable-dev-shm-usage`, `--no-sandbox`, `--disable-gpu`, etc.).
+5. **Phone Number Login Support**: Link your WhatsApp account with an 8-character pairing code without needing a camera or QR scan.
+6. **Database Backup Endpoint**: Download SQLite database backups anytime from `/api/backup`.
+7. **Automatic Keep-Alive**: Prevents Render's 15-minute inactivity sleep when configured with external pingers.
 
 ---
 
@@ -52,24 +53,36 @@ Under **Environment Variables**, add the following:
 | `PORT` | `10000` | Port for HTTP server and Render health checks |
 | `ADMIN_SECRET` | *(Any secure random password)* | Protects `/api/backup` from unauthorized access |
 | `RENDER_EXTERNAL_URL` | `https://whatsapp-ledger-bot.onrender.com` | Your public Render URL for auto-pinging |
+| `PAIR_PHONE_NUMBER` | `017XXXXXXXX` | *(Optional)* Pre-set WhatsApp phone number to auto-request pairing code |
 
 Click **Create Web Service**.
 
 ---
 
-### Step 4: Scan WhatsApp QR Code via Web Browser
+### Step 4: Login to WhatsApp (Phone Pairing Code or QR Scan)
 
-1. Wait 2-3 minutes while Render builds the Docker image and starts the container.
-2. Once the service is running, open:
-   ```
-   https://<your-app-name>.onrender.com/qr
-   ```
-   *(or visit the main dashboard at `https://<your-app-name>.onrender.com`)*
-3. On your phone:
+Once the service is running, open your web dashboard:
+```
+https://<your-app-name>.onrender.com
+```
+
+#### Option A: Phone Number Pairing Code (⭐ Recommended - No Camera Needed)
+1. In the **"ফোন নম্বর দিয়ে লগইন (Pairing Code)"** box on the dashboard, enter your WhatsApp phone number (e.g., `01712345678`).
+2. Click **"⚡ কোড নিন"**.
+3. You will receive an 8-character pairing code (e.g., `ABCD - 1234`).
+4. On your phone:
    - Open WhatsApp > **Settings** (or `⋮` on Android) > **Linked Devices**.
-   - Tap **Link a device** and point your camera at the QR code displayed on your screen.
-4. Once scanned, the web dashboard will turn green with:
-   `✅ Bot is Active & Running - Logged in as: +8801xxxxxxxxx`.
+   - Tap **Link a device**.
+   - Tap **"Link with phone number instead"** (বা **"ফোন নম্বর দিয়ে লিংক করুন"**) at the bottom.
+   - Enter the 8-character code shown on the screen!
+
+#### Option B: QR Code Scanning
+1. On the same dashboard (or visit `/qr`), wait for the QR code to load.
+2. Open WhatsApp > **Linked Devices** > **Link a device**.
+3. Scan the QR code with your phone camera.
+
+Once paired, the status will show:
+`✅ Bot is Active & Running - Logged in as: +8801xxxxxxxxx`.
 
 ---
 

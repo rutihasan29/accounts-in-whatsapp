@@ -2,13 +2,17 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { getDueList } = require('./db');
+const { normalizePhoneNumber } = require('./config');
 
 const botState = {
-  status: 'STARTING', // STARTING | QR_READY | AUTHENTICATED | READY | AUTH_FAILURE | DISCONNECTED
+  status: 'STARTING', // STARTING | QR_READY | CODE_READY | AUTHENTICATED | READY | AUTH_FAILURE | DISCONNECTED
   user: null,
   qrCode: null,
   qrDataUrl: null,
   lastQrTimestamp: null,
+  pairingCode: null,
+  pairingPhone: null,
+  pairingCodeTimestamp: null,
   disconnectedReason: null,
   startTime: Date.now()
 };
@@ -20,6 +24,8 @@ function broadcastStatus() {
     status: botState.status,
     qr: botState.qrDataUrl,
     qrTimestamp: botState.lastQrTimestamp,
+    pairingCode: botState.pairingCode,
+    pairingPhone: botState.pairingPhone,
     user: botState.user,
     uptime: Math.round(process.uptime()),
     timestamp: new Date().toISOString()
@@ -78,7 +84,7 @@ function renderHtmlDashboard({ db }) {
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif; }
     body { background-color: var(--bg); color: var(--text); padding: 24px 16px; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-    .container { max-width: 580px; width: 100%; display: flex; flex-direction: column; gap: 20px; }
+    .container { max-width: 600px; width: 100%; display: flex; flex-direction: column; gap: 20px; }
     .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 24px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.3); }
     .header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
     .title { font-size: 1.25rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
@@ -87,9 +93,21 @@ function renderHtmlDashboard({ db }) {
     .badge-warning { background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); }
     .badge-info { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
     .badge-secondary { background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); }
+    
+    .pair-phone-box { background: #0b1120; border: 1px solid #1e3a8a; border-radius: 12px; padding: 20px; margin-top: 16px; text-align: left; }
+    .input-group { display: flex; gap: 8px; flex-wrap: wrap; }
+    .phone-input { flex: 1; min-width: 200px; padding: 10px 14px; background: #1e293b; border: 1px solid var(--border); border-radius: 8px; color: #fff; font-size: 1rem; outline: none; }
+    .phone-input:focus { border-color: var(--accent); }
+    
+    .code-box { margin-top: 14px; background: rgba(56, 189, 248, 0.08); border: 1px dashed rgba(56, 189, 248, 0.4); border-radius: 10px; padding: 16px; text-align: center; }
+    .code-title { font-size: 0.85rem; color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+    .code-digits { font-size: 2.2rem; font-weight: 800; letter-spacing: 0.18em; color: #38bdf8; margin: 10px 0; font-family: monospace; }
+    .code-instructions { font-size: 0.82rem; color: var(--text-muted); text-align: left; margin-top: 12px; line-height: 1.6; background: #0f172a; padding: 10px; border-radius: 6px; }
+
     .qr-container { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 20px; background: #0b1120; border-radius: 12px; margin-top: 16px; border: 1px solid var(--border); }
-    .qr-img { background: #fff; padding: 12px; border-radius: 10px; width: 260px; height: 260px; box-shadow: 0 4px 16px rgba(0,0,0,0.4); transition: transform 0.2s ease; }
+    .qr-img { background: #fff; padding: 12px; border-radius: 10px; width: 240px; height: 240px; box-shadow: 0 4px 16px rgba(0,0,0,0.4); transition: transform 0.2s ease; }
     .qr-timer { font-size: 0.85rem; font-weight: 600; transition: color 0.3s ease; }
+    
     .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 16px; }
     .stat-card { background: #0b1120; border: 1px solid var(--border); padding: 16px; border-radius: 10px; text-align: center; }
     .stat-val { font-size: 1.4rem; font-weight: 700; color: var(--accent); margin-top: 4px; }
@@ -115,18 +133,43 @@ function renderHtmlDashboard({ db }) {
         <span id="statusBadge" class="badge badge-secondary">● INITIALIZING</span>
       </div>
 
-      <!-- State 1: QR Ready -->
-      <div id="qrBox" class="qr-container hidden">
-        <h3 style="color: #f59e0b; font-size: 1.1rem;">WhatsApp স্ক্যান করুন</h3>
-        <p style="color: var(--text-muted); font-size: 0.85rem; text-align: center;">
-          ফোনে WhatsApp খুলুন &gt; <strong>Linked Devices</strong> &gt; <strong>Link a Device</strong> দিয়ে নিচের QR কোডটি স্ক্যান করুন:
-        </p>
-        <img id="qrImg" class="qr-img" src="" alt="WhatsApp QR Code" />
-        <div id="qrTimerBox" class="qr-timer" style="color: var(--accent);">⚡ QR কোড লোড হচ্ছে...</div>
-        <p style="color: var(--text-muted); font-size: 0.75rem;">রিয়েল-টাইম সিঙ্ক হচ্ছে &bull; পেজ রিলোড করার প্রয়োজন নেই</p>
+      <!-- State: Not authenticated -> Show Pairing Options -->
+      <div id="unauthSection">
+        <!-- 1. Phone Number Pairing Code (Primary) -->
+        <div class="pair-phone-box">
+          <div style="font-weight: 700; font-size: 1rem; color: #38bdf8; margin-bottom: 4px;">
+            🔑 ফোন নম্বর দিয়ে লিংক করুন (ক্যামেরা ছাড়া সহজ পদ্ধতি)
+          </div>
+          <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 12px;">
+            আপনার WhatsApp ফোন নম্বরটি দিয়ে <strong>কোড নিন</strong> বাটনে চাপুন:
+          </p>
+          <div class="input-group">
+            <input id="inputPhone" type="tel" placeholder="যেমন: 01712345678" class="phone-input" />
+            <button id="btnGetCode" onclick="requestPairCode()" class="btn">⚡ কোড নিন</button>
+          </div>
+
+          <div id="codeDisplayBox" class="code-box hidden">
+            <div class="code-title">আপনার ৮ ডিজিটের পেয়ারিং কোড:</div>
+            <div id="codeValue" class="code-digits">----</div>
+            <button onclick="copyCode()" class="btn btn-secondary" style="font-size: 0.8rem; padding: 6px 14px;">📋 কোড কপি করুন</button>
+            <div class="code-instructions">
+              <strong>ফোনে কোড দেওয়ার নিয়ম:</strong><br>
+              ১. ফোনে WhatsApp &gt; <strong>Linked Devices</strong> (সংযুক্ত ডিভাইস) &gt; <strong>Link a device</strong> চাপুন।<br>
+              ২. নিচে <strong>'Link with phone number instead'</strong> চাপুন।<br>
+              ৩. উপরের ৮ ডিজিটের কোডটি লিখুন।
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. QR Code Scanner (Alternative) -->
+        <div id="qrBox" class="qr-container hidden" style="margin-top: 16px;">
+          <h4 style="color: #f59e0b; font-size: 0.95rem;">অথবা ক্যামেরা দিয়ে QR কোড স্ক্যান করুন:</h4>
+          <img id="qrImg" class="qr-img" src="" alt="WhatsApp QR Code" />
+          <div id="qrTimerBox" class="qr-timer" style="color: var(--accent);">⚡ QR কোড লোড হচ্ছে...</div>
+        </div>
       </div>
 
-      <!-- State 2: Authenticated / Loading -->
+      <!-- State: Authenticated / Loading -->
       <div id="authBox" style="margin-top: 20px; text-align: center; padding: 24px 16px;" class="hidden">
         <h3 style="color: var(--accent);">🔐 Authentication Successful!</h3>
         <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 8px;">
@@ -134,7 +177,7 @@ function renderHtmlDashboard({ db }) {
         </p>
       </div>
 
-      <!-- State 3: Ready / Online -->
+      <!-- State: Ready / Online -->
       <div id="readyBox" class="hidden">
         <div style="margin-top: 16px; padding: 16px; background: rgba(37, 211, 102, 0.08); border: 1px solid rgba(37, 211, 102, 0.2); border-radius: 10px;">
           <h3 style="color: #25d366; display: flex; align-items: center; gap: 8px; font-size: 1.1rem;">
@@ -164,15 +207,9 @@ function renderHtmlDashboard({ db }) {
         </div>
       </div>
 
-      <!-- State 4: Initializing / Waiting -->
-      <div id="initBox" style="margin-top: 20px; text-align: center; padding: 32px 16px; color: var(--text-muted);">
-        <p style="font-size: 1.1rem;">⏳ WhatsApp Web ক্লায়েন্ট প্রস্তুত হচ্ছে...</p>
-        <p style="font-size: 0.85rem; margin-top: 8px;">Chromium ব্রাউজার চালু হচ্ছে। কিছুক্ষণের মধ্যেই QR কোড আসবে।</p>
-      </div>
-
       <div class="actions">
         <a href="/api/backup" class="btn btn-secondary">📥 Download DB Backup</a>
-        <button id="btnReset" onclick="resetSession()" class="btn btn-danger">🔄 সেশন রিসেট (Reset QR)</button>
+        <button id="btnReset" onclick="resetSession()" class="btn btn-danger">🔄 সেশন রিসেট (Reset Session)</button>
       </div>
     </div>
 
@@ -190,56 +227,70 @@ function renderHtmlDashboard({ db }) {
 
   <script>
     let lastQrTime = null;
-    let qrTimerInterval = null;
+
+    function formatPairingCode(code) {
+      if (!code) return '----';
+      const clean = String(code).replace(/[^A-Za-z0-9]/g, '');
+      if (clean.length === 8) {
+        return clean.slice(0, 4) + ' - ' + clean.slice(4);
+      }
+      return code;
+    }
 
     function updateUi(data) {
       const badge = document.getElementById('statusBadge');
+      const unauthSection = document.getElementById('unauthSection');
       const qrBox = document.getElementById('qrBox');
       const authBox = document.getElementById('authBox');
       const readyBox = document.getElementById('readyBox');
-      const initBox = document.getElementById('initBox');
       const qrImg = document.getElementById('qrImg');
       const readyUser = document.getElementById('readyUserNumber');
       const uptimeDisplay = document.getElementById('uptimeDisplay');
+      const codeDisplayBox = document.getElementById('codeDisplayBox');
+      const codeValue = document.getElementById('codeValue');
 
       if (data.uptime && uptimeDisplay) {
         uptimeDisplay.innerText = data.uptime + 's';
       }
 
-      if (data.status === 'QR_READY' && data.qr) {
-        badge.className = 'badge badge-warning';
-        badge.innerText = '● SCAN QR CODE';
-        qrBox.classList.remove('hidden');
+      if (data.status === 'READY') {
+        badge.className = 'badge badge-success';
+        badge.innerText = '● ONLINE / READY';
+        unauthSection.classList.add('hidden');
         authBox.classList.add('hidden');
-        readyBox.classList.add('hidden');
-        initBox.classList.add('hidden');
-
-        if (qrImg.src !== data.qr) {
-          qrImg.src = data.qr;
-          lastQrTime = data.qrTimestamp ? new Date(data.qrTimestamp) : new Date();
-        }
+        readyBox.classList.remove('hidden');
+        if (readyUser) readyUser.innerText = '+' + (data.user || 'Connected');
       } else if (data.status === 'AUTHENTICATED') {
         badge.className = 'badge badge-info';
         badge.innerText = '● AUTHENTICATED';
-        qrBox.classList.add('hidden');
+        unauthSection.classList.add('hidden');
         authBox.classList.remove('hidden');
         readyBox.classList.add('hidden');
-        initBox.classList.add('hidden');
-      } else if (data.status === 'READY') {
-        badge.className = 'badge badge-success';
-        badge.innerText = '● ONLINE / READY';
-        qrBox.classList.add('hidden');
-        authBox.classList.add('hidden');
-        readyBox.classList.remove('hidden');
-        initBox.classList.add('hidden');
-        if (readyUser) readyUser.innerText = '+' + (data.user || 'Connected');
       } else {
-        badge.className = 'badge badge-secondary';
-        badge.innerText = '● ' + data.status;
-        qrBox.classList.add('hidden');
+        unauthSection.classList.remove('hidden');
         authBox.classList.add('hidden');
         readyBox.classList.add('hidden');
-        initBox.classList.remove('hidden');
+
+        // Check Pairing Code
+        if (data.pairingCode) {
+          badge.className = 'badge badge-info';
+          badge.innerText = '● PAIRING CODE READY';
+          codeDisplayBox.classList.remove('hidden');
+          codeValue.innerText = formatPairingCode(data.pairingCode);
+        }
+
+        // Check QR code
+        if (data.qr) {
+          if (!data.pairingCode) {
+            badge.className = 'badge badge-warning';
+            badge.innerText = '● SCAN QR / ENTER PHONE';
+          }
+          qrBox.classList.remove('hidden');
+          if (qrImg.src !== data.qr) {
+            qrImg.src = data.qr;
+            lastQrTime = data.qrTimestamp ? new Date(data.qrTimestamp) : new Date();
+          }
+        }
       }
     }
 
@@ -256,7 +307,52 @@ function renderHtmlDashboard({ db }) {
       }
     }
 
-    // Connect SSE for instantaneous real-time streaming
+    async function requestPairCode() {
+      const phoneInput = document.getElementById('inputPhone');
+      const btn = document.getElementById('btnGetCode');
+      const phone = (phoneInput.value || '').trim();
+
+      if (!phone) {
+        alert('অনুগ্রহ করে আপনার WhatsApp ফোন নম্বরটি লিখুন!');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerText = '⏳ কোড আসছে...';
+
+      try {
+        const res = await fetch('/api/pair-phone', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone })
+        });
+        const data = await res.json();
+        if (data.success && data.code) {
+          const codeDisplayBox = document.getElementById('codeDisplayBox');
+          const codeValue = document.getElementById('codeValue');
+          codeDisplayBox.classList.remove('hidden');
+          codeValue.innerText = formatPairingCode(data.code);
+        } else {
+          alert('কোড আনতে ব্যর্থ: ' + (data.error || 'অজানা সমস্যা'));
+        }
+      } catch (err) {
+        alert('সার্ভার এরর: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerText = '⚡ কোড নিন';
+      }
+    }
+
+    function copyCode() {
+      const codeVal = document.getElementById('codeValue').innerText.replace(/\s|-/g, '');
+      navigator.clipboard.writeText(codeVal).then(() => {
+        alert('কোড কপি করা হয়েছে: ' + codeVal);
+      }).catch(() => {
+        alert('কোড: ' + codeVal);
+      });
+    }
+
+    // Connect SSE for real-time live events
     function connectSse() {
       try {
         const es = new EventSource('/api/events');
@@ -273,7 +369,6 @@ function renderHtmlDashboard({ db }) {
       } catch {}
     }
 
-    // Fallback regular poll every 3s
     async function pollStatus() {
       try {
         const res = await fetch('/api/status');
@@ -283,7 +378,7 @@ function renderHtmlDashboard({ db }) {
     }
 
     async function resetSession() {
-      if (!confirm('আপনি কি সত্যিই নতুন QR কোড তৈরির জন্য সেশন রিসেট করতে চান?')) return;
+      if (!confirm('আপনি কি সত্যিই নতুন সেশন শুরু করতে চান?')) return;
       const btn = document.getElementById('btnReset');
       btn.disabled = true;
       btn.innerText = '⏳ রিসেট হচ্ছে...';
@@ -295,7 +390,7 @@ function renderHtmlDashboard({ db }) {
         alert('রিসেট করতে ব্যর্থ হয়েছে: ' + err.message);
       } finally {
         btn.disabled = false;
-        btn.innerText = '🔄 সেশন রিসেট (Reset QR)';
+        btn.innerText = '🔄 সেশন রিসেট (Reset Session)';
         pollStatus();
       }
     }
@@ -309,7 +404,7 @@ function renderHtmlDashboard({ db }) {
 </html>`;
 }
 
-function startWebServer({ db, port = 3000, dbPath, adminSecret, onResetSession }) {
+function startWebServer({ db, port = 3000, dbPath, adminSecret, onResetSession, onPairPhone }) {
   const actualDbPath = dbPath || (require('./config').DB_PATH);
   const actualSecret = adminSecret || (require('./config').ADMIN_SECRET);
 
@@ -329,7 +424,7 @@ function startWebServer({ db, port = 3000, dbPath, adminSecret, onResetSession }
       }));
     }
 
-    // 2. Real-time SSE event stream for instantaneous QR sync
+    // 2. Real-time SSE event stream for instantaneous pairing code / QR sync
     if (pathname === '/api/events') {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -346,6 +441,8 @@ function startWebServer({ db, port = 3000, dbPath, adminSecret, onResetSession }
         status: botState.status,
         qr: botState.qrDataUrl,
         qrTimestamp: botState.lastQrTimestamp,
+        pairingCode: botState.pairingCode,
+        pairingPhone: botState.pairingPhone,
         user: botState.user,
         uptime: Math.round(process.uptime()),
         timestamp: new Date().toISOString()
@@ -365,20 +462,57 @@ function startWebServer({ db, port = 3000, dbPath, adminSecret, onResetSession }
         status: botState.status,
         qr: botState.qrDataUrl,
         qrTimestamp: botState.lastQrTimestamp,
+        pairingCode: botState.pairingCode,
+        pairingPhone: botState.pairingPhone,
         user: botState.user,
         uptime: Math.round(process.uptime()),
         timestamp: new Date().toISOString()
       }));
     }
 
-    // 4. Session reset endpoint to clear corrupt sessions and re-generate QR
+    // 4. Phone Number Pairing Code API
+    if (pathname === '/api/pair-phone') {
+      let phone = url.searchParams.get('phone');
+      if (!phone && req.method === 'POST') {
+        const bodyText = await new Promise((resolve) => {
+          let data = '';
+          req.on('data', (chunk) => { data += chunk; });
+          req.on('end', () => resolve(data));
+        });
+        try {
+          const parsed = JSON.parse(bodyText);
+          phone = parsed.phone || parsed.phoneNumber;
+        } catch {}
+      }
+
+      if (!phone) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: false, error: 'ফোন নম্বর প্রদান করা হয়নি।' }));
+      }
+
+      if (typeof onPairPhone === 'function') {
+        try {
+          const code = await onPairPhone(phone);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ success: true, code, phone }));
+        } catch (err) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ success: false, error: err.message }));
+        }
+      } else {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: false, error: 'Pairing code handler not configured' }));
+      }
+    }
+
+    // 5. Session reset endpoint
     if (pathname === '/api/reset-session') {
       if (req.method === 'POST' || req.method === 'GET') {
         if (typeof onResetSession === 'function') {
           try {
             await onResetSession();
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify({ success: true, message: 'সেশন সফলভাবে রিসেট করা হয়েছে। নতুন QR কোড তৈরি হচ্ছে...' }));
+            return res.end(JSON.stringify({ success: true, message: 'সেশন সফলভাবে রিসেট করা হয়েছে। নতুন QR/কোড তৈরি হচ্ছে...' }));
           } catch (err) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({ success: false, error: err.message }));
@@ -390,7 +524,7 @@ function startWebServer({ db, port = 3000, dbPath, adminSecret, onResetSession }
       }
     }
 
-    // 5. Database backup download endpoint
+    // 6. Database backup download endpoint
     if (pathname === '/api/backup') {
       if (actualSecret) {
         const token = url.searchParams.get('token') || (req.headers.authorization || '').replace(/^Bearer\s+/, '');
@@ -413,7 +547,7 @@ function startWebServer({ db, port = 3000, dbPath, adminSecret, onResetSession }
       }
     }
 
-    // 6. Direct QR page or main dashboard
+    // 7. Direct QR page or main dashboard
     if (pathname === '/' || pathname === '/qr' || pathname === '/index.html') {
       const html = renderHtmlDashboard({ db });
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });

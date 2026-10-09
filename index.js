@@ -5,7 +5,9 @@ const {
   DB_PATH,
   AUTH_DATA_PATH,
   PUPPETEER_EXECUTABLE_PATH,
-  PORT
+  PORT,
+  PAIR_PHONE_NUMBER,
+  normalizePhoneNumber
 } = require('./src/config');
 const { initDb } = require('./src/db');
 const { setupBotHandlers } = require('./src/bot');
@@ -65,11 +67,61 @@ function initializeClient() {
     onStatusChange: broadcastStatus
   });
 
+  if (PAIR_PHONE_NUMBER) {
+    let pairCodeRequested = false;
+    client.on('qr', async () => {
+      if (!pairCodeRequested) {
+        pairCodeRequested = true;
+        try {
+          console.log(`[PAIRING] Auto-requesting pairing code for env PAIR_PHONE_NUMBER: ${PAIR_PHONE_NUMBER}`);
+          await handlePairPhone(PAIR_PHONE_NUMBER);
+        } catch (e) {
+          console.warn('[PAIRING] Auto-pairing request error:', e.message);
+        }
+      }
+    });
+  }
+
   client.initialize().catch((err) => {
     console.error('❌ Error initializing WhatsApp client:', err.message);
     botState.status = 'ERROR';
     broadcastStatus();
   });
+}
+
+// Handler for phone pairing code requests
+async function handlePairPhone(phoneNumber) {
+  if (!client) {
+    throw new Error('WhatsApp ক্লায়েন্ট প্রস্তুত নয়। কিছুক্ষণ পর চেষ্টা করুন।');
+  }
+  if (botState.status === 'READY') {
+    throw new Error('হোয়াটসঅ্যাপ ইতিমধ্যে সফলভাবে লগইন করা আছে!');
+  }
+  const cleanPhone = normalizePhoneNumber(phoneNumber);
+  if (!cleanPhone || cleanPhone.length < 10) {
+    throw new Error('অনুগ্রহ করে সঠিক ফোন নম্বর দিন (যেমন: 01712345678 বা 8801712345678)');
+  }
+
+  console.log(`[PAIRING] Requesting pairing code for +${cleanPhone}...`);
+  botState.status = 'PAIRING_REQUESTED';
+  botState.pairingPhone = cleanPhone;
+  broadcastStatus();
+
+  try {
+    const code = await client.requestPairingCode(cleanPhone);
+    console.log(`[PAIRING] Pairing code received: ${code}`);
+    botState.status = 'CODE_READY';
+    botState.pairingCode = code;
+    botState.pairingPhone = cleanPhone;
+    botState.pairingCodeTimestamp = Date.now();
+    broadcastStatus();
+    return code;
+  } catch (err) {
+    console.error('[PAIRING] Failed to get pairing code:', err.message);
+    botState.status = 'ERROR';
+    broadcastStatus();
+    throw err;
+  }
 }
 
 // Handler for reset-session endpoint
@@ -79,6 +131,9 @@ async function resetSession() {
   botState.qrCode = null;
   botState.qrDataUrl = null;
   botState.lastQrTimestamp = null;
+  botState.pairingCode = null;
+  botState.pairingPhone = null;
+  botState.pairingCodeTimestamp = null;
   broadcastStatus();
 
   if (client) {
@@ -103,11 +158,12 @@ async function resetSession() {
   initializeClient();
 }
 
-// Start HTTP web server for Render health checks and Web QR dashboard
+// Start HTTP web server for Render health checks, Web QR dashboard and Phone Pairing
 const server = startWebServer({
   db,
   port: PORT,
-  onResetSession: resetSession
+  onResetSession: resetSession,
+  onPairPhone: handlePairPhone
 });
 
 let isShuttingDown = false;

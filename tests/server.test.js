@@ -121,6 +121,57 @@ describe('HTTP Web Server & Health Check Module', () => {
     }
   });
 
+  it('POST /api/pair-phone triggers onPairPhone callback and returns pairing code', async () => {
+    let capturedPhone = null;
+    const customPort = 38997;
+    const tempServer = startWebServer({
+      db: testDb,
+      port: customPort,
+      onPairPhone: async (phone) => {
+        capturedPhone = phone;
+        return 'ABC12345';
+      }
+    });
+
+    try {
+      const res = await fetch(`http://localhost:${customPort}/api/pair-phone`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: '01712345678' })
+      });
+      assert.strictEqual(res.status, 200);
+      const json = await res.json();
+      assert.strictEqual(json.success, true);
+      assert.strictEqual(json.code, 'ABC12345');
+      assert.strictEqual(capturedPhone, '01712345678');
+    } finally {
+      await new Promise((resolve) => tempServer.close(resolve));
+    }
+  });
+
+  it('POST /api/pair-phone validates missing phone number', async () => {
+    const customPort = 38996;
+    const tempServer = startWebServer({
+      db: testDb,
+      port: customPort,
+      onPairPhone: async () => 'CODE1234'
+    });
+
+    try {
+      const res = await fetch(`http://localhost:${customPort}/api/pair-phone`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      assert.strictEqual(res.status, 400);
+      const json = await res.json();
+      assert.strictEqual(json.success, false);
+      assert.ok(json.error.includes('ফোন নম্বর'));
+    } finally {
+      await new Promise((resolve) => tempServer.close(resolve));
+    }
+  });
+
   it('returns 404 for unknown routes', async () => {
     const res = await fetch(`http://localhost:${testPort}/unknown-route`);
     assert.strictEqual(res.status, 404);

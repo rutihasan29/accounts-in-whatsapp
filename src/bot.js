@@ -410,6 +410,18 @@ function setupBotHandlers({ client, db, botState, onStatusChange }) {
     }
   });
 
+  client.on('code', (code) => {
+    console.log(`\n========================================`);
+    console.log(`[PAIRING CODE] 👉 ${code}`);
+    console.log(`========================================\n`);
+    if (botState) {
+      botState.status = 'CODE_READY';
+      botState.pairingCode = code;
+      botState.pairingCodeTimestamp = Date.now();
+      notifyChange();
+    }
+  });
+
   client.on('ready', async () => {
     console.log('✅ WhatsApp Web Client is ready!');
     console.log(`Logged in as: ${client.info?.wid?.user}`);
@@ -419,6 +431,8 @@ function setupBotHandlers({ client, db, botState, onStatusChange }) {
       botState.qrCode = null;
       botState.qrDataUrl = null;
       botState.lastQrTimestamp = null;
+      botState.pairingCode = null;
+      botState.pairingCodeTimestamp = null;
       notifyChange();
     }
 
