@@ -4,9 +4,15 @@ const {
   isAudioDocumentMessage,
   getAudioDurationFromBuffer,
   formatAudioDuration,
+  calculateAudioBill,
+  formatBillMessage,
   resolveAudioDuration
 } = require('./audio');
 const qrcode = require('qrcode-terminal');
+
+// Track auto-sent bill messages to prevent duplicate ledger entries on message_create echo
+const sentAutoBillMsgIds = new Set();
+const pendingAutoBills = [];
 
 const DIGITS_TO_BENGALI = {
   '0': '০', '1': '১', '2': '২', '3': '৩', '4': '৪',
@@ -193,18 +199,60 @@ async function handleMessageCreate({ msg, client, db }) {
   }
 
   // Handle audio document sent from our side
-  if (msg.fromMe && isAudioDocumentMessage(msg)) {
+  if (msg.fromMe && !isSelf && isAudioDocumentMessage(msg)) {
     try {
       const duration = await resolveAudioDuration({ msg, client });
 
       if (duration !== null && duration !== undefined && duration >= 0) {
-        const durationText = formatAudioDuration(duration);
+        const billAmount = calculateAudioBill(duration);
+        const billText = formatBillMessage(billAmount);
         const targetChat = msg.id?.remote || msg.to || msg.from;
+        const rawRecipient = recipient || targetChat;
+        const phone = await resolveCustomerPhone({ client, recipient: rawRecipient, msg });
+
+        let contactName = null;
+        try {
+          if (typeof client.getContactById === 'function') {
+            const contact = await client.getContactById(rawRecipient);
+            contactName = contact?.name || contact?.pushname || null;
+          }
+        } catch {
+          // Non-fatal if contact info cannot be fetched
+        }
+
+        // Auto-migrate previous transactions stored under raw recipient / LID if phone resolved to a different number
+        if (phone && phone !== rawRecipient) {
+          const strippedLid = rawRecipient.split('@')[0].split(':')[0].replace(/\D/g, '');
+          migrateCustomerPhone(db, rawRecipient, phone);
+          if (strippedLid && strippedLid !== phone) {
+            migrateCustomerPhone(db, strippedLid, phone);
+          }
+        }
+
+        const record = recordTransaction(db, {
+          phone,
+          name: contactName,
+          type: 'BILL',
+          amount: billAmount,
+          rawText: billText
+        });
+
+        console.log(`[AUDIO_BILL] Recorded bill ${billAmount} BDT for +${phone}${contactName ? ` (${contactName})` : ''} (Duration: ${Math.round(duration)}s). Current due: ${record.dueAmount} BDT`);
+
+        // Record pending auto-bill to prevent double-recording when message_create echoes
+        pendingAutoBills.push({
+          targetChat,
+          phone,
+          amount: billAmount,
+          time: Date.now()
+        });
+
         let sent = false;
+        let sentMsg = null;
 
         if (client && typeof client.sendMessage === 'function' && targetChat) {
           try {
-            await client.sendMessage(targetChat, durationText);
+            sentMsg = await client.sendMessage(targetChat, billText);
             sent = true;
           } catch (err) {
             console.warn('client.sendMessage failed, falling back to msg.reply:', err.message);
@@ -212,14 +260,21 @@ async function handleMessageCreate({ msg, client, db }) {
         }
 
         if (!sent && typeof msg.reply === 'function') {
-          await msg.reply(durationText);
+          sentMsg = await msg.reply(billText);
         }
 
-        console.log(`[AUDIO] Sent duration (${durationText}) to ${targetChat}`);
+        if (sentMsg?.id?._serialized) {
+          sentAutoBillMsgIds.add(sentMsg.id._serialized);
+        }
+        if (sentMsg?.id?.id) {
+          sentAutoBillMsgIds.add(sentMsg.id.id);
+        }
+
+        console.log(`[AUDIO] Sent bill (${billText}) to ${targetChat}`);
 
         return {
-          action: 'SENT_AUDIO_DURATION',
-          details: { duration, text: durationText, targetChat }
+          action: 'SENT_AUDIO_BILL',
+          details: { duration, billAmount, billText, phone, dueAmount: record.dueAmount, targetChat }
         };
       } else {
         console.warn('[AUDIO] Could not determine audio duration for message media');
@@ -229,6 +284,17 @@ async function handleMessageCreate({ msg, client, db }) {
       console.error('[AUDIO] Error processing audio document:', err);
       return { action: 'ERROR_AUDIO_PROCESSING', error: err.message };
     }
+  }
+
+  // Check if message is an echo of an auto-sent bill message
+  if (msg.id?._serialized && sentAutoBillMsgIds.has(msg.id._serialized)) {
+    sentAutoBillMsgIds.delete(msg.id._serialized);
+    if (msg.id?.id) sentAutoBillMsgIds.delete(msg.id.id);
+    return { action: 'IGNORED_ECHO_AUTO_BILL' };
+  }
+  if (msg.id?.id && sentAutoBillMsgIds.has(msg.id.id)) {
+    sentAutoBillMsgIds.delete(msg.id.id);
+    return { action: 'IGNORED_ECHO_AUTO_BILL' };
   }
 
   const parsed = parseMessage(msg.body);
@@ -264,6 +330,23 @@ async function handleMessageCreate({ msg, client, db }) {
 
   // Handle customer transactions
   if (!isSelf && (parsed.type === 'BILL' || parsed.type === 'PAYMENT')) {
+    if (parsed.type === 'BILL') {
+      const now = Date.now();
+      const targetChat = msg.id?.remote || msg.to || msg.from;
+      const cleanPhone = recipient.replace(/@c\.us$/, '').replace(/\D/g, '');
+      const pendingIndex = pendingAutoBills.findIndex(p =>
+        (p.targetChat === recipient ||
+         p.targetChat === targetChat ||
+         p.phone === cleanPhone) &&
+        p.amount === parsed.amount &&
+        (now - p.time < 30000)
+      );
+      if (pendingIndex !== -1) {
+        pendingAutoBills.splice(pendingIndex, 1);
+        return { action: 'IGNORED_ECHO_AUTO_BILL' };
+      }
+    }
+
     const rawRecipient = recipient;
     const phone = await resolveCustomerPhone({ client, recipient, msg });
     let contactName = null;
@@ -357,5 +440,7 @@ module.exports = {
   toBengaliDigits,
   formatDueReport,
   handleMessageCreate,
-  setupBotHandlers
+  setupBotHandlers,
+  sentAutoBillMsgIds,
+  pendingAutoBills
 };

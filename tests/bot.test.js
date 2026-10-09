@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
-const { initDb } = require('../src/db');
+const { initDb, getDueList } = require('../src/db');
 const { formatDueReport, handleMessageCreate } = require('../src/bot');
 
 describe('Bot Message Router', () => {
@@ -289,9 +289,9 @@ describe('Bot Message Router', () => {
       return buffer;
     }
 
-    it('calculates duration and sends Bengali duration message when outgoing audio document is sent', async () => {
+    it('calculates duration, records bill in DB, and sends bill message when outgoing audio document is sent', async () => {
       const db = initDb(':memory:');
-      const wavBuffer = createWavBuffer(135); // 2 minutes 15 seconds
+      const wavBuffer = createWavBuffer(135); // 2 minutes 15 seconds -> 2.5 min = 125 Taka
       let sentTo = null;
       let sentMessage = null;
 
@@ -300,6 +300,7 @@ describe('Bot Message Router', () => {
         sendMessage: async (to, text) => {
           sentTo = to;
           sentMessage = text;
+          return { id: { _serialized: `true_${to}_msg1` } };
         }
       };
 
@@ -320,10 +321,71 @@ describe('Bot Message Router', () => {
       };
 
       const res = await handleMessageCreate({ msg, client, db });
-      assert.strictEqual(res.action, 'SENT_AUDIO_DURATION');
+      assert.strictEqual(res.action, 'SENT_AUDIO_BILL');
       assert.strictEqual(sentTo, '8801712345678@c.us');
-      assert.strictEqual(sentMessage, 'অডিওর দৈর্ঘ্য: ২ মিনিট ১৫ সেকেন্ড');
-      assert.strictEqual(res.details.text, 'অডিওর দৈর্ঘ্য: ২ মিনিট ১৫ সেকেন্ড');
+      assert.strictEqual(sentMessage, 'বিল ১২৫ টাকা');
+      assert.strictEqual(res.details.billAmount, 125);
+      assert.strictEqual(res.details.dueAmount, 125);
+
+      // Verify transaction recorded in SQLite
+      const dues = getDueList(db);
+      assert.strictEqual(dues.length, 1);
+      assert.strictEqual(dues[0].phone_number, '8801712345678');
+      assert.strictEqual(dues[0].due_amount, 125);
+    });
+
+    it('prevents duplicate recording when auto-sent bill message echoes back on message_create', async () => {
+      const db = initDb(':memory:');
+      const client = {
+        info: { wid: { _serialized: '8801999999999@c.us', user: '8801999999999' } },
+        sendMessage: async (to, text) => ({
+          id: { _serialized: 'true_8801712345678@c.us_sentAuto999', id: 'sentAuto999' }
+        })
+      };
+
+      // 1. Send outgoing audio document of 90s (1:30 -> 2 min = 100 Taka)
+      const audioMsg = {
+        fromMe: true,
+        hasMedia: true,
+        type: 'document',
+        isVoice: false,
+        filename: 'recording.mp3',
+        duration: 90,
+        to: '8801712345678@c.us',
+        id: { remote: '8801712345678@c.us' },
+        downloadMedia: async () => {
+          throw new Error('r: r');
+        }
+      };
+
+      const resAudio = await handleMessageCreate({ msg: audioMsg, client, db });
+      assert.strictEqual(resAudio.action, 'SENT_AUDIO_BILL');
+      assert.strictEqual(resAudio.details.billAmount, 100);
+
+      // Verify exactly 100 Taka due
+      let dues = getDueList(db);
+      assert.strictEqual(dues.length, 1);
+      assert.strictEqual(dues[0].due_amount, 100);
+
+      // 2. Simulate echo of the sent message arriving on message_create
+      const echoMsg = {
+        fromMe: true,
+        body: 'বিল ১০০ টাকা',
+        to: '8801712345678@c.us',
+        id: {
+          _serialized: 'true_8801712345678@c.us_sentAuto999',
+          id: 'sentAuto999',
+          remote: '8801712345678@c.us'
+        }
+      };
+
+      const resEcho = await handleMessageCreate({ msg: echoMsg, client, db });
+      assert.strictEqual(resEcho.action, 'IGNORED_ECHO_AUTO_BILL');
+
+      // Verify ledger was NOT duplicated (still 100 Taka, not 200)
+      dues = getDueList(db);
+      assert.strictEqual(dues.length, 1);
+      assert.strictEqual(dues[0].due_amount, 100);
     });
 
     it('ignores outgoing voice note / ptt and does not calculate duration', async () => {
@@ -397,7 +459,7 @@ describe('Bot Message Router', () => {
         type: 'document',
         isVoice: false,
         filename: 'sample.mp3',
-        duration: 90, // 1 minute 30 seconds
+        duration: 90, // 1 minute 30 seconds -> 2 minutes -> 100 Taka
         to: '8801712345678@c.us',
         id: { remote: '8801712345678@c.us' },
         downloadMedia: async () => {
@@ -406,9 +468,11 @@ describe('Bot Message Router', () => {
       };
 
       const res = await handleMessageCreate({ msg, client, db });
-      assert.strictEqual(res.action, 'SENT_AUDIO_DURATION');
-      assert.strictEqual(sentMessage, 'অডিওর দৈর্ঘ্য: ১ মিনিট ৩০ সেকেন্ড');
+      assert.strictEqual(res.action, 'SENT_AUDIO_BILL');
+      assert.strictEqual(sentMessage, 'বিল ১০০ টাকা');
       assert.strictEqual(res.details.duration, 90);
+      assert.strictEqual(res.details.billAmount, 100);
+      assert.strictEqual(res.details.dueAmount, 100);
     });
 
     it('succeeds using in-page evaluate duration when msg.downloadMedia throws "r: r"', async () => {
@@ -417,7 +481,7 @@ describe('Bot Message Router', () => {
       const client = {
         info: { wid: { _serialized: '8801999999999@c.us', user: '8801999999999' } },
         pupPage: {
-          evaluate: async () => ({ duration: 60 })
+          evaluate: async () => ({ duration: 60 }) // 1 minute -> 50 Taka
         },
         sendMessage: async (to, text) => {
           sentMessage = text;
@@ -437,9 +501,11 @@ describe('Bot Message Router', () => {
       };
 
       const res = await handleMessageCreate({ msg, client, db });
-      assert.strictEqual(res.action, 'SENT_AUDIO_DURATION');
-      assert.strictEqual(sentMessage, 'অডিওর দৈর্ঘ্য: ১ মিনিট ০ সেকেন্ড');
+      assert.strictEqual(res.action, 'SENT_AUDIO_BILL');
+      assert.strictEqual(sentMessage, 'বিল ৫০ টাকা');
       assert.strictEqual(res.details.duration, 60);
+      assert.strictEqual(res.details.billAmount, 50);
+      assert.strictEqual(res.details.dueAmount, 50);
     });
   });
 });

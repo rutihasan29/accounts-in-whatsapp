@@ -2,6 +2,8 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert');
 const {
   formatAudioDuration,
+  calculateAudioBill,
+  formatBillMessage,
   isAudioDocumentMessage,
   getAudioDurationFromBuffer
 } = require('../src/audio');
@@ -26,6 +28,81 @@ describe('Audio Module', () => {
     it('handles zero or invalid duration gracefully', () => {
       assert.strictEqual(formatAudioDuration(0), 'অডিওর দৈর্ঘ্য: ০ সেকেন্ড');
       assert.strictEqual(formatAudioDuration(null), null);
+    });
+  });
+
+  describe('calculateAudioBill', () => {
+    it('returns 0 for zero, negative or invalid durations', () => {
+      assert.strictEqual(calculateAudioBill(0), 0);
+      assert.strictEqual(calculateAudioBill(-10), 0);
+      assert.strictEqual(calculateAudioBill(null), 0);
+      assert.strictEqual(calculateAudioBill(undefined), 0);
+      assert.strictEqual(calculateAudioBill('invalid'), 0);
+    });
+
+    it('charges 1 minute (50 Taka) for durations up to 1:08 (68 seconds)', () => {
+      assert.strictEqual(calculateAudioBill(1), 50);
+      assert.strictEqual(calculateAudioBill(30), 50);
+      assert.strictEqual(calculateAudioBill(60), 50); // 1:00
+      assert.strictEqual(calculateAudioBill(68), 50); // 1:08
+      assert.strictEqual(calculateAudioBill(68.4), 50); // rounds to 68s
+    });
+
+    it('charges 1.5 minutes (75 Taka) for durations from 1:09 to 1:19 (69s to 79s)', () => {
+      assert.strictEqual(calculateAudioBill(69), 75); // 1:09
+      assert.strictEqual(calculateAudioBill(70), 75); // 1:10
+      assert.strictEqual(calculateAudioBill(75), 75); // 1:15
+      assert.strictEqual(calculateAudioBill(79), 75); // 1:19
+    });
+
+    it('charges 2 minutes (100 Taka) for durations from 1:20 to 2:08 (80s to 128s)', () => {
+      assert.strictEqual(calculateAudioBill(80), 100); // 1:20
+      assert.strictEqual(calculateAudioBill(90), 100); // 1:30
+      assert.strictEqual(calculateAudioBill(119), 100); // 1:59
+      assert.strictEqual(calculateAudioBill(120), 100); // 2:00
+      assert.strictEqual(calculateAudioBill(128), 100); // 2:08
+    });
+
+    it('charges subsequent tiered ranges correctly', () => {
+      // 2:09 to 2:19 -> 2.5 minutes (125 Taka)
+      assert.strictEqual(calculateAudioBill(129), 125);
+      assert.strictEqual(calculateAudioBill(135), 125);
+      assert.strictEqual(calculateAudioBill(139), 125);
+
+      // 2:20 to 3:08 -> 3 minutes (150 Taka)
+      assert.strictEqual(calculateAudioBill(140), 150);
+      assert.strictEqual(calculateAudioBill(180), 150);
+      assert.strictEqual(calculateAudioBill(188), 150);
+
+      // 3:09 to 3:19 -> 3.5 minutes (175 Taka)
+      assert.strictEqual(calculateAudioBill(189), 175);
+      assert.strictEqual(calculateAudioBill(199), 175);
+
+      // 3:20 to 4:08 -> 4 minutes (200 Taka)
+      assert.strictEqual(calculateAudioBill(200), 200);
+      assert.strictEqual(calculateAudioBill(248), 200);
+    });
+
+    it('supports custom rate per minute', () => {
+      assert.strictEqual(calculateAudioBill(60, 60), 60);
+      assert.strictEqual(calculateAudioBill(70, 60), 90); // 1.5 * 60 = 90
+      assert.strictEqual(calculateAudioBill(80, 60), 120); // 2 * 60 = 120
+    });
+  });
+
+  describe('formatBillMessage', () => {
+    it('formats bill message into Bengali string "বিল <সংখ্যা> টাকা"', () => {
+      assert.strictEqual(formatBillMessage(50), 'বিল ৫০ টাকা');
+      assert.strictEqual(formatBillMessage(75), 'বিল ৭৫ টাকা');
+      assert.strictEqual(formatBillMessage(100), 'বিল ১০০ টাকা');
+      assert.strictEqual(formatBillMessage(125), 'বিল ১২৫ টাকা');
+      assert.strictEqual(formatBillMessage(150), 'বিল ১৫০ টাকা');
+    });
+
+    it('returns null for invalid amount', () => {
+      assert.strictEqual(formatBillMessage(null), null);
+      assert.strictEqual(formatBillMessage(undefined), null);
+      assert.strictEqual(formatBillMessage(NaN), null);
     });
   });
 

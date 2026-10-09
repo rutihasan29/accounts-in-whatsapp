@@ -36,6 +36,56 @@ function formatAudioDuration(totalSeconds) {
   return `অডিওর দৈর্ঘ্য: ${timeString}`;
 }
 
+/**
+ * Calculates bill amount based on audio duration tiered formula:
+ * Rate: 50 Taka per minute (ratePerMinute defaults to 50).
+ * - Up to 1:08 (68 seconds) => counted as 1 minute (50 Taka)
+ * - 1:09 to 1:19 (69s to 79s) => counted as 1.5 minutes (75 Taka)
+ * - 1:20 to 2:08 (80s to 128s) => counted as 2 minutes (100 Taka)
+ * - This exact tiered range continues for subsequent minutes:
+ *   For any minute M >= 1:
+ *     - Seconds <= 08s => M minutes (M * 50 Taka)
+ *     - Seconds 09s..19s => M + 0.5 minutes ((M + 0.5) * 50 Taka)
+ *     - Seconds >= 20s => M + 1 minutes ((M + 1) * 50 Taka)
+ */
+function calculateAudioBill(durationSeconds, ratePerMinute = 50) {
+  if (durationSeconds === null || durationSeconds === undefined || isNaN(durationSeconds) || durationSeconds <= 0) {
+    return 0;
+  }
+
+  const totalSeconds = Math.round(durationSeconds);
+  if (totalSeconds <= 0) return 0;
+
+  if (totalSeconds <= 68) {
+    return 1 * ratePerMinute;
+  }
+
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+
+  let billableMinutes;
+  if (s <= 8) {
+    billableMinutes = m;
+  } else if (s <= 19) {
+    billableMinutes = m + 0.5;
+  } else {
+    billableMinutes = m + 1;
+  }
+
+  return Math.round(billableMinutes * ratePerMinute * 100) / 100;
+}
+
+/**
+ * Formats bill message into the required Bengali format:
+ * 'বিল ১০০ টাকা'
+ */
+function formatBillMessage(amount) {
+  if (amount === null || amount === undefined || isNaN(amount)) {
+    return null;
+  }
+  return `বিল ${toBengaliDigits(amount)} টাকা`;
+}
+
 function isAudioDocumentMessage(msg) {
   if (!msg || !msg.hasMedia) return false;
 
@@ -401,6 +451,8 @@ async function resolveAudioDuration({ msg, client }) {
 module.exports = {
   toBengaliDigits,
   formatAudioDuration,
+  calculateAudioBill,
+  formatBillMessage,
   isAudioDocumentMessage,
   getAudioDurationFromBuffer,
   getAudioDurationWithFFprobe,
