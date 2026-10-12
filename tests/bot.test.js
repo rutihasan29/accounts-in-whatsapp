@@ -87,6 +87,117 @@ describe('Bot Message Router', () => {
     assert.strictEqual(replyCalled, false);
   });
 
+  it('sets total due for a new customer when বকেয়া ২৩০০ টাকা is sent (adds bill of 2300)', async () => {
+    const db = initDb(':memory:');
+    const msg = {
+      fromMe: true,
+      body: 'বকেয়া ২৩০০ টাকা',
+      to: '8801712345678@c.us'
+    };
+    const client = {
+      info: { wid: { _serialized: '8801999999999@c.us' } },
+      getContactById: async () => ({ name: 'Test Customer' })
+    };
+
+    const res = await handleMessageCreate({ msg, client, db });
+    assert.strictEqual(res.action, 'SET_DUE_ADJUSTED');
+    assert.strictEqual(res.details.targetDue, 2300);
+    assert.strictEqual(res.details.adjustmentType, 'BILL');
+    assert.strictEqual(res.details.adjustmentAmount, 2300);
+    assert.strictEqual(res.details.dueAmount, 2300);
+
+    const dueList = getDueList(db);
+    assert.strictEqual(dueList.length, 1);
+    assert.strictEqual(dueList[0].due_amount, 2300);
+  });
+
+  it('adjusts total due upward when customer already has due (e.g. 500 Tk due + বকেয়া ২৩০০ টাকা -> adds bill 1800 Tk)', async () => {
+    const db = initDb(':memory:');
+    const client = {
+      info: { wid: { _serialized: '8801999999999@c.us' } },
+      getContactById: async () => ({ name: 'Test Customer' })
+    };
+
+    // Customer has initial bill of 500
+    await handleMessageCreate({
+      msg: { fromMe: true, body: 'বিল ৫০০ টাকা', to: '8801712345678@c.us' },
+      client,
+      db
+    });
+
+    // Now set total due to 2300
+    const res = await handleMessageCreate({
+      msg: { fromMe: true, body: 'বকেয়া ২৩০০ টাকা', to: '8801712345678@c.us' },
+      client,
+      db
+    });
+
+    assert.strictEqual(res.action, 'SET_DUE_ADJUSTED');
+    assert.strictEqual(res.details.previousDue, 500);
+    assert.strictEqual(res.details.adjustmentType, 'BILL');
+    assert.strictEqual(res.details.adjustmentAmount, 1800);
+    assert.strictEqual(res.details.dueAmount, 2300);
+
+    const dueList = getDueList(db);
+    assert.strictEqual(dueList[0].due_amount, 2300);
+  });
+
+  it('adjusts total due downward when customer has higher due (e.g. 3000 Tk due + বকেয়া ২৩০০ টাকা -> adds payment 700 Tk)', async () => {
+    const db = initDb(':memory:');
+    const client = {
+      info: { wid: { _serialized: '8801999999999@c.us' } },
+      getContactById: async () => ({ name: 'Test Customer' })
+    };
+
+    // Customer has initial bill of 3000
+    await handleMessageCreate({
+      msg: { fromMe: true, body: 'বিল ৩০০০ টাকা', to: '8801712345678@c.us' },
+      client,
+      db
+    });
+
+    // Now set total due to 2300
+    const res = await handleMessageCreate({
+      msg: { fromMe: true, body: 'বকেয়া ২৩০০ টাকা', to: '8801712345678@c.us' },
+      client,
+      db
+    });
+
+    assert.strictEqual(res.action, 'SET_DUE_ADJUSTED');
+    assert.strictEqual(res.details.previousDue, 3000);
+    assert.strictEqual(res.details.adjustmentType, 'PAYMENT');
+    assert.strictEqual(res.details.adjustmentAmount, 700);
+    assert.strictEqual(res.details.dueAmount, 2300);
+
+    const dueList = getDueList(db);
+    assert.strictEqual(dueList[0].due_amount, 2300);
+  });
+
+  it('does not create new transaction if customer already has exactly the target due', async () => {
+    const db = initDb(':memory:');
+    const client = {
+      info: { wid: { _serialized: '8801999999999@c.us' } },
+      getContactById: async () => ({ name: 'Test Customer' })
+    };
+
+    // Customer has initial bill of 2300
+    await handleMessageCreate({
+      msg: { fromMe: true, body: 'বিল ২৩০০ টাকা', to: '8801712345678@c.us' },
+      client,
+      db
+    });
+
+    // Send 'বকেয়া ২৩০০ টাকা' when balance is already 2300
+    const res = await handleMessageCreate({
+      msg: { fromMe: true, body: 'বকেয়া ২৩০০ টাকা', to: '8801712345678@c.us' },
+      client,
+      db
+    });
+
+    assert.strictEqual(res.action, 'SET_DUE_UNCHANGED');
+    assert.strictEqual(res.details.dueAmount, 2300);
+  });
+
   it('replies with due list when !due command sent to self-chat', async () => {
     const db = initDb(':memory:');
     const ownerWid = '8801999999999@c.us';

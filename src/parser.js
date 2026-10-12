@@ -21,6 +21,7 @@ function toStandardNumber(str) {
 
 const BILL_REGEX = /^বিল\s+([০-৯\d]+(?:\.[০-৯\d]+)?)\s*টাকা$/i;
 const PAYMENT_REGEX = /^([০-৯\d]+(?:\.[০-৯\d]+)?)\s*টাকা\s*পেয়েছি[,\s]+ধন্যবাদ$/i;
+const SET_DUE_REGEX = /^বকেয়া\s+([০-৯\d]+(?:\.[০-৯\d]+)?)\s*টাকা$/i;
 const DUE_CMD_REGEX = /^!due$/i;
 
 function parseMessage(text) {
@@ -29,6 +30,14 @@ function parseMessage(text) {
 
   if (DUE_CMD_REGEX.test(trimmed)) {
     return { type: 'COMMAND_DUE', rawText: trimmed };
+  }
+
+  const setDueMatch = trimmed.match(SET_DUE_REGEX);
+  if (setDueMatch) {
+    const amount = toStandardNumber(setDueMatch[1]);
+    if (amount !== null && amount >= 0) {
+      return { type: 'SET_DUE', amount, rawText: trimmed };
+    }
   }
 
   const billMatch = trimmed.match(BILL_REGEX);

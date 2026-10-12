@@ -1,5 +1,5 @@
 const { parseMessage } = require('./parser');
-const { recordTransaction, getDueList, migrateCustomerPhone } = require('./db');
+const { recordTransaction, getDueList, getCustomerSummary, migrateCustomerPhone } = require('./db');
 const {
   isAudioDocumentMessage,
   getAudioDurationFromBuffer,
@@ -382,6 +382,69 @@ async function handleMessageCreate({ msg, client, db }) {
     return {
       action: parsed.type === 'BILL' ? 'RECORDED_BILL' : 'RECORDED_PAYMENT',
       details: { phone, amount: parsed.amount, dueAmount: record.dueAmount }
+    };
+  }
+
+  // Handle set total due (e.g. 'বকেয়া ২৩০০ টাকা')
+  if (!isSelf && parsed.type === 'SET_DUE') {
+    const rawRecipient = recipient;
+    const phone = await resolveCustomerPhone({ client, recipient, msg });
+    let contactName = null;
+
+    try {
+      if (typeof client.getContactById === 'function') {
+        const contact = await client.getContactById(recipient);
+        contactName = contact?.name || contact?.pushname || null;
+      }
+    } catch {
+      // Non-fatal if contact info cannot be fetched
+    }
+
+    // Auto-migrate previous transactions stored under raw recipient / LID if phone resolved to a different number
+    if (phone && phone !== rawRecipient) {
+      const strippedLid = rawRecipient.split('@')[0].split(':')[0].replace(/\D/g, '');
+      migrateCustomerPhone(db, rawRecipient, phone);
+      if (strippedLid && strippedLid !== phone) {
+        migrateCustomerPhone(db, strippedLid, phone);
+      }
+    }
+
+    const summary = getCustomerSummary(db, phone);
+    const currentDue = summary ? summary.due_amount : 0;
+    const targetDue = parsed.amount;
+    const diff = Math.round((targetDue - currentDue) * 100) / 100;
+
+    if (diff === 0) {
+      console.log(`[SET_DUE] Balance for +${phone}${contactName ? ` (${contactName})` : ''} is already ${targetDue} BDT. No adjustment needed.`);
+      return {
+        action: 'SET_DUE_UNCHANGED',
+        details: { phone, targetDue, dueAmount: currentDue }
+      };
+    }
+
+    const txType = diff > 0 ? 'BILL' : 'PAYMENT';
+    const txAmount = Math.abs(diff);
+
+    const record = recordTransaction(db, {
+      phone,
+      name: contactName,
+      type: txType,
+      amount: txAmount,
+      rawText: parsed.rawText
+    });
+
+    console.log(`[SET_DUE] Total due for +${phone}${contactName ? ` (${contactName})` : ''} set to ${targetDue} BDT (previous: ${currentDue} BDT, adjusted ${txType}: ${txAmount} BDT). Current due: ${record.dueAmount} BDT`);
+
+    return {
+      action: 'SET_DUE_ADJUSTED',
+      details: {
+        phone,
+        targetDue,
+        adjustmentType: txType,
+        adjustmentAmount: txAmount,
+        previousDue: currentDue,
+        dueAmount: record.dueAmount
+      }
     };
   }
 

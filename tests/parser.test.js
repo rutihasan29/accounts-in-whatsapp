@@ -78,6 +78,26 @@ describe('Parser Module', () => {
       assert.deepStrictEqual(res, { type: 'COMMAND_DUE', rawText: '!DUE' });
     });
 
+    it('parses Bengali set due message (বকেয়া ২৩০০ টাকা)', () => {
+      const res = parseMessage('বকেয়া ২৩০০ টাকা');
+      assert.deepStrictEqual(res, { type: 'SET_DUE', amount: 2300, rawText: 'বকেয়া ২৩০০ টাকা' });
+    });
+
+    it('parses English set due message (বকেয়া 2300 টাকা)', () => {
+      const res = parseMessage('বকেয়া   2300   টাকা');
+      assert.deepStrictEqual(res, { type: 'SET_DUE', amount: 2300, rawText: 'বকেয়া   2300   টাকা' });
+    });
+
+    it('parses decimal set due message (বকেয়া ৫০০.৫০ টাকা)', () => {
+      const res = parseMessage('বকেয়া ৫০০.৫০ টাকা');
+      assert.deepStrictEqual(res, { type: 'SET_DUE', amount: 500.5, rawText: 'বকেয়া ৫০০.৫০ টাকা' });
+    });
+
+    it('parses zero set due message (বকেয়া ০ টাকা)', () => {
+      const res = parseMessage('বকেয়া ০ টাকা');
+      assert.deepStrictEqual(res, { type: 'SET_DUE', amount: 0, rawText: 'বকেয়া ০ টাকা' });
+    });
+
     it('handles leading and trailing whitespace around messages', () => {
       const res = parseMessage('   বিল ৩০ টাকা   ');
       assert.deepStrictEqual(res, { type: 'BILL', amount: 30, rawText: 'বিল ৩০ টাকা' });
