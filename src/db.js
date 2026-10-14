@@ -90,17 +90,18 @@ function initDb(dbPath) {
 
     CREATE INDEX IF NOT EXISTS idx_transactions_phone ON transactions(phone_number);
     CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type);
-    CREATE INDEX IF NOT EXISTS idx_transactions_message_id ON transactions(message_id);
   `);
 
-  // Ensure message_id exists for existing databases
+  // Ensure message_id exists for pre-existing databases before indexing
   try {
     const cols = db.pragma('table_info(transactions)');
     if (!cols.some(c => c.name === 'message_id')) {
       db.exec('ALTER TABLE transactions ADD COLUMN message_id TEXT;');
-      db.exec('CREATE INDEX IF NOT EXISTS idx_transactions_message_id ON transactions(message_id);');
     }
-  } catch {}
+    db.exec('CREATE INDEX IF NOT EXISTS idx_transactions_message_id ON transactions(message_id);');
+  } catch (err) {
+    console.error('Error ensuring message_id column/index in SQLite:', err);
+  }
 
   // Initialize prepared statement cache
   db._stmtCache = {};
