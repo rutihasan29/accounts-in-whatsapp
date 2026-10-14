@@ -1,5 +1,12 @@
 const { parseMessage } = require('./parser');
-const { recordTransaction, getDueList, getCustomerSummary, migrateCustomerPhone } = require('./db');
+const {
+  recordTransaction,
+  updateTransactionMessageId,
+  deleteTransactionByMessageId,
+  getDueList,
+  getCustomerSummary,
+  migrateCustomerPhone
+} = require('./db');
 const {
   isAudioDocumentMessage,
   getAudioDurationFromBuffer,
@@ -270,11 +277,16 @@ async function handleMessageCreate({ msg, client, db }) {
           sentAutoBillMsgIds.add(sentMsg.id.id);
         }
 
+        const sentMessageId = sentMsg?.id?._serialized || sentMsg?.id?.id || (typeof sentMsg?.id === 'string' ? sentMsg.id : null);
+        if (sentMessageId && record?.transactionId) {
+          updateTransactionMessageId(db, record.transactionId, sentMessageId);
+        }
+
         console.log(`[AUDIO] Sent bill (${billText}) to ${targetChat}`);
 
         return {
           action: 'SENT_AUDIO_BILL',
-          details: { duration, billAmount, billText, phone, dueAmount: record.dueAmount, targetChat }
+          details: { duration, billAmount, billText, phone, dueAmount: record.dueAmount, targetChat, messageId: sentMessageId }
         };
       } else {
         console.warn('[AUDIO] Could not determine audio duration for message media');
@@ -369,19 +381,21 @@ async function handleMessageCreate({ msg, client, db }) {
       }
     }
 
+    const msgId = msg.id?._serialized || msg.id?.id || (typeof msg.id === 'string' ? msg.id : null);
     const record = recordTransaction(db, {
       phone,
       name: contactName,
       type: parsed.type,
       amount: parsed.amount,
-      rawText: parsed.rawText
+      rawText: parsed.rawText,
+      messageId: msgId
     });
 
     console.log(`[${parsed.type}] ${parsed.amount} BDT recorded for +${phone}${contactName ? ` (${contactName})` : ''}. Current due: ${record.dueAmount} BDT`);
 
     return {
       action: parsed.type === 'BILL' ? 'RECORDED_BILL' : 'RECORDED_PAYMENT',
-      details: { phone, amount: parsed.amount, dueAmount: record.dueAmount }
+      details: { phone, amount: parsed.amount, dueAmount: record.dueAmount, messageId: msgId }
     };
   }
 
@@ -425,12 +439,14 @@ async function handleMessageCreate({ msg, client, db }) {
     const txType = diff > 0 ? 'BILL' : 'PAYMENT';
     const txAmount = Math.abs(diff);
 
+    const msgId = msg.id?._serialized || msg.id?.id || (typeof msg.id === 'string' ? msg.id : null);
     const record = recordTransaction(db, {
       phone,
       name: contactName,
       type: txType,
       amount: txAmount,
-      rawText: parsed.rawText
+      rawText: parsed.rawText,
+      messageId: msgId
     });
 
     console.log(`[SET_DUE] Total due for +${phone}${contactName ? ` (${contactName})` : ''} set to ${targetDue} BDT (previous: ${currentDue} BDT, adjusted ${txType}: ${txAmount} BDT). Current due: ${record.dueAmount} BDT`);
@@ -443,12 +459,69 @@ async function handleMessageCreate({ msg, client, db }) {
         adjustmentType: txType,
         adjustmentAmount: txAmount,
         previousDue: currentDue,
-        dueAmount: record.dueAmount
+        dueAmount: record.dueAmount,
+        messageId: msgId
       }
     };
   }
 
   return { action: 'IGNORED_OTHER' };
+}
+
+function getCandidateMessageIds(after, before) {
+  const ids = [];
+  const add = (val) => {
+    if (!val) return;
+    if (typeof val === 'string') {
+      ids.push(val);
+    } else if (typeof val === 'object') {
+      if (val._serialized) ids.push(val._serialized);
+      if (val.id) ids.push(val.id);
+    }
+  };
+
+  if (before) {
+    add(before.id);
+    add(before.protocolMessageKey);
+  }
+
+  if (after) {
+    add(after.id);
+    add(after.protocolMessageKey);
+  }
+
+  return [...new Set(ids)];
+}
+
+async function handleMessageRevoke({ after, before, client, db }) {
+  const candidateIds = getCandidateMessageIds(after, before);
+  if (candidateIds.length === 0) {
+    return { action: 'IGNORED_NO_MESSAGE_ID' };
+  }
+
+  const result = deleteTransactionByMessageId(db, candidateIds);
+  if (!result) {
+    return { action: 'IGNORED_NO_MATCHING_TRANSACTION', details: { candidateIds } };
+  }
+
+  for (const cid of candidateIds) {
+    sentAutoBillMsgIds.delete(cid);
+  }
+
+  const tx = result.transaction;
+  console.log(`[REVOKE] Unsent message detected (${tx.message_id || candidateIds[0]}). Removed ${tx.type} of ${tx.amount} BDT for +${tx.phone_number}. New due: ${result.dueAmount} BDT`);
+
+  return {
+    action: 'REVOKED_TRANSACTION',
+    details: {
+      transactionId: tx.id,
+      phone: tx.phone_number,
+      type: tx.type,
+      amount: tx.amount,
+      dueAmount: result.dueAmount,
+      messageId: tx.message_id
+    }
+  };
 }
 
 function setupBotHandlers({ client, db }) {
@@ -494,6 +567,14 @@ function setupBotHandlers({ client, db }) {
       console.error('Error handling message_create event:', err);
     }
   });
+
+  client.on('message_revoke_everyone', async (after, before) => {
+    try {
+      await handleMessageRevoke({ after, before, client, db });
+    } catch (err) {
+      console.error('Error handling message_revoke_everyone event:', err);
+    }
+  });
 }
 
 module.exports = {
@@ -503,6 +584,8 @@ module.exports = {
   toBengaliDigits,
   formatDueReport,
   handleMessageCreate,
+  handleMessageRevoke,
+  getCandidateMessageIds,
   setupBotHandlers,
   sentAutoBillMsgIds,
   pendingAutoBills

@@ -24,8 +24,8 @@ const STATEMENTS = {
       updated_at = CURRENT_TIMESTAMP
   `,
   insertTransaction: `
-    INSERT INTO transactions (phone_number, type, amount, raw_text)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO transactions (phone_number, type, amount, raw_text, message_id)
+    VALUES (?, ?, ?, ?, ?)
   `,
   getDueList: `
     SELECT 
@@ -84,12 +84,23 @@ function initDb(dbPath) {
       type TEXT NOT NULL CHECK(type IN ('BILL', 'PAYMENT')),
       amount REAL NOT NULL,
       raw_text TEXT NOT NULL,
+      message_id TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE INDEX IF NOT EXISTS idx_transactions_phone ON transactions(phone_number);
     CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type);
+    CREATE INDEX IF NOT EXISTS idx_transactions_message_id ON transactions(message_id);
   `);
+
+  // Ensure message_id exists for existing databases
+  try {
+    const cols = db.pragma('table_info(transactions)');
+    if (!cols.some(c => c.name === 'message_id')) {
+      db.exec('ALTER TABLE transactions ADD COLUMN message_id TEXT;');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_transactions_message_id ON transactions(message_id);');
+    }
+  } catch {}
 
   // Initialize prepared statement cache
   db._stmtCache = {};
@@ -106,7 +117,7 @@ function getCustomerSummary(db, phone) {
   return stmt.get(phone) || null;
 }
 
-function recordTransaction(db, { phone, name = null, type, amount, rawText }) {
+function recordTransaction(db, { phone, name = null, type, amount, rawText, messageId = null }) {
   const insertCustomer = getStatement(db, 'insertCustomer');
   const insertTx = getStatement(db, 'insertTransaction');
 
@@ -115,9 +126,9 @@ function recordTransaction(db, { phone, name = null, type, amount, rawText }) {
   }
 
   if (!db._stmtCache.recordTx) {
-    db._stmtCache.recordTx = db.transaction((p, n, t, a, r) => {
+    db._stmtCache.recordTx = db.transaction((p, n, t, a, r, m) => {
       insertCustomer.run(p, n);
-      const info = insertTx.run(p, t, a, r);
+      const info = insertTx.run(p, t, a, r, m || null);
       const summary = getCustomerSummary(db, p);
       return {
         transactionId: info.lastInsertRowid,
@@ -126,7 +137,54 @@ function recordTransaction(db, { phone, name = null, type, amount, rawText }) {
     });
   }
 
-  return db._stmtCache.recordTx(phone, name, type, amount, rawText);
+  return db._stmtCache.recordTx(phone, name, type, amount, rawText, messageId);
+}
+
+function updateTransactionMessageId(db, transactionId, messageId) {
+  if (!transactionId || !messageId) return false;
+  const stmt = db.prepare('UPDATE transactions SET message_id = ? WHERE id = ?');
+  const res = stmt.run(messageId, transactionId);
+  return res.changes > 0;
+}
+
+function deleteTransactionByMessageId(db, messageIds) {
+  if (!messageIds) return null;
+  const rawIds = Array.isArray(messageIds) ? messageIds.filter(Boolean) : [messageIds].filter(Boolean);
+  if (rawIds.length === 0) return null;
+
+  const candidateSet = new Set();
+  for (const id of rawIds) {
+    if (typeof id === 'string') {
+      candidateSet.add(id);
+      if (id.includes('_')) {
+        candidateSet.add(id.split('_').pop());
+      }
+    }
+  }
+  const ids = Array.from(candidateSet);
+  if (ids.length === 0) return null;
+
+  const placeholders = ids.map(() => '?').join(',');
+  const conditions = [`message_id IN (${placeholders})`];
+  const params = [...ids];
+  for (const id of ids) {
+    conditions.push(`message_id LIKE '%_' || ?`);
+    params.push(id);
+  }
+
+  const findStmt = db.prepare(`SELECT * FROM transactions WHERE ${conditions.join(' OR ')} ORDER BY id DESC LIMIT 1`);
+  const tx = findStmt.get(...params);
+  if (!tx) return null;
+
+  const deleteStmt = db.prepare('DELETE FROM transactions WHERE id = ?');
+  deleteStmt.run(tx.id);
+
+  const summary = getCustomerSummary(db, tx.phone_number);
+  return {
+    deleted: true,
+    transaction: tx,
+    dueAmount: summary ? summary.due_amount : 0
+  };
 }
 
 function getDueList(db) {
@@ -171,6 +229,8 @@ function migrateCustomerPhone(db, oldIdentifier, newPhone) {
 module.exports = {
   initDb,
   recordTransaction,
+  updateTransactionMessageId,
+  deleteTransactionByMessageId,
   getDueList,
   getCustomerSummary,
   migrateCustomerPhone

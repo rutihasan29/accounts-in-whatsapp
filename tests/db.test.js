@@ -1,6 +1,14 @@
 const { describe, it, beforeEach } = require('node:test');
 const assert = require('node:assert');
-const { initDb, recordTransaction, getDueList, getCustomerSummary } = require('../src/db');
+const {
+  initDb,
+  recordTransaction,
+  updateTransactionMessageId,
+  deleteTransactionByMessageId,
+  getDueList,
+  getCustomerSummary,
+  migrateCustomerPhone
+} = require('../src/db');
 
 describe('Database Module', () => {
   let db;
@@ -8,6 +16,111 @@ describe('Database Module', () => {
   beforeEach(() => {
     // In-memory database for isolated tests
     db = initDb(':memory:');
+  });
+
+  it('records bill and creates customer record with message_id', () => {
+    const res = recordTransaction(db, {
+      phone: '8801711111111',
+      name: 'Customer A',
+      type: 'BILL',
+      amount: 400,
+      rawText: 'বিল ৪০০ টাকা',
+      messageId: 'true_8801711111111@c.us_MSG123'
+    });
+
+    assert.ok(res.transactionId > 0);
+    assert.strictEqual(res.dueAmount, 400);
+
+    const tx = db.prepare('SELECT * FROM transactions WHERE id = ?').get(res.transactionId);
+    assert.strictEqual(tx.message_id, 'true_8801711111111@c.us_MSG123');
+  });
+
+  it('updates transaction message_id via updateTransactionMessageId', () => {
+    const res = recordTransaction(db, {
+      phone: '8801711111111',
+      name: 'Customer A',
+      type: 'BILL',
+      amount: 150,
+      rawText: 'বিল ১৫০ টাকা'
+    });
+
+    const updated = updateTransactionMessageId(db, res.transactionId, 'true_8801711111111@c.us_AUDIO_BILL_001');
+    assert.strictEqual(updated, true);
+
+    const tx = db.prepare('SELECT * FROM transactions WHERE id = ?').get(res.transactionId);
+    assert.strictEqual(tx.message_id, 'true_8801711111111@c.us_AUDIO_BILL_001');
+
+    assert.strictEqual(updateTransactionMessageId(db, null, 'some_id'), false);
+    assert.strictEqual(updateTransactionMessageId(db, res.transactionId, null), false);
+  });
+
+  it('deletes transaction by message_id and recalculates customer due balance', () => {
+    recordTransaction(db, {
+      phone: '8801711111111',
+      name: 'Customer A',
+      type: 'BILL',
+      amount: 500,
+      rawText: 'বিল ৫০০ টাকা',
+      messageId: 'MSG_BILL_500'
+    });
+
+    recordTransaction(db, {
+      phone: '8801711111111',
+      type: 'PAYMENT',
+      amount: 100,
+      rawText: '১০০ টাকা পেয়েছি, ধন্যবাদ',
+      messageId: 'MSG_PAY_100'
+    });
+
+    assert.strictEqual(getCustomerSummary(db, '8801711111111').due_amount, 400);
+
+    // Revoke the bill message
+    const revokeRes = deleteTransactionByMessageId(db, ['MSG_BILL_500']);
+    assert.ok(revokeRes);
+    assert.strictEqual(revokeRes.deleted, true);
+    assert.strictEqual(revokeRes.transaction.amount, 500);
+    assert.strictEqual(revokeRes.dueAmount, -100); // 0 bill - 100 paid
+
+    const summary = getCustomerSummary(db, '8801711111111');
+    assert.strictEqual(summary.total_bill, 0);
+    assert.strictEqual(summary.total_paid, 100);
+    assert.strictEqual(summary.due_amount, -100);
+  });
+
+  it('matches bare stanza ID when stored with serialized ID and vice versa', () => {
+    recordTransaction(db, {
+      phone: '8801722222222',
+      type: 'BILL',
+      amount: 250,
+      rawText: 'বিল ২৫০ টাকা',
+      messageId: 'true_8801722222222@c.us_STANZA999'
+    });
+
+    // Delete passing only bare stanza ID
+    const res1 = deleteTransactionByMessageId(db, 'STANZA999');
+    assert.ok(res1);
+    assert.strictEqual(res1.deleted, true);
+    assert.strictEqual(res1.transaction.amount, 250);
+
+    // Stored with bare ID, revoked with serialized
+    recordTransaction(db, {
+      phone: '8801722222222',
+      type: 'BILL',
+      amount: 300,
+      rawText: 'বিল ৩০০ টাকা',
+      messageId: 'BARE_ID_888'
+    });
+
+    const res2 = deleteTransactionByMessageId(db, ['true_8801722222222@c.us_BARE_ID_888']);
+    assert.ok(res2);
+    assert.strictEqual(res2.deleted, true);
+    assert.strictEqual(res2.transaction.amount, 300);
+  });
+
+  it('deleteTransactionByMessageId returns null for non-matching or empty IDs', () => {
+    assert.strictEqual(deleteTransactionByMessageId(db, null), null);
+    assert.strictEqual(deleteTransactionByMessageId(db, []), null);
+    assert.strictEqual(deleteTransactionByMessageId(db, ['NON_EXISTENT_ID']), null);
   });
 
   it('records bill and creates customer record', () => {

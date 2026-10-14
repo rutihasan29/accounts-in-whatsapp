@@ -1,7 +1,12 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
 const { initDb, getDueList } = require('../src/db');
-const { formatDueReport, handleMessageCreate } = require('../src/bot');
+const {
+  formatDueReport,
+  handleMessageCreate,
+  handleMessageRevoke,
+  getCandidateMessageIds
+} = require('../src/bot');
 
 describe('Bot Message Router', () => {
   it('formatDueReport formats list nicely in Bengali', () => {
@@ -617,6 +622,232 @@ describe('Bot Message Router', () => {
       assert.strictEqual(res.details.duration, 60);
       assert.strictEqual(res.details.billAmount, 50);
       assert.strictEqual(res.details.dueAmount, 50);
+    });
+  });
+
+  describe('Message Revocation / Unsend Handling', () => {
+    it('getCandidateMessageIds extracts IDs from after and before objects and strings', () => {
+      const before = {
+        id: { _serialized: 'true_8801712345678@c.us_MSG1', id: 'MSG1' }
+      };
+      const after = {
+        id: { _serialized: 'true_8801712345678@c.us_REVOKE1', id: 'REVOKE1' },
+        protocolMessageKey: { _serialized: 'true_8801712345678@c.us_MSG1', id: 'MSG1' }
+      };
+
+      const ids = getCandidateMessageIds(after, before);
+      assert.ok(ids.includes('true_8801712345678@c.us_MSG1'));
+      assert.ok(ids.includes('MSG1'));
+      assert.ok(ids.includes('true_8801712345678@c.us_REVOKE1'));
+      assert.ok(ids.includes('REVOKE1'));
+    });
+
+    it('getCandidateMessageIds handles empty or null inputs safely', () => {
+      assert.deepStrictEqual(getCandidateMessageIds(null, null), []);
+      assert.deepStrictEqual(getCandidateMessageIds({}, {}), []);
+    });
+
+    it('revokes a manual bill transaction and recalculates customer balance', async () => {
+      const db = initDb(':memory:');
+      const client = {
+        info: { wid: { _serialized: '8801999999999@c.us' } },
+        getContactById: async () => ({ name: 'Test Customer' })
+      };
+
+      // 1. Send manual bill
+      const msg = {
+        fromMe: true,
+        body: 'বিল ৫০০ টাকা',
+        to: '8801712345678@c.us',
+        id: {
+          _serialized: 'true_8801712345678@c.us_3EB0MANUAL500',
+          id: '3EB0MANUAL500',
+          remote: '8801712345678@c.us'
+        }
+      };
+
+      const createRes = await handleMessageCreate({ msg, client, db });
+      assert.strictEqual(createRes.action, 'RECORDED_BILL');
+      assert.strictEqual(createRes.details.dueAmount, 500);
+
+      // Verify transaction in DB has messageId
+      const tx = db.prepare('SELECT * FROM transactions WHERE phone_number = ?').get('8801712345678');
+      assert.strictEqual(tx.message_id, 'true_8801712345678@c.us_3EB0MANUAL500');
+
+      // 2. Unsend / Revoke message
+      const revokePayload = {
+        after: {
+          protocolMessageKey: {
+            id: '3EB0MANUAL500',
+            remote: '8801712345678@c.us',
+            fromMe: true
+          }
+        },
+        before: undefined // WA Web often has undefined before if uncached
+      };
+
+      const revokeRes = await handleMessageRevoke({ ...revokePayload, client, db });
+      assert.strictEqual(revokeRes.action, 'REVOKED_TRANSACTION');
+      assert.strictEqual(revokeRes.details.type, 'BILL');
+      assert.strictEqual(revokeRes.details.amount, 500);
+      assert.strictEqual(revokeRes.details.dueAmount, 0);
+
+      // Verify transaction was removed from DB
+      const remainingTx = db.prepare('SELECT * FROM transactions WHERE phone_number = ?').all('8801712345678');
+      assert.strictEqual(remainingTx.length, 0);
+    });
+
+    it('revokes an automated audio bill transaction and recalculates balance', async () => {
+      const db = initDb(':memory:');
+      let sentBillId = 'true_8801712345678@c.us_3EB0AUTOBILL999';
+
+      const client = {
+        info: { wid: { _serialized: '8801999999999@c.us', user: '8801999999999' } },
+        pupPage: {
+          evaluate: async () => ({ duration: 90 }) // 90s -> 100 Taka
+        },
+        sendMessage: async (to, text) => ({
+          id: {
+            _serialized: sentBillId,
+            id: '3EB0AUTOBILL999'
+          }
+        })
+      };
+
+      const msg = {
+        fromMe: true,
+        hasMedia: true,
+        type: 'document',
+        isVoice: false,
+        filename: 'recording.mp3',
+        to: '8801712345678@c.us',
+        id: { remote: '8801712345678@c.us', _serialized: 'true_8801712345678@c.us_AUDIO_DOC_1' },
+        downloadMedia: async () => {
+          throw new Error('r: r');
+        }
+      };
+
+      // 1. Process audio message -> records bill and sends auto-bill message
+      const audioRes = await handleMessageCreate({ msg, client, db });
+      assert.strictEqual(audioRes.action, 'SENT_AUDIO_BILL');
+      assert.strictEqual(audioRes.details.billAmount, 100);
+      assert.strictEqual(audioRes.details.dueAmount, 100);
+
+      // Verify transaction in DB has messageId linked to the sent bill message
+      const tx = db.prepare('SELECT * FROM transactions WHERE phone_number = ?').get('8801712345678');
+      assert.strictEqual(tx.message_id, sentBillId);
+
+      // 2. Unsend / Revoke the auto-sent bill message
+      const revokePayload = {
+        after: {
+          id: { _serialized: 'true_8801712345678@c.us_REVOKE_PROTOCOL_KEY' },
+          protocolMessageKey: {
+            _serialized: sentBillId,
+            id: '3EB0AUTOBILL999'
+          }
+        },
+        before: {
+          id: {
+            _serialized: sentBillId,
+            id: '3EB0AUTOBILL999'
+          }
+        }
+      };
+
+      const revokeRes = await handleMessageRevoke({ ...revokePayload, client, db });
+      assert.strictEqual(revokeRes.action, 'REVOKED_TRANSACTION');
+      assert.strictEqual(revokeRes.details.amount, 100);
+      assert.strictEqual(revokeRes.details.dueAmount, 0);
+
+      // Verify transaction is gone
+      const remainingTx = db.prepare('SELECT * FROM transactions WHERE phone_number = ?').all('8801712345678');
+      assert.strictEqual(remainingTx.length, 0);
+    });
+
+    it('revokes a payment transaction and restores outstanding balance', async () => {
+      const db = initDb(':memory:');
+      const client = {
+        info: { wid: { _serialized: '8801999999999@c.us' } }
+      };
+
+      // Send bill of 1000
+      await handleMessageCreate({
+        msg: {
+          fromMe: true,
+          body: 'বিল ১০০০ টাকা',
+          to: '8801712345678@c.us',
+          id: { _serialized: 'BILL_1000' }
+        },
+        client,
+        db
+      });
+
+      // Send payment of 400
+      await handleMessageCreate({
+        msg: {
+          fromMe: true,
+          body: '৪০০ টাকা পেয়েছি, ধন্যবাদ',
+          to: '8801712345678@c.us',
+          id: { _serialized: 'PAY_400' }
+        },
+        client,
+        db
+      });
+
+      // Due should be 600
+      const dues = getDueList(db);
+      assert.strictEqual(dues[0].due_amount, 600);
+
+      // Revoke the payment
+      const revokeRes = await handleMessageRevoke({
+        after: { protocolMessageKey: { id: 'PAY_400' } },
+        client,
+        db
+      });
+
+      assert.strictEqual(revokeRes.action, 'REVOKED_TRANSACTION');
+      assert.strictEqual(revokeRes.details.type, 'PAYMENT');
+      assert.strictEqual(revokeRes.details.amount, 400);
+      assert.strictEqual(revokeRes.details.dueAmount, 1000);
+
+      const duesAfter = getDueList(db);
+      assert.strictEqual(duesAfter[0].due_amount, 1000);
+    });
+
+    it('returns IGNORED_NO_MATCHING_TRANSACTION when revoked message is not a recorded transaction', async () => {
+      const db = initDb(':memory:');
+      const revokeRes = await handleMessageRevoke({
+        after: { protocolMessageKey: { id: 'RANDOM_CHAT_MSG_123' } },
+        client: {},
+        db
+      });
+
+      assert.strictEqual(revokeRes.action, 'IGNORED_NO_MATCHING_TRANSACTION');
+    });
+
+    it('returns IGNORED_NO_MESSAGE_ID when candidate IDs are missing', async () => {
+      const db = initDb(':memory:');
+      const revokeRes = await handleMessageRevoke({
+        after: null,
+        before: null,
+        client: {},
+        db
+      });
+
+      assert.strictEqual(revokeRes.action, 'IGNORED_NO_MESSAGE_ID');
+    });
+
+    it('setupBotHandlers registers message_revoke_everyone listener on client', () => {
+      const { setupBotHandlers } = require('../src/bot');
+      const registeredEvents = {};
+      const dummyClient = {
+        on: (event, handler) => {
+          registeredEvents[event] = handler;
+        }
+      };
+
+      setupBotHandlers({ client: dummyClient, db: initDb(':memory:') });
+      assert.ok(typeof registeredEvents['message_revoke_everyone'] === 'function', 'message_revoke_everyone listener should be registered');
     });
   });
 });

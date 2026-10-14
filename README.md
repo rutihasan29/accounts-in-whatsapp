@@ -10,6 +10,7 @@ The bot operates **silently** in the background during day-to-day customer conve
 
 - **Silent Outgoing Message Tracking**: Listens exclusively to outgoing messages sent by the business owner (`message.fromMe === true`).
 - **Zero Customer Interruption (Silent Mode)**: When bills or payments are sent in customer chats, the bot logs them silently without sending automated replies or reactions to customers.
+- **Message Unsend / Revocation Detection**: If any bill (manual or automated audio) or payment message is unsent via WhatsApp's "Delete for Everyone", the bot automatically detects it and rolls back the transaction from the ledger.
 - **Bilingual Numeral Normalization**: Seamlessly recognizes Bengali digits (`০-৯`) and standard English digits (`0-9`), including decimal amounts.
 - **Self-Chat Due Reports**: Sending `!due` in your own WhatsApp chat ("Message Yourself") returns a complete list of customers with pending balances.
 - **Automatic Contact Name Association**: Automatically extracts customer names from WhatsApp contacts when available.
@@ -112,6 +113,14 @@ If there are no outstanding dues, the bot responds:
 ```text
 ✅ বর্তমানে কোনো গ্রাহকের বকেয়া নেই!
 ```
+
+### 4. Unsending / Revoking a Bill or Payment (Delete for Everyone)
+If a bill was sent by mistake (either manually or automatically after sending an audio file), simply delete the message for everyone:
+- **Bot Action**: Detects the revoked message ID via WhatsApp Web's `message_revoke_everyone` event, finds the associated transaction in SQLite, deletes it, and automatically updates the customer's balance.
+- **Console Log**:
+  ```text
+  [REVOKE] Unsent message detected. Removed BILL of 400 BDT for +88017XXXXXXXX. New due: 0 BDT
+  ```
 
 ---
 
