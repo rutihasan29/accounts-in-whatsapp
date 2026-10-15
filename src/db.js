@@ -40,6 +40,27 @@ const STATEMENTS = {
     GROUP BY c.phone_number
     HAVING due_amount > 0
     ORDER BY due_amount DESC
+  `,
+  getAllCustomersSummary: `
+    SELECT 
+      c.phone_number,
+      c.name,
+      COALESCE(SUM(CASE WHEN t.type = 'BILL' THEN t.amount ELSE 0 END), 0) AS total_bill,
+      COALESCE(SUM(CASE WHEN t.type = 'PAYMENT' THEN t.amount ELSE 0 END), 0) AS total_paid,
+      (COALESCE(SUM(CASE WHEN t.type = 'BILL' THEN t.amount ELSE 0 END), 0) - 
+       COALESCE(SUM(CASE WHEN t.type = 'PAYMENT' THEN t.amount ELSE 0 END), 0)) AS due_amount,
+      MAX(t.created_at) AS last_activity,
+      COUNT(t.id) AS transaction_count
+    FROM customers c
+    LEFT JOIN transactions t ON c.phone_number = t.phone_number
+    GROUP BY c.phone_number
+    ORDER BY due_amount DESC, last_activity DESC
+  `,
+  getCustomerTransactions: `
+    SELECT id, phone_number, type, amount, raw_text, message_id, created_at
+    FROM transactions
+    WHERE phone_number = ?
+    ORDER BY id ASC
   `
 };
 
@@ -227,6 +248,54 @@ function migrateCustomerPhone(db, oldIdentifier, newPhone) {
   }
 }
 
+function getCustomerTransactions(db, phone) {
+  const stmt = getStatement(db, 'getCustomerTransactions');
+  const rows = stmt.all(phone);
+  let runningBalance = 0;
+  return rows.map((tx) => {
+    if (tx.type === 'BILL') {
+      runningBalance += tx.amount;
+    } else if (tx.type === 'PAYMENT') {
+      runningBalance -= tx.amount;
+    }
+    return {
+      ...tx,
+      running_balance: Math.round(runningBalance * 100) / 100
+    };
+  });
+}
+
+function getAllCustomersSummary(db) {
+  const stmt = getStatement(db, 'getAllCustomersSummary');
+  return stmt.all();
+}
+
+function getDashboardStats(db) {
+  const dues = getDueList(db);
+  const totalDue = dues.reduce((acc, c) => acc + (c.due_amount || 0), 0);
+
+  const todayStmt = db.prepare(`
+    SELECT 
+      COALESCE(SUM(CASE WHEN type = 'BILL' THEN amount ELSE 0 END), 0) AS today_billed,
+      COALESCE(SUM(CASE WHEN type = 'PAYMENT' THEN amount ELSE 0 END), 0) AS today_collected,
+      COUNT(id) AS today_count
+    FROM transactions
+    WHERE date(created_at, 'localtime') = date('now', 'localtime')
+  `);
+  const today = todayStmt.get() || { today_billed: 0, today_collected: 0, today_count: 0 };
+
+  const totalCustomers = db.prepare('SELECT COUNT(*) AS count FROM customers').get().count;
+
+  return {
+    totalDue: Math.round(totalDue * 100) / 100,
+    debtorsCount: dues.length,
+    totalCustomers,
+    todayBilled: Math.round(today.today_billed * 100) / 100,
+    todayCollected: Math.round(today.today_collected * 100) / 100,
+    todayTransactionsCount: today.today_count
+  };
+}
+
 module.exports = {
   initDb,
   recordTransaction,
@@ -234,5 +303,8 @@ module.exports = {
   deleteTransactionByMessageId,
   getDueList,
   getCustomerSummary,
+  getCustomerTransactions,
+  getAllCustomersSummary,
+  getDashboardStats,
   migrateCustomerPhone
 };

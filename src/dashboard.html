@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>OFFICIAL BUSINESS LEDGER &bull; MUNNI DRESSES</title>
+  <style>
+    /* -------------------------------------------------------------
+       OFFICIAL PRINTED DOCUMENT / PAPER LEDGER STYLING
+       High-contrast, pure black-and-white, ultra-minimal typography
+       ------------------------------------------------------------- */
+    :root {
+      --bg: #FFFFFF;
+      --fg: #000000;
+      --muted: #444444;
+      --border: #000000;
+      --border-light: #CCCCCC;
+      --paper-gray: #F8F8F8;
+      --font-mono: 'Courier New', Courier, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-mono);
+      font-size: 14px;
+      line-height: 1.45;
+      padding: 12px 10px 40px 10px;
+      max-width: 760px;
+      margin: 0 auto;
+    }
+
+    /* Official document borders & dividers */
+    .doc-sheet {
+      border: 2px solid var(--border);
+      padding: 14px 12px;
+      background: #FFFFFF;
+    }
+
+    .doc-header {
+      text-align: center;
+      border-bottom: 2px solid var(--border);
+      padding-bottom: 12px;
+      margin-bottom: 12px;
+    }
+
+    .doc-header h1 {
+      font-size: 16px;
+      font-weight: 900;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    .doc-header .sub {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 3px;
+    }
+
+    .divider-double {
+      border-top: 3px double var(--border);
+      margin: 12px 0;
+    }
+
+    .divider-solid {
+      border-top: 1px solid var(--border);
+      margin: 10px 0;
+    }
+
+    /* Summary Matrix */
+    .summary-box {
+      border: 1px solid var(--border);
+      padding: 10px;
+      margin-bottom: 14px;
+      background: var(--paper-gray);
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px 14px;
+    }
+
+    .summary-item {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .summary-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--muted);
+    }
+
+    .summary-value {
+      font-size: 17px;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      margin-top: 2px;
+    }
+
+    .summary-value.due {
+      text-decoration: underline;
+    }
+
+    /* Controls: Search & Tabs */
+    .controls {
+      margin-bottom: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .search-input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid var(--border);
+      font-family: var(--font-mono);
+      font-size: 14px;
+      background: #FFF;
+      color: #000;
+      border-radius: 0;
+      outline: none;
+    }
+
+    .search-input:focus {
+      outline: 2px solid #000;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+    }
+
+    .tab-btn {
+      flex: 1;
+      padding: 8px 6px;
+      background: #FFF;
+      border: 1px solid var(--border);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      cursor: pointer;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    .tab-btn.active {
+      background: #000;
+      color: #FFF;
+    }
+
+    /* Khata Customer Cards */
+    .customer-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .customer-card {
+      border: 1px solid var(--border);
+      padding: 12px;
+      background: #FFFFFF;
+      position: relative;
+    }
+
+    .customer-row-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .cust-info {
+      flex: 1;
+    }
+
+    .cust-name {
+      font-size: 15px;
+      font-weight: 800;
+      letter-spacing: 0.2px;
+    }
+
+    .cust-phone {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .cust-due-box {
+      text-align: right;
+    }
+
+    .cust-due-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .cust-due-amount {
+      font-size: 18px;
+      font-weight: 900;
+      font-variant-numeric: tabular-nums;
+      border-bottom: 2px solid var(--border);
+      padding-bottom: 1px;
+    }
+
+    .cust-activity {
+      font-size: 11px;
+      color: var(--muted);
+      margin: 8px 0;
+      padding-top: 6px;
+      border-top: 1px dashed var(--border-light);
+    }
+
+    /* Mobile Action Buttons */
+    .actions-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1.2fr;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 6px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      text-decoration: none;
+      color: #000;
+      background: #FFF;
+      border: 1px solid #000;
+      cursor: pointer;
+      text-align: center;
+      transition: background 0.1s;
+    }
+
+    .btn:active {
+      background: #000;
+      color: #FFF;
+    }
+
+    .btn-solid {
+      background: #000;
+      color: #FFF;
+    }
+
+    .btn-solid:active {
+      background: #444;
+    }
+
+    /* Modal / Statement Sheet View */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.65);
+      z-index: 9999;
+      padding: 10px;
+      overflow-y: auto;
+    }
+
+    .modal-overlay.open {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .statement-sheet {
+      background: #FFF;
+      border: 3px solid #000;
+      width: 100%;
+      max-width: 680px;
+      padding: 16px 14px;
+      max-height: 92vh;
+      overflow-y: auto;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    }
+
+    .statement-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0;
+      font-size: 12px;
+    }
+
+    .statement-table th, 
+    .statement-table td {
+      border: 1px solid #000;
+      padding: 6px 4px;
+      text-align: left;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .statement-table th {
+      background: var(--paper-gray);
+      font-weight: 800;
+      text-transform: uppercase;
+      font-size: 11px;
+    }
+
+    .statement-table .num-col {
+      text-align: right;
+    }
+
+    .grand-total-row {
+      font-weight: 900;
+      font-size: 14px;
+      border-top: 3px double #000;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 14px;
+      flex-wrap: wrap;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 30px 10px;
+      border: 1px dashed var(--border);
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    /* Print Styles: Exact physical official paper format */
+    @media print {
+      body {
+        padding: 0;
+        background: #FFF !important;
+        color: #000 !important;
+      }
+      .controls, .btn, .modal-actions, .actions-grid {
+        display: none !important;
+      }
+      .modal-overlay {
+        position: static !important;
+        background: transparent !important;
+        padding: 0 !important;
+        display: block !important;
+      }
+      .statement-sheet {
+        border: none !important;
+        max-height: none !important;
+        overflow: visible !important;
+        padding: 0 !important;
+        box-shadow: none !important;
+      }
+      .doc-sheet {
+        border: 1px solid #000 !important;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="doc-sheet">
+    <!-- Official Document Header -->
+    <div class="doc-header">
+      <h1>MUNNI DRESSES &bull; LEDGER</h1>
+      <div class="sub">OFFICIAL BUSINESS ACCOUNTS &bull; AUDIT SYSTEM</div>
+      <div class="sub" id="clock-display" style="font-size: 11px; margin-top: 4px;">DATE: --</div>
+    </div>
+
+    <!-- Top Summary Matrix -->
+    <div class="summary-box">
+      <div class="summary-grid">
+        <div class="summary-item">
+          <span class="summary-label">Total Outstanding Due</span>
+          <span class="summary-value due" id="sum-total-due">৳ 0.00</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">Active Debtors</span>
+          <span class="summary-value" id="sum-debtors-count">0 Persons</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">Today's Collection</span>
+          <span class="summary-value" id="sum-today-collected">৳ 0.00</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">Today's Billing</span>
+          <span class="summary-value" id="sum-today-billed">৳ 0.00</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Controls: Search & Tabs -->
+    <div class="controls">
+      <input type="text" id="search-box" class="search-input" placeholder="[ Type phone or name to filter... ]" autocomplete="off" spellcheck="false">
+      
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="due" onclick="setTab('due')">DUE LIST (<span id="count-due">0</span>)</button>
+        <button class="tab-btn" data-tab="all" onclick="setTab('all')">ALL CUSTOMERS (<span id="count-all">0</span>)</button>
+        <button class="tab-btn" data-tab="paid" onclick="setTab('paid')">PAID / CLEAR</button>
+      </div>
+    </div>
+
+    <!-- Customer Ledger List -->
+    <div id="customer-container" class="customer-list">
+      <div class="empty-state">Loading ledger records...</div>
+    </div>
+
+    <div class="divider-double"></div>
+    <div style="text-align: center; font-size: 11px; color: var(--muted);">
+      [ END OF REPORT &bull; REAL-TIME SYNC ACTIVE ]
+    </div>
+  </div>
+
+  <!-- Detailed Statement / Voucher Modal -->
+  <div id="statement-modal" class="modal-overlay">
+    <div class="statement-sheet">
+      <div class="doc-header">
+        <h1>STATEMENT OF ACCOUNT</h1>
+        <div class="sub">MUNNI DRESSES &bull; EMBROIDERY &amp; FABRICS</div>
+        <div class="divider-solid"></div>
+        <div style="display: flex; justify-content: space-between; font-size: 12px; margin-top: 6px; text-align: left;">
+          <div>
+            <strong>CUSTOMER:</strong> <span id="modal-cust-name">--</span><br>
+            <strong>PHONE:</strong> <span id="modal-cust-phone">--</span>
+          </div>
+          <div style="text-align: right;">
+            <strong>REPORT DATE:</strong> <span id="modal-date">--</span><br>
+            <strong>STATUS:</strong> <span id="modal-status">ACTIVE</span>
+          </div>
+        </div>
+      </div>
+
+      <table class="statement-table">
+        <thead>
+          <tr>
+            <th style="width: 18%;">DATE</th>
+            <th>PARTICULAR / DETAILS</th>
+            <th class="num-col" style="width: 18%;">BILL (DR)</th>
+            <th class="num-col" style="width: 18%;">PAID (CR)</th>
+            <th class="num-col" style="width: 20%;">BALANCE</th>
+          </tr>
+        </thead>
+        <tbody id="statement-rows">
+          <!-- Rows inserted dynamically -->
+        </tbody>
+        <tfoot>
+          <tr class="grand-total-row">
+            <td colspan="4" style="text-align: right; padding-right: 8px;">NET DUE BALANCE:</td>
+            <td class="num-col" id="modal-grand-total">৳ 0.00</td>
+          </tr>
+        </tfoot>
+      </table>
+
+      <div class="modal-actions">
+        <button class="btn btn-solid" style="flex: 1;" onclick="window.print()">🖨️ PRINT / PDF</button>
+        <button class="btn" style="flex: 1;" id="modal-btn-wa">💬 SHARE WA</button>
+        <button class="btn" style="flex: 0.6;" onclick="closeModal()">✕ CLOSE</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let allCustomers = [];
+    let currentTab = 'due';
+    let currentFilterText = '';
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function formatNumber(num) {
+      if (num === null || num === undefined) return '0.00';
+      return Number(num).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    }
+
+    function formatDate(dateStr) {
+      if (!dateStr) return '--';
+      try {
+        const d = new Date(dateStr);
+        if (isNaN(d.getTime())) return dateStr;
+        return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }) + ' ' + 
+               d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+      } catch (e) {
+        return dateStr;
+      }
+    }
+
+    function updateClock() {
+      const now = new Date();
+      document.getElementById('clock-display').innerText = 
+        'DATE: ' + now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase() + 
+        ' | ' + now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    async function loadStats() {
+      try {
+        const res = await fetch('/api/stats');
+        const data = await res.json();
+        document.getElementById('sum-total-due').innerText = '৳ ' + formatNumber(data.totalDue);
+        document.getElementById('sum-debtors-count').innerText = data.debtorsCount + ' Person' + (data.debtorsCount === 1 ? '' : 's');
+        document.getElementById('sum-today-collected').innerText = '৳ ' + formatNumber(data.todayCollected);
+        document.getElementById('sum-today-billed').innerText = '৳ ' + formatNumber(data.todayBilled);
+      } catch (err) {
+        console.error('Failed to load stats:', err);
+      }
+    }
+
+    async function loadCustomers() {
+      try {
+        const res = await fetch('/api/customers');
+        allCustomers = await res.json();
+        renderCustomerList();
+      } catch (err) {
+        document.getElementById('customer-container').innerHTML = 
+          '<div class="empty-state">Error loading ledger records. Please refresh.</div>';
+      }
+    }
+
+    function setTab(tab) {
+      currentTab = tab;
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tab);
+      });
+      renderCustomerList();
+    }
+
+    function renderCustomerList() {
+      const container = document.getElementById('customer-container');
+      const query = currentFilterText.toLowerCase().trim();
+
+      const dueCustomers = allCustomers.filter(c => (c.due_amount || 0) > 0);
+      const paidCustomers = allCustomers.filter(c => (c.due_amount || 0) <= 0);
+
+      document.getElementById('count-due').innerText = dueCustomers.length;
+      document.getElementById('count-all').innerText = allCustomers.length;
+
+      let list = allCustomers;
+      if (currentTab === 'due') {
+        list = dueCustomers;
+      } else if (currentTab === 'paid') {
+        list = paidCustomers;
+      }
+
+      if (query) {
+        list = list.filter(c => 
+          (c.phone_number && c.phone_number.toLowerCase().includes(query)) ||
+          (c.name && c.name.toLowerCase().includes(query))
+        );
+      }
+
+      if (list.length === 0) {
+        container.innerHTML = '<div class="empty-state">No matching accounts found.</div>';
+        return;
+      }
+
+      container.innerHTML = list.map((cust, idx) => {
+        const cleanPhone = cust.phone_number.replace(/\\D/g, '');
+        const displayName = cust.name ? cust.name : 'Customer';
+        const dueVal = cust.due_amount || 0;
+        const dueFormatted = '৳ ' + formatNumber(dueVal);
+        const lastAct = cust.last_activity ? formatDate(cust.last_activity) : 'No recent transactions';
+
+        const waText = encodeURIComponent(
+          'আসসালামু আলাইকুম ' + (cust.name ? cust.name + ', ' : '') + 
+          'মুন্নী ড্রেসেস থেকে আপনার বকেয়া হিসাব: মোট বকেয়া ' + dueVal + ' টাকা।'
+        );
+
+        return '' +
+          '<div class="customer-card">' +
+            '<div class="customer-row-top">' +
+              '<div class="cust-info">' +
+                '<div class="cust-name">' + (idx + 1) + '. ' + escapeHtml(displayName) + '</div>' +
+                '<div class="cust-phone">+' + escapeHtml(cust.phone_number) + '</div>' +
+              '</div>' +
+              '<div class="cust-due-box">' +
+                '<div class="cust-due-label">Current Due</div>' +
+                '<div class="cust-due-amount">' + dueFormatted + '</div>' +
+              '</div>' +
+            '</div>' +
+            '<div class="cust-activity">' +
+              'LAST ACTIVITY: ' + lastAct + ' &bull; ' + (cust.transaction_count || 0) + ' Entries' +
+            '</div>' +
+            '<div class="actions-grid">' +
+              '<a href="tel:+' + cleanPhone + '" class="btn">📞 CALL</a>' +
+              '<a href="https://wa.me/' + cleanPhone + '?text=' + waText + '" target="_blank" class="btn">💬 WHATSAPP</a>' +
+              '<button class="btn btn-solid" onclick="openStatement(\\'' + escapeHtml(cust.phone_number) + '\\')">📄 STATEMENT</button>' +
+            '</div>' +
+          '</div>';
+      }).join('');
+    }
+
+    async function openStatement(phone) {
+      try {
+        const res = await fetch('/api/customer/' + encodeURIComponent(phone));
+        const data = await res.json();
+        const summary = data.summary || {};
+        const transactions = data.transactions || [];
+
+        document.getElementById('modal-cust-name').innerText = summary.name || 'Customer';
+        document.getElementById('modal-cust-phone').innerText = '+' + summary.phone_number;
+        document.getElementById('modal-date').innerText = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+        document.getElementById('modal-grand-total').innerText = '৳ ' + formatNumber(summary.due_amount || 0);
+
+        const cleanPhone = (summary.phone_number || '').replace(/\\D/g, '');
+        const waText = encodeURIComponent(
+          'আসসালামু আলাইকুম ' + (summary.name ? summary.name + ', ' : '') + 
+          'মুন্নী ড্রেসেস থেকে আপনার বকেয়া হিসাব:\\n' +
+          'মোট বিল: ৳ ' + formatNumber(summary.total_bill) + '\\n' +
+          'মোট পরিশোধ: ৳ ' + formatNumber(summary.total_paid) + '\\n' +
+          'মোট বর্তমান বকেয়া: ৳ ' + formatNumber(summary.due_amount) + ' টাকা।'
+        );
+        document.getElementById('modal-btn-wa').onclick = () => {
+          window.open('https://wa.me/' + cleanPhone + '?text=' + waText, '_blank');
+        };
+
+        const tbody = document.getElementById('statement-rows');
+        if (transactions.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 16px;">No transactions recorded yet.</td></tr>';
+        } else {
+          tbody.innerHTML = transactions.map((t) => {
+            const isBill = t.type === 'BILL';
+            const dr = isBill ? formatNumber(t.amount) : '--';
+            const cr = !isBill ? formatNumber(t.amount) : '--';
+            const bal = formatNumber(t.running_balance);
+            const dateStr = formatDate(t.created_at);
+            const rawNote = t.raw_text ? escapeHtml(t.raw_text) : (isBill ? 'Bill' : 'Payment');
+
+            return '<tr>' +
+              '<td style="white-space: nowrap;">' + dateStr.split(' ')[0] + '</td>' +
+              '<td>' + rawNote + '</td>' +
+              '<td class="num-col">' + dr + '</td>' +
+              '<td class="num-col">' + cr + '</td>' +
+              '<td class="num-col"><strong>' + bal + '</strong></td>' +
+            '</tr>';
+          }).join('');
+        }
+
+        document.getElementById('statement-modal').classList.add('open');
+      } catch (err) {
+        alert('Failed to load statement: ' + err.message);
+      }
+    }
+
+    function closeModal() {
+      document.getElementById('statement-modal').classList.remove('open');
+    }
+
+    document.getElementById('statement-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'statement-modal') closeModal();
+    });
+
+    document.getElementById('search-box').addEventListener('input', (e) => {
+      currentFilterText = e.target.value;
+      renderCustomerList();
+    });
+
+    // Initial load and periodic refresh
+    loadStats();
+    loadCustomers();
+    setInterval(loadStats, 15000);
+    setInterval(loadCustomers, 25000);
+  </script>
+</body>
+</html>

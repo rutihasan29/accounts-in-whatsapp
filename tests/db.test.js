@@ -7,6 +7,9 @@ const {
   deleteTransactionByMessageId,
   getDueList,
   getCustomerSummary,
+  getCustomerTransactions,
+  getAllCustomersSummary,
+  getDashboardStats,
   migrateCustomerPhone
 } = require('../src/db');
 
@@ -230,5 +233,63 @@ describe('Database Module', () => {
     assert.strictEqual(updated.name, 'Preenan');
     assert.strictEqual(updated.due_amount, 34);
     assert.strictEqual(updated.total_bill, 34);
+  });
+
+  it('getCustomerTransactions returns chronological ledger with computed running balance', () => {
+    recordTransaction(db, {
+      phone: '8801700000001',
+      name: 'Ledger Test',
+      type: 'BILL',
+      amount: 1000,
+      rawText: 'বিল ১০০০ টাকা'
+    });
+
+    recordTransaction(db, {
+      phone: '8801700000001',
+      type: 'BILL',
+      amount: 500,
+      rawText: 'বিল ৫০০ টাকা'
+    });
+
+    recordTransaction(db, {
+      phone: '8801700000001',
+      type: 'PAYMENT',
+      amount: 300,
+      rawText: '৩০০ টাকা পেয়েছি'
+    });
+
+    const txs = getCustomerTransactions(db, '8801700000001');
+    assert.strictEqual(txs.length, 3);
+    assert.strictEqual(txs[0].running_balance, 1000);
+    assert.strictEqual(txs[1].running_balance, 1500);
+    assert.strictEqual(txs[2].running_balance, 1200);
+  });
+
+  it('getAllCustomersSummary returns all customers with transaction count', () => {
+    recordTransaction(db, { phone: '8801700000002', name: 'User 2', type: 'BILL', amount: 300, rawText: 'bill' });
+    recordTransaction(db, { phone: '8801700000003', name: 'User 3', type: 'BILL', amount: 400, rawText: 'bill' });
+    recordTransaction(db, { phone: '8801700000003', type: 'PAYMENT', amount: 400, rawText: 'pay' });
+
+    const list = getAllCustomersSummary(db);
+    assert.strictEqual(list.length, 2);
+    const u2 = list.find(c => c.phone_number === '8801700000002');
+    const u3 = list.find(c => c.phone_number === '8801700000003');
+    assert.strictEqual(u2.due_amount, 300);
+    assert.strictEqual(u2.transaction_count, 1);
+    assert.strictEqual(u3.due_amount, 0);
+    assert.strictEqual(u3.transaction_count, 2);
+  });
+
+  it('getDashboardStats calculates total due, debtor count, and daily stats', () => {
+    recordTransaction(db, { phone: '8801700000004', name: 'Stats User', type: 'BILL', amount: 600, rawText: 'bill' });
+    recordTransaction(db, { phone: '8801700000004', type: 'PAYMENT', amount: 200, rawText: 'pay' });
+
+    const stats = getDashboardStats(db);
+    assert.strictEqual(stats.totalDue, 400);
+    assert.strictEqual(stats.debtorsCount, 1);
+    assert.strictEqual(stats.totalCustomers, 1);
+    assert.strictEqual(stats.todayBilled, 600);
+    assert.strictEqual(stats.todayCollected, 200);
+    assert.strictEqual(stats.todayTransactionsCount, 2);
   });
 });

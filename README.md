@@ -122,6 +122,17 @@ If a bill was sent by mistake (either manually or automatically after sending an
   [REVOKE] Unsent message detected. Removed BILL of 400 BDT for +88017XXXXXXXX. New due: 0 BDT
   ```
 
+### 5. Official Paper-Style Mobile Web Dashboard
+Open `http://localhost:3000` (or your PC's local network IP on mobile) to view the ledger:
+- **Paper Ledger Aesthetic**: Ultra-minimal, black-and-white official printed document styling. High contrast, clean monospaced tabular figures, and zero visual clutter.
+- **Top Summary Matrix**: Instant overview of Total Outstanding Due, Active Debtors, Today's Collections, and Today's Billing.
+- **Instant Search & Filter**: Filter by customer phone or name in real-time.
+- **One-Tap Mobile Actions**:
+  - `[ 📞 CALL ]`: Opens phone dialer directly.
+  - `[ 💬 WHATSAPP ]`: Opens WhatsApp chat with a pre-filled polite due balance reminder.
+  - `[ 📄 STATEMENT ]`: Displays an official printed voucher modal with line-by-line debit, credit, and running balance.
+- **Print / PDF Export**: Built-in `@media print` styling to print physical A4/receipt slips or save as PDF.
+
 ---
 
 ## ⚙️ Configuration & Environment Variables
@@ -132,6 +143,7 @@ The application comes with sensible defaults and supports optional environment v
 | :--- | :--- | :--- |
 | `DB_PATH` | `./data/ledger.db` | Path to the SQLite ledger database file. |
 | `AUTH_DATA_PATH` | `./.wwebjs_auth` | Path to the WhatsApp session storage directory. |
+| `PORT` | `3000` | HTTP port for the Mobile Web Dashboard. |
 
 ---
 

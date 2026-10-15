@@ -1,13 +1,17 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
-const { DB_PATH, AUTH_DATA_PATH } = require('./src/config');
+const { DB_PATH, AUTH_DATA_PATH, PORT } = require('./src/config');
 const { initDb } = require('./src/db');
 const { setupBotHandlers } = require('./src/bot');
+const { startWebServer } = require('./src/server');
 
 console.log('🚀 Starting WhatsApp Business Ledger Bot...');
 console.log(`📁 Database path: ${DB_PATH}`);
 console.log(`📁 Auth storage: ${AUTH_DATA_PATH}`);
 
 const db = initDb(DB_PATH);
+
+// Start the official paper-styled mobile web dashboard
+const server = startWebServer({ db, port: PORT });
 
 const client = new Client({
   authStrategy: new LocalAuth({
@@ -26,6 +30,9 @@ const handleShutdown = async (signal) => {
   if (isShuttingDown) return;
   isShuttingDown = true;
   console.log(`\nGracefully shutting down (${signal})...`);
+  try {
+    server.close();
+  } catch {}
   try {
     await client.destroy();
   } catch {}
