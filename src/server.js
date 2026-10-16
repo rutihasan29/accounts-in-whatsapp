@@ -2,6 +2,7 @@ const http = require('http');
 const url = require('url');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const {
   getDueList,
   getCustomerSummary,
@@ -12,7 +13,6 @@ const {
 const { PORT } = require('./config');
 
 const DASHBOARD_HTML_PATH = path.join(__dirname, 'dashboard.html');
-let cachedHtml = null;
 
 function escapeHtml(str) {
   if (!str) return '';
@@ -24,15 +24,38 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
-function renderHtmlPage() {
-  if (!cachedHtml || process.env.NODE_ENV !== 'production') {
-    cachedHtml = fs.readFileSync(DASHBOARD_HTML_PATH, 'utf8');
+function getNetworkIps() {
+  const nets = os.networkInterfaces();
+  const ips = [];
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name]) {
+      if (net.family === 'IPv4' && !net.internal) {
+        ips.push({ name, address: net.address });
+      }
+    }
   }
-  return cachedHtml;
+  return ips;
+}
+
+function renderHtmlPage(options = {}) {
+  const db = options.db;
+  let html = fs.readFileSync(DASHBOARD_HTML_PATH, 'utf8');
+
+  if (db) {
+    try {
+      const stats = getDashboardStats(db);
+      const customers = getAllCustomersSummary(db);
+      const initialJson = JSON.stringify({ stats, customers });
+      html = html.replace('/*__INITIAL_DATA__*/', `window.__INITIAL_DATA__ = ${initialJson};`);
+    } catch (e) {
+      console.error('Error pre-rendering initial data in dashboard:', e.message);
+    }
+  }
+  return html;
 }
 
 function renderPrintableStatement({ summary, transactions }) {
-  const custName = summary?.name || 'Customer';
+  const custName = summary?.name || 'Client';
   const custPhone = summary?.phone_number || '';
   const cleanPhone = custPhone.replace(/\D/g, '');
   const totalBill = summary?.total_bill || 0;
@@ -50,7 +73,7 @@ function renderPrintableStatement({ summary, transactions }) {
     return `
       <tr>
         <td>${escapeHtml(dateFormatted)}</td>
-        <td>${escapeHtml(t.raw_text || (isBill ? 'Bill' : 'Payment'))}</td>
+        <td>${escapeHtml(t.raw_text || (isBill ? 'Audio Bill' : 'Payment'))}</td>
         <td class="num">${dr}</td>
         <td class="num">${cr}</td>
         <td class="num"><strong>${bal}</strong></td>
@@ -142,18 +165,18 @@ function renderPrintableStatement({ summary, transactions }) {
 </head>
 <body>
   <div class="header">
-    <h1>MUNNI DRESSES &bull; STATEMENT OF ACCOUNT</h1>
-    <div>OFFICIAL AUDIT COPY &bull; EMBROIDERY &amp; FABRICS</div>
+    <h1>MUNNI SOFT &bull; STATEMENT OF ACCOUNT</h1>
+    <div>OFFICIAL CLIENT COPY &bull; VOICE &amp; AUDIO DISPATCH SERVICES</div>
   </div>
 
   <div class="details">
     <div>
-      <strong>CUSTOMER:</strong> ${escapeHtml(custName)}<br>
+      <strong>CLIENT:</strong> ${escapeHtml(custName)}<br>
       <strong>PHONE:</strong> +${escapeHtml(custPhone)}
     </div>
     <div style="text-align: right;">
       <strong>DATE:</strong> ${new Date().toLocaleDateString('en-GB')}<br>
-      <strong>SYSTEM ID:</strong> ${escapeHtml(cleanPhone)}
+      <strong>CLIENT ID:</strong> ${escapeHtml(cleanPhone)}
     </div>
   </div>
 
@@ -161,7 +184,7 @@ function renderPrintableStatement({ summary, transactions }) {
     <thead>
       <tr>
         <th style="width: 20%;">DATE</th>
-        <th>PARTICULAR</th>
+        <th>PARTICULAR / DETAILS</th>
         <th class="num" style="width: 18%;">BILL (DR)</th>
         <th class="num" style="width: 18%;">PAID (CR)</th>
         <th class="num" style="width: 20%;">BALANCE</th>
@@ -267,10 +290,10 @@ function startWebServer({ db, port = PORT }) {
       return;
     }
 
-    // Main Single Page Mobile Dashboard
+    // Main Single Page Mobile Dashboard (with pre-rendered initial data)
     if (pathname === '/' && method === 'GET') {
       try {
-        const html = renderHtmlPage();
+        const html = renderHtmlPage({ db });
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(html);
       } catch (err) {
@@ -286,7 +309,12 @@ function startWebServer({ db, port = PORT }) {
   });
 
   server.listen(port, () => {
-    console.log(`📄 Official Ledger Web Dashboard running at http://localhost:${port}`);
+    const netIps = getNetworkIps();
+    console.log(`📄 Official Ledger Web Dashboard running:`);
+    console.log(`   > Local:   http://localhost:${port}`);
+    netIps.forEach(net => {
+      console.log(`   > ${net.name}: http://${net.address}:${port} (Mobile access)`);
+    });
   });
 
   return server;

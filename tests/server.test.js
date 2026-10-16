@@ -76,8 +76,7 @@ describe('Web Server & Frontend Endpoints', () => {
     const res = await makeRequest(`${baseUrl}/`);
     assert.strictEqual(res.statusCode, 200);
     assert.ok(res.headers['content-type'].includes('text/html'));
-    assert.ok(res.body.includes('MUNNI DRESSES'));
-    assert.ok(res.body.includes('OFFICIAL BUSINESS ACCOUNTS'));
+    assert.ok(res.body.includes('MUNNI SOFT'));
     assert.ok(res.body.includes('STATEMENT OF ACCOUNT'));
     assert.ok(res.body.includes('PRINT / PDF'));
   });

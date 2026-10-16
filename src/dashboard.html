@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>OFFICIAL BUSINESS LEDGER &bull; MUNNI DRESSES</title>
+  <title>OFFICIAL BUSINESS LEDGER &bull; MUNNI SOFT</title>
   <style>
     /* -------------------------------------------------------------
        OFFICIAL PRINTED DOCUMENT / PAPER LEDGER STYLING
@@ -71,6 +71,11 @@
 
     .divider-solid {
       border-top: 1px solid var(--border);
+      margin: 10px 0;
+    }
+
+    .divider-dashed {
+      border-top: 1px dashed var(--border);
       margin: 10px 0;
     }
 
@@ -375,8 +380,8 @@
   <div class="doc-sheet">
     <!-- Official Document Header -->
     <div class="doc-header">
-      <h1>MUNNI DRESSES &bull; LEDGER</h1>
-      <div class="sub">OFFICIAL BUSINESS ACCOUNTS &bull; AUDIT SYSTEM</div>
+      <h1>MUNNI SOFT &bull; লেজার খাতা</h1>
+      <div class="sub">VOICE &amp; AUDIO DISPATCH LEDGER &bull; AUDIT SYSTEM</div>
       <div class="sub" id="clock-display" style="font-size: 11px; margin-top: 4px;">DATE: --</div>
     </div>
 
@@ -404,11 +409,11 @@
 
     <!-- Controls: Search & Tabs -->
     <div class="controls">
-      <input type="text" id="search-box" class="search-input" placeholder="[ Type phone or name to filter... ]" autocomplete="off" spellcheck="false">
+      <input type="text" id="search-box" class="search-input" placeholder="[ Type phone, name or client ID... ]" autocomplete="off" spellcheck="false">
       
       <div class="tabs">
         <button class="tab-btn active" data-tab="due" onclick="setTab('due')">DUE LIST (<span id="count-due">0</span>)</button>
-        <button class="tab-btn" data-tab="all" onclick="setTab('all')">ALL CUSTOMERS (<span id="count-all">0</span>)</button>
+        <button class="tab-btn" data-tab="all" onclick="setTab('all')">ALL CLIENTS (<span id="count-all">0</span>)</button>
         <button class="tab-btn" data-tab="paid" onclick="setTab('paid')">PAID / CLEAR</button>
       </div>
     </div>
@@ -429,11 +434,11 @@
     <div class="statement-sheet">
       <div class="doc-header">
         <h1>STATEMENT OF ACCOUNT</h1>
-        <div class="sub">MUNNI DRESSES &bull; EMBROIDERY &amp; FABRICS</div>
+        <div class="sub">MUNNI SOFT &bull; VOICE &amp; AUDIO DISPATCH SERVICES</div>
         <div class="divider-solid"></div>
         <div style="display: flex; justify-content: space-between; font-size: 12px; margin-top: 6px; text-align: left;">
           <div>
-            <strong>CUSTOMER:</strong> <span id="modal-cust-name">--</span><br>
+            <strong>CLIENT / REPORTER:</strong> <span id="modal-cust-name">--</span><br>
             <strong>PHONE:</strong> <span id="modal-cust-phone">--</span>
           </div>
           <div style="text-align: right;">
@@ -473,7 +478,8 @@
   </div>
 
   <script>
-    let allCustomers = [];
+    /*__INITIAL_DATA__*/
+    let allCustomers = (window.__INITIAL_DATA__ && window.__INITIAL_DATA__.customers) || [];
     let currentTab = 'due';
     let currentFilterText = '';
 
@@ -513,14 +519,19 @@
     setInterval(updateClock, 1000);
     updateClock();
 
+    function applyStats(data) {
+      if (!data) return;
+      document.getElementById('sum-total-due').innerText = '৳ ' + formatNumber(data.totalDue);
+      document.getElementById('sum-debtors-count').innerText = data.debtorsCount + ' Person' + (data.debtorsCount === 1 ? '' : 's');
+      document.getElementById('sum-today-collected').innerText = '৳ ' + formatNumber(data.todayCollected);
+      document.getElementById('sum-today-billed').innerText = '৳ ' + formatNumber(data.todayBilled);
+    }
+
     async function loadStats() {
       try {
         const res = await fetch('/api/stats');
         const data = await res.json();
-        document.getElementById('sum-total-due').innerText = '৳ ' + formatNumber(data.totalDue);
-        document.getElementById('sum-debtors-count').innerText = data.debtorsCount + ' Person' + (data.debtorsCount === 1 ? '' : 's');
-        document.getElementById('sum-today-collected').innerText = '৳ ' + formatNumber(data.todayCollected);
-        document.getElementById('sum-today-billed').innerText = '৳ ' + formatNumber(data.todayBilled);
+        applyStats(data);
       } catch (err) {
         console.error('Failed to load stats:', err);
       }
@@ -532,8 +543,10 @@
         allCustomers = await res.json();
         renderCustomerList();
       } catch (err) {
-        document.getElementById('customer-container').innerHTML = 
-          '<div class="empty-state">Error loading ledger records. Please refresh.</div>';
+        if (!allCustomers || allCustomers.length === 0) {
+          document.getElementById('customer-container').innerHTML = 
+            '<div class="empty-state">Error loading ledger records. Please refresh.</div>';
+        }
       }
     }
 
@@ -570,20 +583,20 @@
       }
 
       if (list.length === 0) {
-        container.innerHTML = '<div class="empty-state">No matching accounts found.</div>';
+        container.innerHTML = '<div class="empty-state">No matching client accounts found.</div>';
         return;
       }
 
       container.innerHTML = list.map((cust, idx) => {
-        const cleanPhone = cust.phone_number.replace(/\\D/g, '');
-        const displayName = cust.name ? cust.name : 'Customer';
+        const cleanPhone = cust.phone_number.replace(/\D/g, '');
+        const displayName = cust.name ? cust.name : 'Client';
         const dueVal = cust.due_amount || 0;
         const dueFormatted = '৳ ' + formatNumber(dueVal);
         const lastAct = cust.last_activity ? formatDate(cust.last_activity) : 'No recent transactions';
 
         const waText = encodeURIComponent(
           'আসসালামু আলাইকুম ' + (cust.name ? cust.name + ', ' : '') + 
-          'মুন্নী ড্রেসেস থেকে আপনার বকেয়া হিসাব: মোট বকেয়া ' + dueVal + ' টাকা।'
+          'মুন্নী সফট থেকে আপনার অডিও ও বিলের বকেয়া হিসাব: মোট বকেয়া ৳ ' + dueVal + ' টাকা।'
         );
 
         return '' +
@@ -604,7 +617,7 @@
             '<div class="actions-grid">' +
               '<a href="tel:+' + cleanPhone + '" class="btn">📞 CALL</a>' +
               '<a href="https://wa.me/' + cleanPhone + '?text=' + waText + '" target="_blank" class="btn">💬 WHATSAPP</a>' +
-              '<button class="btn btn-solid" onclick="openStatement(\\'' + escapeHtml(cust.phone_number) + '\\')">📄 STATEMENT</button>' +
+              '<button class="btn btn-solid" onclick="openStatement(\'' + escapeHtml(cust.phone_number) + '\')">📄 STATEMENT</button>' +
             '</div>' +
           '</div>';
       }).join('');
@@ -617,17 +630,17 @@
         const summary = data.summary || {};
         const transactions = data.transactions || [];
 
-        document.getElementById('modal-cust-name').innerText = summary.name || 'Customer';
+        document.getElementById('modal-cust-name').innerText = summary.name || 'Client';
         document.getElementById('modal-cust-phone').innerText = '+' + summary.phone_number;
         document.getElementById('modal-date').innerText = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
         document.getElementById('modal-grand-total').innerText = '৳ ' + formatNumber(summary.due_amount || 0);
 
-        const cleanPhone = (summary.phone_number || '').replace(/\\D/g, '');
+        const cleanPhone = (summary.phone_number || '').replace(/\D/g, '');
         const waText = encodeURIComponent(
           'আসসালামু আলাইকুম ' + (summary.name ? summary.name + ', ' : '') + 
-          'মুন্নী ড্রেসেস থেকে আপনার বকেয়া হিসাব:\\n' +
-          'মোট বিল: ৳ ' + formatNumber(summary.total_bill) + '\\n' +
-          'মোট পরিশোধ: ৳ ' + formatNumber(summary.total_paid) + '\\n' +
+          'মুন্নী সফট থেকে আপনার অডিও ও বিলের বকেয়া হিসাব:\n' +
+          'মোট বিল: ৳ ' + formatNumber(summary.total_bill) + '\n' +
+          'মোট পরিশোধ: ৳ ' + formatNumber(summary.total_paid) + '\n' +
           'মোট বর্তমান বকেয়া: ৳ ' + formatNumber(summary.due_amount) + ' টাকা।'
         );
         document.getElementById('modal-btn-wa').onclick = () => {
@@ -674,6 +687,16 @@
       currentFilterText = e.target.value;
       renderCustomerList();
     });
+
+    // Hydrate initial data if pre-rendered
+    if (window.__INITIAL_DATA__) {
+      if (window.__INITIAL_DATA__.stats) {
+        applyStats(window.__INITIAL_DATA__.stats);
+      }
+      if (window.__INITIAL_DATA__.customers) {
+        renderCustomerList();
+      }
+    }
 
     // Initial load and periodic refresh
     loadStats();
