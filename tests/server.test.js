@@ -79,6 +79,7 @@ describe('Web Server & Frontend Endpoints', () => {
     assert.ok(res.body.includes('NEWS VOICE'));
     assert.ok(res.body.includes('about-modal'));
     assert.ok(res.body.includes('about-btn'));
+    assert.ok(res.body.includes('copy-phone-btn'));
     assert.ok(res.body.includes('STATEMENT OF ACCOUNT'));
     assert.ok(res.body.includes('PRINT / PDF'));
   });

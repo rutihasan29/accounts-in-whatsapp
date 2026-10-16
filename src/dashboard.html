@@ -311,6 +311,38 @@
       font-size: 13px;
       color: var(--muted);
       margin-top: 2px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .copy-phone-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 1px 5px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      color: #000;
+      background: #FFF;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      text-transform: uppercase;
+      border-radius: 0;
+      line-height: 1.3;
+      transition: background 0.1s, color 0.1s;
+    }
+
+    .copy-phone-btn:hover {
+      background: #000;
+      color: #FFF;
+    }
+
+    .copy-phone-btn.copied {
+      background: #000;
+      color: #FFF;
     }
 
     .cust-due-box {
@@ -674,7 +706,7 @@
         <div style="display: flex; justify-content: space-between; font-size: 12px; margin-top: 6px; text-align: left;">
           <div>
             <strong>CLIENT / REPORTER:</strong> <span id="modal-cust-name">--</span><br>
-            <strong>PHONE:</strong> <span id="modal-cust-phone">--</span>
+            <strong>PHONE:</strong> <span id="modal-cust-phone">--</span> <button id="modal-copy-phone" type="button" class="copy-phone-btn" title="নম্বর কপি করুন">📋 কপি</button>
           </div>
           <div style="text-align: right;">
             <strong>REPORT DATE:</strong> <span id="modal-date">--</span><br>
@@ -1009,7 +1041,10 @@
             '<div class="customer-row-top">' +
               '<div class="cust-info">' +
                 '<div class="cust-name">' + toBengaliDigits(idx + 1) + '. ' + escapeHtml(displayName) + '</div>' +
-                '<div class="cust-phone">+' + escapeHtml(cust.phone_number) + '</div>' +
+                '<div class="cust-phone">' +
+                  '<span>+' + escapeHtml(cust.phone_number) + '</span>' +
+                  '<button type="button" class="copy-phone-btn" onclick="copyPhone(event, \'' + escapeHtml(cleanPhone) + '\')" title="নম্বর কপি করুন">📋 কপি</button>' +
+                '</div>' +
               '</div>' +
               '<div class="cust-due-box">' +
                 '<div class="cust-due-label">বর্তমান বকেয়া</div>' +
@@ -1050,6 +1085,11 @@
         }
 
         const cleanPhone = (summary.phone_number || '').replace(/\D/g, '');
+        const modalCopyBtn = document.getElementById('modal-copy-phone');
+        if (modalCopyBtn) {
+          modalCopyBtn.onclick = (e) => copyPhone(e, cleanPhone);
+        }
+
         const waText = encodeURIComponent(
           'আসসালামু আলাইকুম ' + (summary.name ? summary.name + ', ' : '') + 
           'নিউজ ভয়েস (News Voice) থেকে আপনার অডিও ও বিলের বকেয়া হিসাব:\n' +
@@ -1102,6 +1142,53 @@
 
     function closeAboutModal() {
       document.getElementById('about-modal').classList.remove('open');
+    }
+
+    function copyPhone(event, rawPhone) {
+      if (event) event.stopPropagation();
+      const btn = event ? event.currentTarget : null;
+      const clean = String(rawPhone || '').replace(/\D/g, '');
+      let textToCopy = clean;
+      if (clean.startsWith('8801') && clean.length === 13) {
+        textToCopy = '0' + clean.slice(2);
+      } else if (!clean.startsWith('0') && clean.length <= 11) {
+        textToCopy = '0' + clean;
+      }
+
+      function markCopied() {
+        if (!btn) return;
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '✓ কপি হয়েছে!';
+        btn.classList.add('copied');
+        setTimeout(() => {
+          btn.innerHTML = originalText;
+          btn.classList.remove('copied');
+        }, 1500);
+      }
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(textToCopy).then(markCopied).catch(() => {
+          fallbackCopy(textToCopy, markCopied);
+        });
+      } else {
+        fallbackCopy(textToCopy, markCopied);
+      }
+    }
+
+    function fallbackCopy(text, cb) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+        if (cb) cb();
+      } catch (err) {
+        console.error('Copy failed:', err);
+      }
+      document.body.removeChild(ta);
     }
 
     document.getElementById('statement-modal').addEventListener('click', (e) => {
