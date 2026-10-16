@@ -321,28 +321,31 @@
       display: inline-flex;
       align-items: center;
       gap: 3px;
-      padding: 1px 5px;
+      padding: 1px 4px;
       font-family: var(--font-mono);
-      font-size: 10px;
-      font-weight: 700;
-      color: #000;
-      background: #FFF;
-      border: 1px solid var(--border);
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--muted);
+      background: transparent;
+      border: 1px solid transparent;
       cursor: pointer;
-      text-transform: uppercase;
-      border-radius: 0;
-      line-height: 1.3;
-      transition: background 0.1s, color 0.1s;
+      border-radius: 2px;
+      line-height: 1;
+      opacity: 0.65;
+      transition: all 0.15s ease;
     }
 
     .copy-phone-btn:hover {
-      background: #000;
-      color: #FFF;
+      opacity: 1;
+      color: #000;
+      background: rgba(0, 0, 0, 0.06);
     }
 
     .copy-phone-btn.copied {
-      background: #000;
-      color: #FFF;
+      opacity: 1;
+      color: #000;
+      font-weight: 700;
+      background: rgba(0, 0, 0, 0.06);
     }
 
     .cust-due-box {
@@ -706,7 +709,7 @@
         <div style="display: flex; justify-content: space-between; font-size: 12px; margin-top: 6px; text-align: left;">
           <div>
             <strong>CLIENT / REPORTER:</strong> <span id="modal-cust-name">--</span><br>
-            <strong>PHONE:</strong> <span id="modal-cust-phone">--</span> <button id="modal-copy-phone" type="button" class="copy-phone-btn" title="নম্বর কপি করুন">📋 কপি</button>
+            <strong>PHONE:</strong> <span id="modal-cust-phone">--</span> <button id="modal-copy-phone" type="button" class="copy-phone-btn" title="নম্বর কপি করুন"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg> কপি</button>
           </div>
           <div style="text-align: right;">
             <strong>REPORT DATE:</strong> <span id="modal-date">--</span><br>
@@ -1043,7 +1046,9 @@
                 '<div class="cust-name">' + toBengaliDigits(idx + 1) + '. ' + escapeHtml(displayName) + '</div>' +
                 '<div class="cust-phone">' +
                   '<span>+' + escapeHtml(cust.phone_number) + '</span>' +
-                  '<button type="button" class="copy-phone-btn" onclick="copyPhone(event, \'' + escapeHtml(cleanPhone) + '\')" title="নম্বর কপি করুন">📋 কপি</button>' +
+                  '<button type="button" class="copy-phone-btn" onclick="copyPhone(event, \'' + escapeHtml(cleanPhone) + '\')" title="নম্বর কপি করুন">' +
+                    '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg> কপি' +
+                  '</button>' +
                 '</div>' +
               '</div>' +
               '<div class="cust-due-box">' +
@@ -1157,13 +1162,13 @@
 
       function markCopied() {
         if (!btn) return;
-        const originalText = btn.innerHTML;
-        btn.innerHTML = '✓ কপি হয়েছে!';
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><polyline points="20 6 9 17 4 12"></polyline></svg> কপি হয়েছে';
         btn.classList.add('copied');
         setTimeout(() => {
-          btn.innerHTML = originalText;
+          btn.innerHTML = originalHtml;
           btn.classList.remove('copied');
-        }, 1500);
+        }, 1200);
       }
 
       if (navigator.clipboard && navigator.clipboard.writeText) {
