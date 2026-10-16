@@ -6,3 +6,5 @@ data/*.db-wal
 data/*.db-shm
 .env
 npm-debug.log*
+cloudflared.exe
+ngrok.exe
