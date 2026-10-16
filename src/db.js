@@ -10,9 +10,14 @@ const STATEMENTS = {
       COALESCE(SUM(CASE WHEN t.type = 'BILL' THEN t.amount ELSE 0 END), 0) AS total_bill,
       COALESCE(SUM(CASE WHEN t.type = 'PAYMENT' THEN t.amount ELSE 0 END), 0) AS total_paid,
       (COALESCE(SUM(CASE WHEN t.type = 'BILL' THEN t.amount ELSE 0 END), 0) - 
-       COALESCE(SUM(CASE WHEN t.type = 'PAYMENT' THEN t.amount ELSE 0 END), 0)) AS due_amount
+       COALESCE(SUM(CASE WHEN t.type = 'PAYMENT' THEN t.amount ELSE 0 END), 0)) AS due_amount,
+      l.first_contact_at,
+      l.first_job_delivered_at,
+      l.conversion_duration_seconds,
+      l.first_job_type
     FROM customers c
     LEFT JOIN transactions t ON c.phone_number = t.phone_number
+    LEFT JOIN leads l ON c.phone_number = l.phone_number
     WHERE c.phone_number = ?
     GROUP BY c.phone_number
   `,
@@ -50,9 +55,14 @@ const STATEMENTS = {
       (COALESCE(SUM(CASE WHEN t.type = 'BILL' THEN t.amount ELSE 0 END), 0) - 
        COALESCE(SUM(CASE WHEN t.type = 'PAYMENT' THEN t.amount ELSE 0 END), 0)) AS due_amount,
       MAX(t.created_at) AS last_activity,
-      COUNT(t.id) AS transaction_count
+      COUNT(t.id) AS transaction_count,
+      l.first_contact_at,
+      l.first_job_delivered_at,
+      l.conversion_duration_seconds,
+      l.first_job_type
     FROM customers c
     LEFT JOIN transactions t ON c.phone_number = t.phone_number
+    LEFT JOIN leads l ON c.phone_number = l.phone_number
     GROUP BY c.phone_number
     ORDER BY due_amount DESC, last_activity DESC
   `,
@@ -111,8 +121,22 @@ function initDb(dbPath) {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS leads (
+      phone_number TEXT PRIMARY KEY,
+      name TEXT,
+      status TEXT DEFAULT 'PENDING',
+      first_contact_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      first_job_delivered_at DATETIME,
+      conversion_duration_seconds INTEGER,
+      first_job_type TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE INDEX IF NOT EXISTS idx_transactions_phone ON transactions(phone_number);
     CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type);
+    CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
+    CREATE INDEX IF NOT EXISTS idx_leads_first_contact ON leads(first_contact_at);
   `);
 
   // Ensure message_id, job_type, duration_seconds exist for pre-existing databases before indexing
@@ -148,6 +172,38 @@ function getCustomerSummary(db, phone) {
   return stmt.get(phone) || null;
 }
 
+function recordLead(db, { phone, name = null }) {
+  if (!phone) return null;
+
+  // Check if customer already exists in customers table
+  const existingCust = db.prepare('SELECT phone_number FROM customers WHERE phone_number = ?').get(phone);
+  if (existingCust) {
+    return { status: 'EXISTING_CUSTOMER', phone };
+  }
+
+  // Check if lead already exists in leads table
+  const existingLead = db.prepare('SELECT phone_number, status, first_contact_at FROM leads WHERE phone_number = ?').get(phone);
+  if (existingLead) {
+    if (name) {
+      db.prepare('UPDATE leads SET name = COALESCE(?, name), updated_at = CURRENT_TIMESTAMP WHERE phone_number = ?').run(name, phone);
+    }
+    return { status: 'EXISTING_LEAD', phone, isPending: existingLead.status === 'PENDING' };
+  }
+
+  // Insert brand new lead
+  db.prepare(`
+    INSERT INTO leads (phone_number, name, status, first_contact_at)
+    VALUES (?, ?, 'PENDING', CURRENT_TIMESTAMP)
+  `).run(phone, name);
+
+  return { status: 'NEW_LEAD', phone, name };
+}
+
+function getLead(db, phone) {
+  if (!phone) return null;
+  return db.prepare('SELECT * FROM leads WHERE phone_number = ?').get(phone) || null;
+}
+
 function recordTransaction(db, {
   phone,
   name = null,
@@ -177,6 +233,23 @@ function recordTransaction(db, {
         jt || null,
         ds !== null && ds !== undefined ? ds : null
       );
+
+      // If this transaction is a BILL, convert any pending lead
+      if (t === 'BILL') {
+        const lead = db.prepare("SELECT phone_number, first_contact_at, status FROM leads WHERE phone_number = ?").get(p);
+        if (lead && lead.status === 'PENDING') {
+          db.prepare(`
+            UPDATE leads
+            SET status = 'CONVERTED',
+                first_job_delivered_at = CURRENT_TIMESTAMP,
+                first_job_type = ?,
+                conversion_duration_seconds = MAX(0, CAST((strftime('%s', CURRENT_TIMESTAMP) - strftime('%s', first_contact_at)) AS INTEGER)),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE phone_number = ?
+          `).run(jt || 'voice', p);
+        }
+      }
+
       const summary = getCustomerSummary(db, p);
       return {
         transactionId: info.lastInsertRowid,
@@ -333,6 +406,41 @@ function getBusinessPerformanceMetrics(db) {
     };
   };
 
+  const getConversionMetrics = (dateCondition) => {
+    try {
+      const leadsCond = dateCondition.replace(/created_at/g, 'first_contact_at');
+      const leadsRow = db.prepare(`SELECT COUNT(*) AS count FROM leads WHERE ${leadsCond}`).get();
+      const leadsCount = leadsRow?.count || 0;
+
+      const convCond = dateCondition.replace(/created_at/g, 'first_job_delivered_at');
+      const convRow = db.prepare(`
+        SELECT 
+          COUNT(*) AS count,
+          AVG(conversion_duration_seconds) AS avg_duration
+        FROM leads 
+        WHERE status = 'CONVERTED' AND ${convCond}
+      `).get();
+      const convertedCount = convRow?.count || 0;
+      const avgDurationSeconds = Math.round(convRow?.avg_duration || 0);
+
+      let conversionRate = 0;
+      if (leadsCount > 0) {
+        conversionRate = Math.min(100, Math.round((convertedCount / leadsCount) * 100));
+      } else if (convertedCount > 0) {
+        conversionRate = 100;
+      }
+
+      return {
+        leadsCount,
+        convertedCount,
+        conversionRate,
+        avgDurationSeconds
+      };
+    } catch {
+      return { leadsCount: 0, convertedCount: 0, conversionRate: 0, avgDurationSeconds: 0 };
+    }
+  };
+
   // Daily: Today vs Yesterday
   const today = getMetricsForFilter("date(created_at, 'localtime') = date('now', 'localtime')");
   const yesterday = getMetricsForFilter("date(created_at, 'localtime') = date('now', 'localtime', '-1 day')");
@@ -354,7 +462,8 @@ function getBusinessPerformanceMetrics(db) {
       previousJobsCount: yesterday.jobsCount,
       previousGrossProfit: yesterday.grossProfit,
       jobsGrowth: calculateGrowthRate(today.jobsCount, yesterday.jobsCount),
-      profitGrowth: calculateGrowthRate(today.grossProfit, yesterday.grossProfit)
+      profitGrowth: calculateGrowthRate(today.grossProfit, yesterday.grossProfit),
+      conversion: getConversionMetrics("date(created_at, 'localtime') = date('now', 'localtime')")
     },
     weekly: {
       periodLabel: 'সাপ্তাহিক (চলতি সপ্তাহ)',
@@ -364,7 +473,8 @@ function getBusinessPerformanceMetrics(db) {
       previousJobsCount: lastWeek.jobsCount,
       previousGrossProfit: lastWeek.grossProfit,
       jobsGrowth: calculateGrowthRate(thisWeek.jobsCount, lastWeek.jobsCount),
-      profitGrowth: calculateGrowthRate(thisWeek.grossProfit, lastWeek.grossProfit)
+      profitGrowth: calculateGrowthRate(thisWeek.grossProfit, lastWeek.grossProfit),
+      conversion: getConversionMetrics("date(created_at, 'localtime') >= date('now', 'localtime', '-6 days')")
     },
     monthly: {
       periodLabel: 'মাসিক (চলতি মাস)',
@@ -374,7 +484,8 @@ function getBusinessPerformanceMetrics(db) {
       previousJobsCount: lastMonth.jobsCount,
       previousGrossProfit: lastMonth.grossProfit,
       jobsGrowth: calculateGrowthRate(thisMonth.jobsCount, lastMonth.jobsCount),
-      profitGrowth: calculateGrowthRate(thisMonth.grossProfit, lastMonth.grossProfit)
+      profitGrowth: calculateGrowthRate(thisMonth.grossProfit, lastMonth.grossProfit),
+      conversion: getConversionMetrics("strftime('%Y-%m', created_at, 'localtime') = strftime('%Y-%m', 'now', 'localtime')")
     }
   };
 }
@@ -410,6 +521,8 @@ function getDashboardStats(db) {
 module.exports = {
   initDb,
   recordTransaction,
+  recordLead,
+  getLead,
   updateTransactionMessageId,
   deleteTransactionByMessageId,
   getDueList,

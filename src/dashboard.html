@@ -129,8 +129,17 @@
 
     .perf-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr 1fr 1fr;
       gap: 8px;
+    }
+
+    @media (max-width: 600px) {
+      .perf-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+      .perf-card.span-mobile {
+        grid-column: span 2;
+      }
     }
 
     .perf-card {
@@ -516,6 +525,15 @@
           </div>
           <div class="perf-sub" id="perf-profit-sub">গতকালের তুলনায়</div>
         </div>
+
+        <div class="perf-card span-mobile">
+          <div class="perf-label">গ্রাহক রূপান্তর (CONVERSION)</div>
+          <div class="perf-value-row">
+            <span class="perf-main-value" id="perf-conv-rate">০%</span>
+            <span class="perf-growth-badge" id="perf-conv-ratio">(০/০ লিড)</span>
+          </div>
+          <div class="perf-sub" id="perf-conv-speed">গড় রূপান্তর: --</div>
+        </div>
       </div>
     </div>
 
@@ -579,6 +597,12 @@
             <strong>REPORT DATE:</strong> <span id="modal-date">--</span><br>
             <strong>STATUS:</strong> <span id="modal-status">ACTIVE</span>
           </div>
+        </div>
+        <div id="modal-conv-box" style="display: none; font-size: 11px; margin-top: 8px; padding: 6px 8px; border: 1px dashed var(--border); background: var(--paper-gray); text-align: left;">
+          <strong>রূপান্তর খতিয়ান (CONVERSION TIMELINE):</strong><br>
+          প্রথম যোগাযোগ: <span id="modal-first-contact">--</span> &bull; 
+          প্রথম ডেলিভারি: <span id="modal-first-delivery">--</span><br>
+          <strong>মোট রূপান্তর সময়: <span id="modal-conversion-time">--</span></strong>
         </div>
       </div>
 
@@ -653,6 +677,24 @@
       return toBengaliDigits(s) + ' সেকেন্ড';
     }
 
+    function formatTurnaroundBangla(sec) {
+      if (!sec || isNaN(sec) || sec <= 0) return '০ মিনিট';
+      const totalSec = Math.round(sec);
+      const m = Math.floor(totalSec / 60);
+      const h = Math.floor(m / 60);
+      const d = Math.floor(h / 24);
+      const remH = h % 24;
+      const remM = m % 60;
+
+      if (d > 0) {
+        return toBengaliDigits(d) + ' দিন ' + (remH > 0 ? toBengaliDigits(remH) + ' ঘণ্টা' : '');
+      }
+      if (h > 0) {
+        return toBengaliDigits(h) + ' ঘণ্টা ' + (remM > 0 ? toBengaliDigits(remM) + ' মি' : '');
+      }
+      return toBengaliDigits(Math.max(1, remM)) + ' মিনিট';
+    }
+
     function escapeHtml(str) {
       if (!str) return '';
       return String(str)
@@ -706,6 +748,12 @@
       
       document.getElementById('perf-profit-amount').innerText = '৳ ' + grossProfitBangla;
       document.getElementById('perf-profit-growth').innerText = formatGrowthBangla(metrics.profitGrowth);
+
+      const conv = metrics.conversion || { conversionRate: 0, leadsCount: 0, convertedCount: 0, avgDurationSeconds: 0 };
+      document.getElementById('perf-conv-rate').innerText = toBengaliDigits(conv.conversionRate || 0) + '%';
+      document.getElementById('perf-conv-ratio').innerText = '(' + toBengaliDigits(conv.convertedCount || 0) + '/' + toBengaliDigits(conv.leadsCount || 0) + ' লিড)';
+      const speedStr = conv.avgDurationSeconds > 0 ? formatTurnaroundBangla(conv.avgDurationSeconds) : '--';
+      document.getElementById('perf-conv-speed').innerText = 'গড় রূপান্তর: ' + speedStr;
 
       let prevLabel = 'গতকালের তুলনায়';
       if (currentPerfPeriod === 'weekly') prevLabel = 'গত সপ্তাহের তুলনায়';
@@ -800,6 +848,11 @@
           'মুন্নী সফট থেকে আপনার অডিও ও বিলের বকেয়া হিসাব: মোট বকেয়া ৳ ' + formatNumberBangla(dueVal) + ' টাকা।'
         );
 
+        let convInfo = '';
+        if (cust.conversion_duration_seconds && cust.conversion_duration_seconds > 0) {
+          convInfo = ' &bull; [রূপান্তর: ' + formatTurnaroundBangla(cust.conversion_duration_seconds) + ']';
+        }
+
         return '' +
           '<div class="customer-card">' +
             '<div class="customer-row-top">' +
@@ -813,7 +866,7 @@
               '</div>' +
             '</div>' +
             '<div class="cust-activity">' +
-              'সর্বশেষ হিসাব: ' + lastAct + ' &bull; ' + toBengaliDigits(cust.transaction_count || 0) + ' টি এন্ট্রি' +
+              'সর্বশেষ হিসাব: ' + lastAct + ' &bull; ' + toBengaliDigits(cust.transaction_count || 0) + ' টি এন্ট্রি' + convInfo +
             '</div>' +
             '<div class="actions-grid">' +
               '<a href="tel:+' + cleanPhone + '" class="btn">📞 কল</a>' +
@@ -835,6 +888,15 @@
         document.getElementById('modal-cust-phone').innerText = '+' + summary.phone_number;
         document.getElementById('modal-date').innerText = toBengaliDigits(new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }));
         document.getElementById('modal-grand-total').innerText = '৳ ' + formatNumberBangla(summary.due_amount || 0);
+
+        if (summary.first_contact_at && summary.first_job_delivered_at) {
+          document.getElementById('modal-conv-box').style.display = 'block';
+          document.getElementById('modal-first-contact').innerText = formatDate(summary.first_contact_at);
+          document.getElementById('modal-first-delivery').innerText = formatDate(summary.first_job_delivered_at);
+          document.getElementById('modal-conversion-time').innerText = formatTurnaroundBangla(summary.conversion_duration_seconds);
+        } else {
+          document.getElementById('modal-conv-box').style.display = 'none';
+        }
 
         const cleanPhone = (summary.phone_number || '').replace(/\D/g, '');
         const waText = encodeURIComponent(

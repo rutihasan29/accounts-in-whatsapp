@@ -109,6 +109,26 @@ function isAudioDocumentMessage(msg) {
   return isAudioExt || isAudioMime;
 }
 
+function isVideoDocumentMessage(msg) {
+  if (!msg || !msg.hasMedia) return false;
+
+  const filename = (msg.filename || msg.body || '').toLowerCase();
+  const mimetype = (msg.mimetype || '').toLowerCase();
+
+  const isVideoExt = (
+    filename.endsWith('.mp4') ||
+    filename.endsWith('.mov') ||
+    filename.endsWith('.mkv') ||
+    filename.endsWith('.avi') ||
+    filename.endsWith('.webm') ||
+    filename.endsWith('.3gp')
+  );
+
+  const isVideoMime = mimetype.startsWith('video/');
+
+  return (msg.type === 'video' || msg.type === 'document') && (isVideoExt || isVideoMime);
+}
+
 /**
  * Extracts duration using ffprobe binary
  */
@@ -454,6 +474,7 @@ module.exports = {
   calculateAudioBill,
   formatBillMessage,
   isAudioDocumentMessage,
+  isVideoDocumentMessage,
   getAudioDurationFromBuffer,
   getAudioDurationWithFFprobe,
   resolveAudioDuration

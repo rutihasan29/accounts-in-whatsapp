@@ -854,5 +854,109 @@ describe('Bot Message Router', () => {
       assert.ok(typeof registeredEvents['message_revoke_everyone'] === 'function', 'message_revoke_everyone listener should be registered');
     });
   });
+
+  describe('Lead Tracking & Conversion Funnel', () => {
+    it('records incoming message from new contact as a lead silently without replying', async () => {
+      const db = initDb(':memory:');
+      const client = {
+        info: { wid: { _serialized: '8801999999999@c.us' } },
+        getContactById: async () => ({ name: 'Prospective Client', pushname: 'Prospective Client' })
+      };
+
+      const msg = {
+        fromMe: false,
+        from: '8801755555555@c.us',
+        to: '8801999999999@c.us',
+        body: 'আসসালামু আলাইকুম, ভয়েস কি রেটে করেন?',
+        id: { remote: '8801755555555@c.us' }
+      };
+
+      const res = await handleMessageCreate({ msg, client, db });
+      assert.strictEqual(res.action, 'RECORDED_NEW_LEAD');
+      assert.strictEqual(res.details.phone, '8801755555555');
+
+      // Lead is in database as PENDING
+      const lead = db.prepare('SELECT * FROM leads WHERE phone_number = ?').get('8801755555555');
+      assert.ok(lead);
+      assert.strictEqual(lead.status, 'PENDING');
+      assert.ok(lead.first_contact_at);
+      assert.strictEqual(lead.first_job_delivered_at, null);
+
+      // Second message from same lead is ignored and does not overwrite first_contact_at
+      const msg2 = {
+        fromMe: false,
+        from: '8801755555555@c.us',
+        to: '8801999999999@c.us',
+        body: 'রেট কত জানাবেন প্লিজ',
+        id: { remote: '8801755555555@c.us' }
+      };
+      const res2 = await handleMessageCreate({ msg: msg2, client, db });
+      assert.strictEqual(res2.action, 'IGNORED_NOT_FROM_ME');
+    });
+
+    it('tracks outgoing video document and converts lead to customer upon subsequent bill', async () => {
+      const db = initDb(':memory:');
+      const client = {
+        info: { wid: { _serialized: '8801999999999@c.us' } },
+        getContactById: async () => ({ name: 'Video Client' })
+      };
+
+      // 1. Inbound lead contact
+      await handleMessageCreate({
+        msg: {
+          fromMe: false,
+          from: '8801766666666@c.us',
+          to: '8801999999999@c.us',
+          body: 'ভিডিও এডিটিং কাজ আছে',
+          id: { remote: '8801766666666@c.us' }
+        },
+        client,
+        db
+      });
+
+      // 2. Outgoing video dispatch
+      await handleMessageCreate({
+        msg: {
+          fromMe: true,
+          to: '8801766666666@c.us',
+          id: { remote: '8801766666666@c.us' },
+          hasMedia: true,
+          type: 'document',
+          filename: 'news_report.mp4',
+          mimetype: 'video/mp4'
+        },
+        client,
+        db
+      });
+
+      // 3. Bill sent for the video
+      const billRes = await handleMessageCreate({
+        msg: {
+          fromMe: true,
+          to: '8801766666666@c.us',
+          id: { remote: '8801766666666@c.us' },
+          body: 'বিল ৫০০ টাকা'
+        },
+        client,
+        db
+      });
+
+      assert.strictEqual(billRes.action, 'RECORDED_BILL');
+
+      // Lead is now converted to customer with first_job_type = 'video'
+      const lead = db.prepare('SELECT * FROM leads WHERE phone_number = ?').get('8801766666666');
+      assert.strictEqual(lead.status, 'CONVERTED');
+      assert.strictEqual(lead.first_job_type, 'video');
+      assert.ok(lead.first_job_delivered_at);
+      assert.ok(lead.conversion_duration_seconds >= 0);
+
+      // Customer summary includes conversion fields
+      const { getCustomerSummary } = require('../src/db');
+      const summary = getCustomerSummary(db, '8801766666666');
+      assert.strictEqual(summary.first_job_type, 'video');
+      assert.ok(summary.first_contact_at);
+      assert.ok(summary.first_job_delivered_at);
+    });
+  });
 });
 

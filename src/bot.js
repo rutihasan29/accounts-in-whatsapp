@@ -1,6 +1,7 @@
 const { parseMessage } = require('./parser');
 const {
   recordTransaction,
+  recordLead,
   updateTransactionMessageId,
   deleteTransactionByMessageId,
   getDueList,
@@ -9,6 +10,7 @@ const {
 } = require('./db');
 const {
   isAudioDocumentMessage,
+  isVideoDocumentMessage,
   getAudioDurationFromBuffer,
   formatAudioDuration,
   calculateAudioBill,
@@ -20,6 +22,7 @@ const qrcode = require('qrcode-terminal');
 // Track auto-sent bill messages to prevent duplicate ledger entries on message_create echo
 const sentAutoBillMsgIds = new Set();
 const pendingAutoBills = [];
+const recentOutboundJobTypes = new Map();
 
 const DIGITS_TO_BENGALI = {
   '0': '০', '1': '১', '2': '২', '3': '৩', '4': '৪',
@@ -78,10 +81,22 @@ function isSelfChat(msg, client) {
   const remoteUser = extractUser(msg.id?.remote);
   const fromUser = extractUser(msg.from);
 
+  // If the message is incoming (fromMe === false), it can only be a self-chat
+  // if it originated from our own account (e.g. multi-device sync from phone where fromUser === myUser).
+  if (msg.fromMe === false) {
+    if (fromUser && fromUser !== myUser) {
+      return false;
+    }
+    return (
+      (remoteUser && remoteUser === myUser) ||
+      (toUser && toUser === myUser)
+    );
+  }
+
+  // When fromMe is true: it's self-chat if addressed to myself
   return (
-    (toUser && toUser === myUser) ||
     (remoteUser && remoteUser === myUser) ||
-    (fromUser === myUser && (!toUser || toUser === myUser))
+    (toUser && toUser === myUser)
   );
 }
 
@@ -197,12 +212,53 @@ async function handleMessageCreate({ msg, client, db }) {
   const isSelf = isSelfChat(msg, client);
 
   if (!msg.fromMe && !isSelf) {
+    const rawSender = msg.from || msg.id?.remote || '';
+    if (rawSender.endsWith('@g.us')) {
+      return { action: 'IGNORED_GROUP' };
+    }
+
+    try {
+      const phone = await resolveCustomerPhone({ client, recipient: rawSender, msg });
+      if (phone) {
+        let contactName = null;
+        try {
+          if (client && typeof client.getContactById === 'function') {
+            const contact = await client.getContactById(rawSender);
+            contactName = contact?.name || contact?.pushname || null;
+          }
+        } catch {}
+
+        const leadRes = recordLead(db, { phone, name: contactName });
+        if (leadRes?.status === 'NEW_LEAD') {
+          console.log(`[LEAD] New lead recorded: +${phone}${contactName ? ` (${contactName})` : ''}`);
+          return { action: 'RECORDED_NEW_LEAD', details: { phone, name: contactName } };
+        }
+      }
+    } catch (err) {
+      console.warn('[LEAD] Error checking/recording lead:', err.message);
+    }
+
     return { action: 'IGNORED_NOT_FROM_ME' };
   }
 
   const recipient = msg.to || '';
   if (recipient.endsWith('@g.us') || msg.id?.remote?.endsWith('@g.us')) {
     return { action: 'IGNORED_GROUP' };
+  }
+
+  // Handle video document sent from our side
+  if (msg.fromMe && !isSelf && isVideoDocumentMessage(msg)) {
+    try {
+      const targetChat = msg.id?.remote || msg.to || msg.from;
+      const rawRecipient = recipient || targetChat;
+      const phone = await resolveCustomerPhone({ client, recipient: rawRecipient, msg });
+      if (phone) {
+        recentOutboundJobTypes.set(phone, { jobType: 'video', time: Date.now() });
+        console.log(`[VIDEO_DISPATCH] Outbound video tracked for +${phone}`);
+      }
+    } catch (err) {
+      console.warn('[VIDEO] Error tracking video document:', err.message);
+    }
   }
 
   // Handle audio document sent from our side
@@ -394,6 +450,14 @@ async function handleMessageCreate({ msg, client, db }) {
       }
     }
 
+    let jobType = 'voice';
+    if (parsed.type === 'BILL') {
+      const recentJob = recentOutboundJobTypes.get(phone);
+      if (recentJob && (Date.now() - recentJob.time < 30 * 60 * 1000)) {
+        jobType = recentJob.jobType;
+      }
+    }
+
     const msgId = msg.id?._serialized || msg.id?.id || (typeof msg.id === 'string' ? msg.id : null);
     const record = recordTransaction(db, {
       phone,
@@ -401,7 +465,8 @@ async function handleMessageCreate({ msg, client, db }) {
       type: parsed.type,
       amount: parsed.amount,
       rawText: parsed.rawText,
-      messageId: msgId
+      messageId: msgId,
+      jobType: parsed.type === 'BILL' ? jobType : null
     });
 
     console.log(`[${parsed.type}] ${parsed.amount} BDT recorded for +${phone}${contactName ? ` (${contactName})` : ''}. Current due: ${record.dueAmount} BDT`);

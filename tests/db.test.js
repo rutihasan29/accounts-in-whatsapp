@@ -3,6 +3,8 @@ const assert = require('node:assert');
 const {
   initDb,
   recordTransaction,
+  recordLead,
+  getLead,
   updateTransactionMessageId,
   deleteTransactionByMessageId,
   getDueList,
@@ -352,5 +354,66 @@ describe('Database Module', () => {
 
     assert.strictEqual(metrics.monthly.jobsCount, 2);
     assert.strictEqual(metrics.monthly.grossProfit, 90);
+  });
+
+  it('records new lead and ignores if contact is already customer or existing lead', () => {
+    // 1. Record a brand new lead
+    const res1 = recordLead(db, { phone: '8801811111111', name: 'New Reporter' });
+    assert.strictEqual(res1.status, 'NEW_LEAD');
+
+    const lead = getLead(db, '8801811111111');
+    assert.ok(lead);
+    assert.strictEqual(lead.status, 'PENDING');
+    assert.strictEqual(lead.name, 'New Reporter');
+    assert.ok(lead.first_contact_at);
+    assert.strictEqual(lead.first_job_delivered_at, null);
+
+    // 2. Duplicate lead message should return EXISTING_LEAD and not overwrite first_contact_at
+    const res2 = recordLead(db, { phone: '8801811111111', name: 'New Reporter Updated' });
+    assert.strictEqual(res2.status, 'EXISTING_LEAD');
+    const lead2 = getLead(db, '8801811111111');
+    assert.strictEqual(lead2.first_contact_at, lead.first_contact_at);
+
+    // 3. If contact is already an established customer, recordLead returns EXISTING_CUSTOMER
+    recordTransaction(db, { phone: '8801822222222', name: 'Cust 2', type: 'BILL', amount: 100, rawText: 'bill' });
+    const res3 = recordLead(db, { phone: '8801822222222' });
+    assert.strictEqual(res3.status, 'EXISTING_CUSTOMER');
+  });
+
+  it('converts pending lead to customer on first BILL transaction and sets conversion timestamps', () => {
+    // First, lead contacts us
+    recordLead(db, { phone: '8801833333333', name: 'Potential Client' });
+    const leadBefore = getLead(db, '8801833333333');
+    assert.strictEqual(leadBefore.status, 'PENDING');
+
+    // First job delivered and billed
+    recordTransaction(db, {
+      phone: '8801833333333',
+      name: 'Potential Client',
+      type: 'BILL',
+      amount: 100,
+      rawText: 'বিল ১০০ টাকা',
+      jobType: 'voice',
+      durationSeconds: 90
+    });
+
+    const leadAfter = getLead(db, '8801833333333');
+    assert.strictEqual(leadAfter.status, 'CONVERTED');
+    assert.ok(leadAfter.first_job_delivered_at);
+    assert.strictEqual(leadAfter.first_job_type, 'voice');
+    assert.ok(leadAfter.conversion_duration_seconds >= 0);
+
+    // Customer summary now has conversion details
+    const summary = getCustomerSummary(db, '8801833333333');
+    assert.strictEqual(summary.first_job_type, 'voice');
+    assert.ok(summary.first_contact_at);
+    assert.ok(summary.first_job_delivered_at);
+
+    // Performance metrics conversion section reflects this conversion
+    const metrics = getBusinessPerformanceMetrics(db);
+    assert.ok(metrics.daily.conversion);
+    assert.strictEqual(metrics.daily.conversion.leadsCount, 1);
+    assert.strictEqual(metrics.daily.conversion.convertedCount, 1);
+    assert.strictEqual(metrics.daily.conversion.conversionRate, 100);
   });
 });
