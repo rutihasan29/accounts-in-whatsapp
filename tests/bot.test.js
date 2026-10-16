@@ -448,6 +448,10 @@ describe('Bot Message Router', () => {
       assert.strictEqual(dues.length, 1);
       assert.strictEqual(dues[0].phone_number, '8801712345678');
       assert.strictEqual(dues[0].due_amount, 125);
+
+      const tx = db.prepare('SELECT * FROM transactions WHERE phone_number = ?').get('8801712345678');
+      assert.strictEqual(tx.job_type, 'voice');
+      assert.strictEqual(tx.duration_seconds, 135);
     });
 
     it('prevents duplicate recording when auto-sent bill message echoes back on message_create', async () => {

@@ -79,6 +79,108 @@
       margin: 10px 0;
     }
 
+    /* Business Performance Matrix (Paper Style) */
+    .perf-box {
+      border: 2px solid var(--border);
+      padding: 10px;
+      margin-bottom: 12px;
+      background: #FFFFFF;
+    }
+
+    .perf-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 6px;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .perf-title {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .perf-tabs {
+      display: flex;
+      gap: 4px;
+    }
+
+    .perf-tab-btn {
+      padding: 3px 8px;
+      border: 1px solid var(--border);
+      background: #FFF;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      border-radius: 0;
+      text-transform: uppercase;
+    }
+
+    .perf-tab-btn.active {
+      background: #000;
+      color: #FFF;
+    }
+
+    .perf-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .perf-card {
+      border: 1px solid var(--border);
+      padding: 8px 10px;
+      background: var(--paper-gray);
+    }
+
+    .perf-label {
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      color: var(--muted);
+      letter-spacing: 0.5px;
+    }
+
+    .perf-value-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      margin-top: 4px;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .perf-main-value {
+      font-size: 18px;
+      font-weight: 900;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .perf-main-value.highlight {
+      text-decoration: underline;
+    }
+
+    .perf-growth-badge {
+      font-size: 10px;
+      font-weight: 800;
+      padding: 1px 4px;
+      border: 1px solid var(--border);
+      background: #FFF;
+      white-space: nowrap;
+    }
+
+    .perf-sub {
+      font-size: 9px;
+      color: var(--muted);
+      margin-top: 3px;
+    }
+
     /* Summary Matrix */
     .summary-box {
       border: 1px solid var(--border);
@@ -385,36 +487,68 @@
       <div class="sub" id="clock-display" style="font-size: 11px; margin-top: 4px;">DATE: --</div>
     </div>
 
+    <!-- Business Performance KPI Matrix (Daily / Weekly / Monthly) -->
+    <div class="perf-box">
+      <div class="perf-header">
+        <div class="perf-title">ব্যবসায়িক পারফরম্যান্স (BUSINESS PERFORMANCE)</div>
+        <div class="perf-tabs">
+          <button class="perf-tab-btn active" data-period="daily" onclick="setPerfPeriod('daily')">দৈনিক</button>
+          <button class="perf-tab-btn" data-period="weekly" onclick="setPerfPeriod('weekly')">সাপ্তাহিক</button>
+          <button class="perf-tab-btn" data-period="monthly" onclick="setPerfPeriod('monthly')">মাসিক</button>
+        </div>
+      </div>
+      
+      <div class="perf-grid">
+        <div class="perf-card">
+          <div class="perf-label">মোট কাজ (TOTAL JOBS)</div>
+          <div class="perf-value-row">
+            <span class="perf-main-value" id="perf-jobs-count">০ টি</span>
+            <span class="perf-growth-badge" id="perf-jobs-growth">০%</span>
+          </div>
+          <div class="perf-sub" id="perf-jobs-sub">গতকালের তুলনায়</div>
+        </div>
+
+        <div class="perf-card">
+          <div class="perf-label">মোট মুনাফা (GROSS PROFIT - ৬০%)</div>
+          <div class="perf-value-row">
+            <span class="perf-main-value highlight" id="perf-profit-amount">৳ ০</span>
+            <span class="perf-growth-badge" id="perf-profit-growth">০%</span>
+          </div>
+          <div class="perf-sub" id="perf-profit-sub">গতকালের তুলনায়</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Top Summary Matrix -->
     <div class="summary-box">
       <div class="summary-grid">
         <div class="summary-item">
-          <span class="summary-label">Total Outstanding Due</span>
-          <span class="summary-value due" id="sum-total-due">৳ 0.00</span>
+          <span class="summary-label">মোট বকেয়া (TOTAL DUE)</span>
+          <span class="summary-value due" id="sum-total-due">৳ ০</span>
         </div>
         <div class="summary-item">
-          <span class="summary-label">Active Debtors</span>
-          <span class="summary-value" id="sum-debtors-count">0 Persons</span>
+          <span class="summary-label">বকেয়াদার (DEBTORS)</span>
+          <span class="summary-value" id="sum-debtors-count">০ জন</span>
         </div>
         <div class="summary-item">
-          <span class="summary-label">Today's Collection</span>
-          <span class="summary-value" id="sum-today-collected">৳ 0.00</span>
+          <span class="summary-label">আজকের আদায় (COLLECTED)</span>
+          <span class="summary-value" id="sum-today-collected">৳ ০</span>
         </div>
         <div class="summary-item">
-          <span class="summary-label">Today's Billing</span>
-          <span class="summary-value" id="sum-today-billed">৳ 0.00</span>
+          <span class="summary-label">আজকের বিল (BILLED)</span>
+          <span class="summary-value" id="sum-today-billed">৳ ০</span>
         </div>
       </div>
     </div>
 
     <!-- Controls: Search & Tabs -->
     <div class="controls">
-      <input type="text" id="search-box" class="search-input" placeholder="[ Type phone, name or client ID... ]" autocomplete="off" spellcheck="false">
+      <input type="text" id="search-box" class="search-input" placeholder="[ ফোন নম্বর, নাম বা ক্লায়েন্ট আইডি খুঁজুন... ]" autocomplete="off" spellcheck="false">
       
       <div class="tabs">
-        <button class="tab-btn active" data-tab="due" onclick="setTab('due')">DUE LIST (<span id="count-due">0</span>)</button>
-        <button class="tab-btn" data-tab="all" onclick="setTab('all')">ALL CLIENTS (<span id="count-all">0</span>)</button>
-        <button class="tab-btn" data-tab="paid" onclick="setTab('paid')">PAID / CLEAR</button>
+        <button class="tab-btn active" data-tab="due" onclick="setTab('due')">বকেয়া তালিকা (<span id="count-due">০</span>)</button>
+        <button class="tab-btn" data-tab="all" onclick="setTab('all')">সকল ক্লায়েন্ট (<span id="count-all">০</span>)</button>
+        <button class="tab-btn" data-tab="paid" onclick="setTab('paid')">পরিশোধিত</button>
       </div>
     </div>
 
@@ -480,8 +614,44 @@
   <script>
     /*__INITIAL_DATA__*/
     let allCustomers = (window.__INITIAL_DATA__ && window.__INITIAL_DATA__.customers) || [];
+    let performanceData = (window.__INITIAL_DATA__ && window.__INITIAL_DATA__.stats && window.__INITIAL_DATA__.stats.performance) || null;
     let currentTab = 'due';
+    let currentPerfPeriod = 'daily';
     let currentFilterText = '';
+
+    const BENGALI_DIGITS = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
+    function toBengaliDigits(num) {
+      if (num === null || num === undefined) return '০';
+      return String(num).replace(/[0-9]/g, (d) => BENGALI_DIGITS[Number(d)]);
+    }
+
+    function formatNumberBangla(num, fractionDigits = 2) {
+      if (num === null || num === undefined || isNaN(num)) return '০';
+      const formattedEn = Number(num).toLocaleString('en-US', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: fractionDigits
+      });
+      return toBengaliDigits(formattedEn);
+    }
+
+    function formatGrowthBangla(growth) {
+      if (growth === null || growth === undefined || isNaN(growth)) return '০%';
+      const val = Number(growth);
+      if (val === 0) return '০%';
+      const sign = val > 0 ? '+' : '';
+      return sign + toBengaliDigits(Math.abs(val).toFixed(1)) + '%' + (val > 0 ? ' বৃদ্ধি' : ' হ্রাস');
+    }
+
+    function toBengaliDuration(sec) {
+      if (!sec || isNaN(sec)) return '';
+      const totalSec = Math.round(sec);
+      const m = Math.floor(totalSec / 60);
+      const s = totalSec % 60;
+      if (m > 0) {
+        return toBengaliDigits(m) + ' মিনিট ' + toBengaliDigits(s) + ' সেকেন্ড';
+      }
+      return toBengaliDigits(s) + ' সেকেন্ড';
+    }
 
     function escapeHtml(str) {
       if (!str) return '';
@@ -493,18 +663,14 @@
         .replace(/'/g, '&#039;');
     }
 
-    function formatNumber(num) {
-      if (num === null || num === undefined) return '0.00';
-      return Number(num).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-    }
-
     function formatDate(dateStr) {
       if (!dateStr) return '--';
       try {
         const d = new Date(dateStr);
         if (isNaN(d.getTime())) return dateStr;
-        return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }) + ' ' + 
-               d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+        const enDate = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }) + ' ' + 
+                       d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+        return toBengaliDigits(enDate);
       } catch (e) {
         return dateStr;
       }
@@ -512,19 +678,54 @@
 
     function updateClock() {
       const now = new Date();
-      document.getElementById('clock-display').innerText = 
-        'DATE: ' + now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase() + 
-        ' | ' + now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+      const clockStr = 'DATE: ' + now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase() + 
+                       ' | ' + now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+      document.getElementById('clock-display').innerText = toBengaliDigits(clockStr);
     }
     setInterval(updateClock, 1000);
     updateClock();
 
+    function setPerfPeriod(period) {
+      currentPerfPeriod = period;
+      document.querySelectorAll('.perf-tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.period === period);
+      });
+      renderPerformanceMetrics();
+    }
+
+    function renderPerformanceMetrics() {
+      if (!performanceData) return;
+      const metrics = performanceData[currentPerfPeriod] || performanceData.daily;
+      if (!metrics) return;
+
+      const jobsCountBangla = toBengaliDigits(metrics.jobsCount || 0);
+      const grossProfitBangla = formatNumberBangla(metrics.grossProfit || 0);
+
+      document.getElementById('perf-jobs-count').innerText = jobsCountBangla + ' টি';
+      document.getElementById('perf-jobs-growth').innerText = formatGrowthBangla(metrics.jobsGrowth);
+      
+      document.getElementById('perf-profit-amount').innerText = '৳ ' + grossProfitBangla;
+      document.getElementById('perf-profit-growth').innerText = formatGrowthBangla(metrics.profitGrowth);
+
+      let prevLabel = 'গতকালের তুলনায়';
+      if (currentPerfPeriod === 'weekly') prevLabel = 'গত সপ্তাহের তুলনায়';
+      if (currentPerfPeriod === 'monthly') prevLabel = 'গত মাসের তুলনায়';
+
+      document.getElementById('perf-jobs-sub').innerText = prevLabel;
+      document.getElementById('perf-profit-sub').innerText = prevLabel;
+    }
+
     function applyStats(data) {
       if (!data) return;
-      document.getElementById('sum-total-due').innerText = '৳ ' + formatNumber(data.totalDue);
-      document.getElementById('sum-debtors-count').innerText = data.debtorsCount + ' Person' + (data.debtorsCount === 1 ? '' : 's');
-      document.getElementById('sum-today-collected').innerText = '৳ ' + formatNumber(data.todayCollected);
-      document.getElementById('sum-today-billed').innerText = '৳ ' + formatNumber(data.todayBilled);
+      document.getElementById('sum-total-due').innerText = '৳ ' + formatNumberBangla(data.totalDue);
+      document.getElementById('sum-debtors-count').innerText = toBengaliDigits(data.debtorsCount) + ' জন';
+      document.getElementById('sum-today-collected').innerText = '৳ ' + formatNumberBangla(data.todayCollected);
+      document.getElementById('sum-today-billed').innerText = '৳ ' + formatNumberBangla(data.todayBilled);
+
+      if (data.performance) {
+        performanceData = data.performance;
+        renderPerformanceMetrics();
+      }
     }
 
     async function loadStats() {
@@ -545,7 +746,7 @@
       } catch (err) {
         if (!allCustomers || allCustomers.length === 0) {
           document.getElementById('customer-container').innerHTML = 
-            '<div class="empty-state">Error loading ledger records. Please refresh.</div>';
+            '<div class="empty-state">খতিয়ান রেকর্ড লোড করতে সমস্যা হয়েছে। অনুগ্রহ করে রিফ্রেশ করুন।</div>';
         }
       }
     }
@@ -565,8 +766,8 @@
       const dueCustomers = allCustomers.filter(c => (c.due_amount || 0) > 0);
       const paidCustomers = allCustomers.filter(c => (c.due_amount || 0) <= 0);
 
-      document.getElementById('count-due').innerText = dueCustomers.length;
-      document.getElementById('count-all').innerText = allCustomers.length;
+      document.getElementById('count-due').innerText = toBengaliDigits(dueCustomers.length);
+      document.getElementById('count-all').innerText = toBengaliDigits(allCustomers.length);
 
       let list = allCustomers;
       if (currentTab === 'due') {
@@ -583,41 +784,41 @@
       }
 
       if (list.length === 0) {
-        container.innerHTML = '<div class="empty-state">No matching client accounts found.</div>';
+        container.innerHTML = '<div class="empty-state">কোন মিল পাওয়া যায়নি।</div>';
         return;
       }
 
       container.innerHTML = list.map((cust, idx) => {
         const cleanPhone = cust.phone_number.replace(/\D/g, '');
-        const displayName = cust.name ? cust.name : 'Client';
+        const displayName = cust.name ? cust.name : 'ক্লায়েন্ট';
         const dueVal = cust.due_amount || 0;
-        const dueFormatted = '৳ ' + formatNumber(dueVal);
-        const lastAct = cust.last_activity ? formatDate(cust.last_activity) : 'No recent transactions';
+        const dueFormatted = '৳ ' + formatNumberBangla(dueVal);
+        const lastAct = cust.last_activity ? formatDate(cust.last_activity) : 'কোন লেনদেন নেই';
 
         const waText = encodeURIComponent(
           'আসসালামু আলাইকুম ' + (cust.name ? cust.name + ', ' : '') + 
-          'মুন্নী সফট থেকে আপনার অডিও ও বিলের বকেয়া হিসাব: মোট বকেয়া ৳ ' + dueVal + ' টাকা।'
+          'মুন্নী সফট থেকে আপনার অডিও ও বিলের বকেয়া হিসাব: মোট বকেয়া ৳ ' + formatNumberBangla(dueVal) + ' টাকা।'
         );
 
         return '' +
           '<div class="customer-card">' +
             '<div class="customer-row-top">' +
               '<div class="cust-info">' +
-                '<div class="cust-name">' + (idx + 1) + '. ' + escapeHtml(displayName) + '</div>' +
+                '<div class="cust-name">' + toBengaliDigits(idx + 1) + '. ' + escapeHtml(displayName) + '</div>' +
                 '<div class="cust-phone">+' + escapeHtml(cust.phone_number) + '</div>' +
               '</div>' +
               '<div class="cust-due-box">' +
-                '<div class="cust-due-label">Current Due</div>' +
+                '<div class="cust-due-label">বর্তমান বকেয়া</div>' +
                 '<div class="cust-due-amount">' + dueFormatted + '</div>' +
               '</div>' +
             '</div>' +
             '<div class="cust-activity">' +
-              'LAST ACTIVITY: ' + lastAct + ' &bull; ' + (cust.transaction_count || 0) + ' Entries' +
+              'সর্বশেষ হিসাব: ' + lastAct + ' &bull; ' + toBengaliDigits(cust.transaction_count || 0) + ' টি এন্ট্রি' +
             '</div>' +
             '<div class="actions-grid">' +
-              '<a href="tel:+' + cleanPhone + '" class="btn">📞 CALL</a>' +
-              '<a href="https://wa.me/' + cleanPhone + '?text=' + waText + '" target="_blank" class="btn">💬 WHATSAPP</a>' +
-              '<button class="btn btn-solid" onclick="openStatement(\'' + escapeHtml(cust.phone_number) + '\')">📄 STATEMENT</button>' +
+              '<a href="tel:+' + cleanPhone + '" class="btn">📞 কল</a>' +
+              '<a href="https://wa.me/' + cleanPhone + '?text=' + waText + '" target="_blank" class="btn">💬 হোয়াটসঅ্যাপ</a>' +
+              '<button class="btn btn-solid" onclick="openStatement(\'' + escapeHtml(cust.phone_number) + '\')">📄 হিসাব রশিদ</button>' +
             '</div>' +
           '</div>';
       }).join('');
@@ -630,18 +831,18 @@
         const summary = data.summary || {};
         const transactions = data.transactions || [];
 
-        document.getElementById('modal-cust-name').innerText = summary.name || 'Client';
+        document.getElementById('modal-cust-name').innerText = summary.name || 'ক্লায়েন্ট';
         document.getElementById('modal-cust-phone').innerText = '+' + summary.phone_number;
-        document.getElementById('modal-date').innerText = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-        document.getElementById('modal-grand-total').innerText = '৳ ' + formatNumber(summary.due_amount || 0);
+        document.getElementById('modal-date').innerText = toBengaliDigits(new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }));
+        document.getElementById('modal-grand-total').innerText = '৳ ' + formatNumberBangla(summary.due_amount || 0);
 
         const cleanPhone = (summary.phone_number || '').replace(/\D/g, '');
         const waText = encodeURIComponent(
           'আসসালামু আলাইকুম ' + (summary.name ? summary.name + ', ' : '') + 
           'মুন্নী সফট থেকে আপনার অডিও ও বিলের বকেয়া হিসাব:\n' +
-          'মোট বিল: ৳ ' + formatNumber(summary.total_bill) + '\n' +
-          'মোট পরিশোধ: ৳ ' + formatNumber(summary.total_paid) + '\n' +
-          'মোট বর্তমান বকেয়া: ৳ ' + formatNumber(summary.due_amount) + ' টাকা।'
+          'মোট বিল: ৳ ' + formatNumberBangla(summary.total_bill) + '\n' +
+          'মোট পরিশোধ: ৳ ' + formatNumberBangla(summary.total_paid) + '\n' +
+          'মোট বর্তমান বকেয়া: ৳ ' + formatNumberBangla(summary.due_amount) + ' টাকা।'
         );
         document.getElementById('modal-btn-wa').onclick = () => {
           window.open('https://wa.me/' + cleanPhone + '?text=' + waText, '_blank');
@@ -649,15 +850,18 @@
 
         const tbody = document.getElementById('statement-rows');
         if (transactions.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 16px;">No transactions recorded yet.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 16px;">এখনও কোন লেনদেন রেকর্ড হয়নি।</td></tr>';
         } else {
           tbody.innerHTML = transactions.map((t) => {
             const isBill = t.type === 'BILL';
-            const dr = isBill ? formatNumber(t.amount) : '--';
-            const cr = !isBill ? formatNumber(t.amount) : '--';
-            const bal = formatNumber(t.running_balance);
+            const dr = isBill ? formatNumberBangla(t.amount) : '--';
+            const cr = !isBill ? formatNumberBangla(t.amount) : '--';
+            const bal = formatNumberBangla(t.running_balance);
             const dateStr = formatDate(t.created_at);
-            const rawNote = t.raw_text ? escapeHtml(t.raw_text) : (isBill ? 'Bill' : 'Payment');
+            let rawNote = t.raw_text ? escapeHtml(t.raw_text) : (isBill ? 'বিল' : 'পরিশোধ');
+            if (t.job_type === 'voice' && t.duration_seconds) {
+              rawNote += ' (' + toBengaliDuration(t.duration_seconds) + ')';
+            }
 
             return '<tr>' +
               '<td style="white-space: nowrap;">' + dateStr.split(' ')[0] + '</td>' +
@@ -671,7 +875,7 @@
 
         document.getElementById('statement-modal').classList.add('open');
       } catch (err) {
-        alert('Failed to load statement: ' + err.message);
+        alert('হিসাব রশিদ লোড করতে সমস্যা হয়েছে: ' + err.message);
       }
     }
 

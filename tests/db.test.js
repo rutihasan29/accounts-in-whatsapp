@@ -10,6 +10,8 @@ const {
   getCustomerTransactions,
   getAllCustomersSummary,
   getDashboardStats,
+  getBusinessPerformanceMetrics,
+  PROFIT_MARGINS,
   migrateCustomerPhone
 } = require('../src/db');
 
@@ -291,5 +293,64 @@ describe('Database Module', () => {
     assert.strictEqual(stats.todayBilled, 600);
     assert.strictEqual(stats.todayCollected, 200);
     assert.strictEqual(stats.todayTransactionsCount, 2);
+    assert.ok(stats.performance);
+    assert.strictEqual(stats.performance.daily.jobsCount, 1);
+    assert.strictEqual(stats.performance.daily.grossProfit, 360); // 600 * 0.60
+  });
+
+  it('records transaction with jobType and durationSeconds and retrieves them in getCustomerTransactions', () => {
+    const res = recordTransaction(db, {
+      phone: '8801700000005',
+      name: 'Voice Client',
+      type: 'BILL',
+      amount: 100,
+      rawText: 'বিল ১০০ টাকা',
+      jobType: 'voice',
+      durationSeconds: 85
+    });
+
+    assert.ok(res.transactionId > 0);
+
+    const tx = db.prepare('SELECT * FROM transactions WHERE id = ?').get(res.transactionId);
+    assert.strictEqual(tx.job_type, 'voice');
+    assert.strictEqual(tx.duration_seconds, 85);
+
+    const txs = getCustomerTransactions(db, '8801700000005');
+    assert.strictEqual(txs.length, 1);
+    assert.strictEqual(txs[0].job_type, 'voice');
+    assert.strictEqual(txs[0].duration_seconds, 85);
+  });
+
+  it('getBusinessPerformanceMetrics calculates daily, weekly, and monthly jobs and gross profit (60%) with growth rate', () => {
+    // Today's jobs
+    recordTransaction(db, {
+      phone: '8801700000006',
+      type: 'BILL',
+      amount: 100,
+      rawText: 'বিল ১০০ টাকা',
+      jobType: 'voice',
+      durationSeconds: 80
+    });
+    recordTransaction(db, {
+      phone: '8801700000006',
+      type: 'BILL',
+      amount: 50,
+      rawText: 'বিল ৫০ টাকা',
+      jobType: 'voice',
+      durationSeconds: 40
+    });
+
+    const metrics = getBusinessPerformanceMetrics(db);
+    assert.strictEqual(metrics.daily.jobsCount, 2);
+    // 150 * 0.60 = 90
+    assert.strictEqual(metrics.daily.grossProfit, 90);
+    assert.strictEqual(metrics.daily.previousJobsCount, 0);
+    assert.strictEqual(metrics.daily.jobsGrowth, 100);
+
+    assert.strictEqual(metrics.weekly.jobsCount, 2);
+    assert.strictEqual(metrics.weekly.grossProfit, 90);
+
+    assert.strictEqual(metrics.monthly.jobsCount, 2);
+    assert.strictEqual(metrics.monthly.grossProfit, 90);
   });
 });

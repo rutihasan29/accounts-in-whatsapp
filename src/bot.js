@@ -241,10 +241,13 @@ async function handleMessageCreate({ msg, client, db }) {
           name: contactName,
           type: 'BILL',
           amount: billAmount,
-          rawText: billText
+          rawText: billText,
+          messageId: msg.id?._serialized || null,
+          jobType: 'voice',
+          durationSeconds: Math.round(duration)
         });
 
-        console.log(`[AUDIO_BILL] Recorded bill ${billAmount} BDT for +${phone}${contactName ? ` (${contactName})` : ''} (Duration: ${Math.round(duration)}s). Current due: ${record.dueAmount} BDT`);
+        console.log(`[AUDIO_BILL] Recorded voice job (${Math.round(duration)}s) bill ${billAmount} BDT for +${phone}${contactName ? ` (${contactName})` : ''}. Current due: ${record.dueAmount} BDT`);
 
         // Record pending auto-bill to prevent double-recording when message_create echoes
         pendingAutoBills.push({
@@ -286,7 +289,17 @@ async function handleMessageCreate({ msg, client, db }) {
 
         return {
           action: 'SENT_AUDIO_BILL',
-          details: { duration, billAmount, billText, phone, dueAmount: record.dueAmount, targetChat, messageId: sentMessageId }
+          details: {
+            duration,
+            billAmount,
+            billText,
+            phone,
+            dueAmount: record.dueAmount,
+            targetChat,
+            messageId: sentMessageId,
+            jobType: 'voice',
+            durationSeconds: Math.round(duration)
+          }
         };
       } else {
         console.warn('[AUDIO] Could not determine audio duration for message media');

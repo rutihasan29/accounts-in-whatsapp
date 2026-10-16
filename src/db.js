@@ -24,8 +24,8 @@ const STATEMENTS = {
       updated_at = CURRENT_TIMESTAMP
   `,
   insertTransaction: `
-    INSERT INTO transactions (phone_number, type, amount, raw_text, message_id)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO transactions (phone_number, type, amount, raw_text, message_id, job_type, duration_seconds)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `,
   getDueList: `
     SELECT 
@@ -57,7 +57,7 @@ const STATEMENTS = {
     ORDER BY due_amount DESC, last_activity DESC
   `,
   getCustomerTransactions: `
-    SELECT id, phone_number, type, amount, raw_text, message_id, created_at
+    SELECT id, phone_number, type, amount, raw_text, message_id, job_type, duration_seconds, created_at
     FROM transactions
     WHERE phone_number = ?
     ORDER BY id ASC
@@ -106,6 +106,8 @@ function initDb(dbPath) {
       amount REAL NOT NULL,
       raw_text TEXT NOT NULL,
       message_id TEXT,
+      job_type TEXT DEFAULT NULL,
+      duration_seconds INTEGER DEFAULT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -113,15 +115,22 @@ function initDb(dbPath) {
     CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type);
   `);
 
-  // Ensure message_id exists for pre-existing databases before indexing
+  // Ensure message_id, job_type, duration_seconds exist for pre-existing databases before indexing
   try {
     const cols = db.pragma('table_info(transactions)');
     if (!cols.some(c => c.name === 'message_id')) {
       db.exec('ALTER TABLE transactions ADD COLUMN message_id TEXT;');
     }
+    if (!cols.some(c => c.name === 'job_type')) {
+      db.exec('ALTER TABLE transactions ADD COLUMN job_type TEXT DEFAULT NULL;');
+    }
+    if (!cols.some(c => c.name === 'duration_seconds')) {
+      db.exec('ALTER TABLE transactions ADD COLUMN duration_seconds INTEGER DEFAULT NULL;');
+    }
     db.exec('CREATE INDEX IF NOT EXISTS idx_transactions_message_id ON transactions(message_id);');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_transactions_job_type ON transactions(job_type);');
   } catch (err) {
-    console.error('Error ensuring message_id column/index in SQLite:', err);
+    console.error('Error ensuring columns/indexes in SQLite:', err);
   }
 
   // Initialize prepared statement cache
@@ -139,7 +148,16 @@ function getCustomerSummary(db, phone) {
   return stmt.get(phone) || null;
 }
 
-function recordTransaction(db, { phone, name = null, type, amount, rawText, messageId = null }) {
+function recordTransaction(db, {
+  phone,
+  name = null,
+  type,
+  amount,
+  rawText,
+  messageId = null,
+  jobType = null,
+  durationSeconds = null
+}) {
   const insertCustomer = getStatement(db, 'insertCustomer');
   const insertTx = getStatement(db, 'insertTransaction');
 
@@ -148,9 +166,17 @@ function recordTransaction(db, { phone, name = null, type, amount, rawText, mess
   }
 
   if (!db._stmtCache.recordTx) {
-    db._stmtCache.recordTx = db.transaction((p, n, t, a, r, m) => {
+    db._stmtCache.recordTx = db.transaction((p, n, t, a, r, m, jt, ds) => {
       insertCustomer.run(p, n);
-      const info = insertTx.run(p, t, a, r, m || null);
+      const info = insertTx.run(
+        p,
+        t,
+        a,
+        r,
+        m || null,
+        jt || null,
+        ds !== null && ds !== undefined ? ds : null
+      );
       const summary = getCustomerSummary(db, p);
       return {
         transactionId: info.lastInsertRowid,
@@ -159,7 +185,7 @@ function recordTransaction(db, { phone, name = null, type, amount, rawText, mess
     });
   }
 
-  return db._stmtCache.recordTx(phone, name, type, amount, rawText, messageId);
+  return db._stmtCache.recordTx(phone, name, type, amount, rawText, messageId, jobType, durationSeconds);
 }
 
 function updateTransactionMessageId(db, transactionId, messageId) {
@@ -270,6 +296,89 @@ function getAllCustomersSummary(db) {
   return stmt.all();
 }
 
+const PROFIT_MARGINS = {
+  voice: 0.60,
+  default: 0.60
+};
+
+function getProfitMargin(jobType) {
+  if (!jobType) return PROFIT_MARGINS.default;
+  const key = String(jobType).toLowerCase().trim();
+  return PROFIT_MARGINS[key] !== undefined ? PROFIT_MARGINS[key] : PROFIT_MARGINS.default;
+}
+
+function calculateGrowthRate(current, previous) {
+  if (previous === 0) {
+    return current > 0 ? 100 : 0;
+  }
+  return Math.round(((current - previous) / previous) * 1000) / 10;
+}
+
+function getBusinessPerformanceMetrics(db) {
+  const getMetricsForFilter = (dateCondition) => {
+    const rows = db.prepare(`
+      SELECT amount, job_type
+      FROM transactions
+      WHERE type = 'BILL' AND ${dateCondition}
+    `).all();
+
+    const jobsCount = rows.length;
+    let grossProfit = 0;
+    for (const row of rows) {
+      grossProfit += row.amount * getProfitMargin(row.job_type);
+    }
+    return {
+      jobsCount,
+      grossProfit: Math.round(grossProfit * 100) / 100
+    };
+  };
+
+  // Daily: Today vs Yesterday
+  const today = getMetricsForFilter("date(created_at, 'localtime') = date('now', 'localtime')");
+  const yesterday = getMetricsForFilter("date(created_at, 'localtime') = date('now', 'localtime', '-1 day')");
+
+  // Weekly: Current 7 days vs Previous 7 days
+  const thisWeek = getMetricsForFilter("date(created_at, 'localtime') >= date('now', 'localtime', '-6 days')");
+  const lastWeek = getMetricsForFilter("date(created_at, 'localtime') >= date('now', 'localtime', '-13 days') AND date(created_at, 'localtime') < date('now', 'localtime', '-6 days')");
+
+  // Monthly: Current calendar month vs Previous calendar month
+  const thisMonth = getMetricsForFilter("strftime('%Y-%m', created_at, 'localtime') = strftime('%Y-%m', 'now', 'localtime')");
+  const lastMonth = getMetricsForFilter("strftime('%Y-%m', created_at, 'localtime') = strftime('%Y-%m', date('now', 'localtime', 'start of month', '-1 day'))");
+
+  return {
+    daily: {
+      periodLabel: 'দৈনিক (আজ)',
+      periodKey: 'daily',
+      jobsCount: today.jobsCount,
+      grossProfit: today.grossProfit,
+      previousJobsCount: yesterday.jobsCount,
+      previousGrossProfit: yesterday.grossProfit,
+      jobsGrowth: calculateGrowthRate(today.jobsCount, yesterday.jobsCount),
+      profitGrowth: calculateGrowthRate(today.grossProfit, yesterday.grossProfit)
+    },
+    weekly: {
+      periodLabel: 'সাপ্তাহিক (চলতি সপ্তাহ)',
+      periodKey: 'weekly',
+      jobsCount: thisWeek.jobsCount,
+      grossProfit: thisWeek.grossProfit,
+      previousJobsCount: lastWeek.jobsCount,
+      previousGrossProfit: lastWeek.grossProfit,
+      jobsGrowth: calculateGrowthRate(thisWeek.jobsCount, lastWeek.jobsCount),
+      profitGrowth: calculateGrowthRate(thisWeek.grossProfit, lastWeek.grossProfit)
+    },
+    monthly: {
+      periodLabel: 'মাসিক (চলতি মাস)',
+      periodKey: 'monthly',
+      jobsCount: thisMonth.jobsCount,
+      grossProfit: thisMonth.grossProfit,
+      previousJobsCount: lastMonth.jobsCount,
+      previousGrossProfit: lastMonth.grossProfit,
+      jobsGrowth: calculateGrowthRate(thisMonth.jobsCount, lastMonth.jobsCount),
+      profitGrowth: calculateGrowthRate(thisMonth.grossProfit, lastMonth.grossProfit)
+    }
+  };
+}
+
 function getDashboardStats(db) {
   const dues = getDueList(db);
   const totalDue = dues.reduce((acc, c) => acc + (c.due_amount || 0), 0);
@@ -285,6 +394,7 @@ function getDashboardStats(db) {
   const today = todayStmt.get() || { today_billed: 0, today_collected: 0, today_count: 0 };
 
   const totalCustomers = db.prepare('SELECT COUNT(*) AS count FROM customers').get().count;
+  const performance = getBusinessPerformanceMetrics(db);
 
   return {
     totalDue: Math.round(totalDue * 100) / 100,
@@ -292,7 +402,8 @@ function getDashboardStats(db) {
     totalCustomers,
     todayBilled: Math.round(today.today_billed * 100) / 100,
     todayCollected: Math.round(today.today_collected * 100) / 100,
-    todayTransactionsCount: today.today_count
+    todayTransactionsCount: today.today_count,
+    performance
   };
 }
 
@@ -306,5 +417,7 @@ module.exports = {
   getCustomerTransactions,
   getAllCustomersSummary,
   getDashboardStats,
+  getBusinessPerformanceMetrics,
+  PROFIT_MARGINS,
   migrateCustomerPhone
 };
