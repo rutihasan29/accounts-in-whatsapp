@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>OFFICIAL BUSINESS LEDGER &bull; MUNNI SOFT</title>
+  <title>OFFICIAL BUSINESS LEDGER &bull; NEWS VOICE</title>
   <style>
     /* -------------------------------------------------------------
        OFFICIAL PRINTED DOCUMENT / PAPER LEDGER STYLING
@@ -449,6 +449,88 @@
       flex-wrap: wrap;
     }
 
+    .help-btn {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 28px;
+      height: 28px;
+      line-height: 24px;
+      border-radius: 50%;
+      border: 2px solid var(--border);
+      background: #FFF;
+      color: #000;
+      font-family: var(--font-mono);
+      font-size: 14px;
+      font-weight: 900;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+      box-shadow: 1px 1px 0 #000;
+      padding: 0;
+    }
+
+    .help-btn:hover {
+      background: #000;
+      color: #FFF;
+    }
+
+    .about-sheet {
+      background: #FFF;
+      border: 3px solid #000;
+      width: 100%;
+      max-width: 680px;
+      padding: 18px 16px;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .about-section {
+      margin-bottom: 14px;
+      border: 1px solid var(--border);
+      padding: 10px 12px;
+      background: var(--paper-gray);
+    }
+
+    .about-section h3 {
+      font-size: 13px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 4px;
+    }
+
+    .about-section p {
+      margin-bottom: 6px;
+    }
+
+    .about-section ul {
+      margin-left: 20px;
+      margin-bottom: 4px;
+    }
+
+    .about-section li {
+      margin-bottom: 5px;
+    }
+
+    .about-badge {
+      display: inline-block;
+      border: 1px solid #000;
+      padding: 1px 5px;
+      font-size: 11px;
+      font-weight: 700;
+      background: #FFF;
+      margin: 1px 2px;
+      font-family: var(--font-mono);
+    }
+
     .empty-state {
       text-align: center;
       padding: 30px 10px;
@@ -490,8 +572,9 @@
 
   <div class="doc-sheet">
     <!-- Official Document Header -->
-    <div class="doc-header">
-      <h1>MUNNI SOFT &bull; লেজার খাতা</h1>
+    <div class="doc-header" style="position: relative;">
+      <button id="about-btn" class="help-btn" onclick="openAboutModal()" title="সিস্টেম পরিচিতি ও ব্যবহার নির্দেশিকা">?</button>
+      <h1>NEWS VOICE &bull; লেজার খাতা</h1>
       <div class="sub">VOICE &amp; AUDIO DISPATCH LEDGER &bull; AUDIT SYSTEM</div>
       <div class="sub" id="clock-display" style="font-size: 11px; margin-top: 4px;">DATE: --</div>
     </div>
@@ -586,7 +669,7 @@
     <div class="statement-sheet">
       <div class="doc-header">
         <h1>STATEMENT OF ACCOUNT</h1>
-        <div class="sub">MUNNI SOFT &bull; VOICE &amp; AUDIO DISPATCH SERVICES</div>
+        <div class="sub">NEWS VOICE &bull; VOICE &amp; AUDIO DISPATCH SERVICES</div>
         <div class="divider-solid"></div>
         <div style="display: flex; justify-content: space-between; font-size: 12px; margin-top: 6px; text-align: left;">
           <div>
@@ -631,6 +714,74 @@
         <button class="btn btn-solid" style="flex: 1;" onclick="window.print()">🖨️ PRINT / PDF</button>
         <button class="btn" style="flex: 1;" id="modal-btn-wa">💬 SHARE WA</button>
         <button class="btn" style="flex: 0.6;" onclick="closeModal()">✕ CLOSE</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- About & System Manual Modal -->
+  <div id="about-modal" class="modal-overlay">
+    <div class="about-sheet">
+      <div class="doc-header" style="position: relative; margin-bottom: 12px; padding-bottom: 8px;">
+        <h1>NEWS VOICE &bull; সিস্টেম পরিচিতি ও নির্দেশিকা</h1>
+        <div class="sub">VOICE &amp; AUDIO DISPATCH LEDGER &bull; AUDIT SYSTEM MANUAL</div>
+        <div class="sub" style="font-size: 11px; margin-top: 3px;">সংস্করণ: ২.০ &bull; রিয়েল-টাইম লোকাল অডিট ইঞ্জিন</div>
+      </div>
+
+      <div class="about-section">
+        <h3>১. সফটওয়্যার পরিচিতি (ABOUT NEWS VOICE)</h3>
+        <p><strong>নিউজ ভয়েস (News Voice)</strong> হলো ভয়েস-ওভার ও ভিডিও এডিটিং সেবার জন্য তৈরি একটি সম্পূর্ণ স্বয়ংক্রিয় হোয়াটসঅ্যাপ লেজার ও ক্লায়েন্ট হিসাব অডিট সিস্টেম।</p>
+        <p>এই সফটওয়্যারটি আপনার হোয়াটসঅ্যাপ বিজনেসের সাথে সরাসরি সংযুক্ত থেকে প্রতিটি অডিও ফাইল ডেলিভারি, বিলিং, পেমেন্ট আদায় ও বকেয়ার নিখুঁত হিসাব নিজে নিজেই স্বয়ংক্রিয়ভাবে পরিচালনা করে।</p>
+      </div>
+
+      <div class="about-section">
+        <h3>২. ব্যবহারকারী কী কী করতে পারেন (WORKFLOWS & ACTIONS)</h3>
+        <ul>
+          <li><strong>স্বয়ংক্রিয় অডিও বিলিং:</strong> গ্রাহককে হোয়াটসঅ্যাপে অডিও ফাইল (ডকুমেন্ট হিসেবে) পাঠালে সিস্টেম নিজে নিজেই অডিওর নিখুঁত সেকেন্ড মেপে স্ল্যাব রেট অনুযায়ী বিল নির্ধারণ করে ক্লায়েন্টকে পাঠিয়ে দেয় (<span class="about-badge">বিল ১০০ টাকা</span>) এবং লেজারে যুক্ত করে।</li>
+          <li><strong>স্বয়ংক্রিয় ভিডিও ট্র্যাকিং:</strong> ক্লায়েন্টকে যেকোনো ভিডিও ফাইল (<span class="about-badge">.mp4</span>, <span class="about-badge">.mov</span>, <span class="about-badge">.mkv</span> ইত্যাদি) পাঠালে তা মেমরিতে ট্র্যাক থাকে এবং পরবর্তী বিল পাঠালে ভিডিও ক্যাটাগরিতে অন্তর্ভুক্ত হয়।</li>
+          <li><strong>ম্যানুয়াল বিল এন্ট্রি:</strong> ক্লায়েন্ট চ্যাটে সাধারণ বাংলায় <span class="about-badge">বিল ৫০০ টাকা</span> বা <span class="about-badge">বিল 500 টাকা</span> লিখলেই তা ওই ক্লায়েন্টের অ্যাকাউন্টে নতুন বিল হিসেবে রেকর্ড হয়।</li>
+          <li><strong>পেমেন্ট গ্রহণ এন্ট্রি:</strong> ক্লায়েন্ট টাকা পরিশোধ করলে চ্যাটে <span class="about-badge">২০০ টাকা পেয়েছি, ধন্যবাদ</span> বা <span class="about-badge">200 টাকা পেয়েছি</span> লিখলে সাথে সাথে পেমেন্ট জমা হয়ে বকেয়া কমে যায়।</li>
+          <li><strong>সরাসরি বকেয়া সমন্বয়:</strong> কোনো ক্লায়েন্টের বকেয়া সরাসরি নির্দিষ্ট করতে চ্যাটে <span class="about-badge">বকেয়া ১৫০০ টাকা</span> বা <span class="about-badge">বকেয়া ০ টাকা</span> লিখলে আগের ব্যালেন্স রিসেট হয়ে যায়।</li>
+          <li><strong>ভুল বার্তা আনসেন্ড সুরক্ষা (Auto Revoke):</strong> কোনো বিল বা পেমেন্ট মেসেজ পাঠানোর পর তা হোয়াটসঅ্যাপে <em>Delete for Everyone</em> করলে সিস্টেম স্বয়ংক্রিয়ভাবে উক্ত লেনদেন লেজার থেকে বাতিল করে আগের ব্যালেন্স ফিরিয়ে আনে।</li>
+          <li><strong>সেলফ-চ্যাটে বকেয়া রিপোর্ট (<span class="about-badge">!due</span>):</strong> নিজের চ্যাটে (Message Yourself) <span class="about-badge">!due</span> লিখে পাঠালে তাৎক্ষণিকভাবে সব বকেয়াদার ক্লায়েন্ট ও মোট বকেয়ার সুন্দর বাংলা তালিকা রিপ্লাই আসে।</li>
+          <li><strong>হিসাব রসিদ ও ভাউচার:</strong> ড্যাশবোর্ডে যেকোনো ক্লায়েন্টের ওপর ক্লিক করে অফিসিয়াল ভাউচার দেখা, প্রিন্ট/পিডিএফ সেভ করা এবং হোয়াটসঅ্যাপে রিমাইন্ডার পাঠানো যায়।</li>
+          <li><strong>ব্যবসায়িক পারফরম্যান্স (KPI):</strong> দৈনিক, সাপ্তাহিক ও মাসিক ভিত্তিতে মোট সম্পন্ন কাজ (Jobs), ৬০% গ্রস প্রফিট ও গ্রোথ রেট (Growth %) রিয়েল-টাইমে বিশ্লেষণ করা যায়।</li>
+          <li><strong>লিড ট্র্যাকিং ও রূপান্তর:</strong> নতুন কন্টাক্ট থেকে মেসেজ এলে স্বয়ংক্রিয়ভাবে লিড হিসেবে রেকর্ড হয় এবং প্রথম কাজ ডেলিভারি পর্যন্ত গ্রাহক রূপান্তর গতি (Turnaround Duration) ট্র্যাকিং থাকে।</li>
+        </ul>
+      </div>
+
+      <div class="about-section">
+        <h3>৩. ডেটা সংরক্ষণ ও নিরাপত্তা আর্কিটেকচার (DATA & SECURITY)</h3>
+        <ul>
+          <li><strong>লোকাল SQLite ডেটাবেজ:</strong> সমস্ত তথ্য আপনার নিজস্ব কম্পিউটারের লোকাল ড্রাইভে (<span class="about-badge">data/ledger.db</span>) সংরক্ষিত থাকে। কোনো বহিরাগত সার্ভার বা ক্লাউডে ডেটা যায় না।</li>
+          <li><strong>নিরাপত্তা ও ক্র্যাশ-প্রুফ:</strong> SQLite WAL (Write-Ahead Logging) ও ফরেন কি ট্রানজ্যাকশন ব্যবহার করায় বিদ্যুৎ চলে গেলেও বা হঠাৎ পিসি বন্ধ হলেও কোনো তথ্য মুছে যায় না বা করাপ্ট হয় না।</li>
+          <li><strong>ডেটাবেজ টেবিল কাঠামো:</strong>
+            <ul style="margin-top: 4px;">
+              <li><span class="about-badge">customers</span>: ক্লায়েন্টের ফোন নম্বর, নাম, অ্যাকাউন্ট তৈরির তারিখ ও আপডেট হিস্ট্রি।</li>
+              <li><span class="about-badge">transactions</span>: প্রতিটি বিল ও পেমেন্টের পরিমাণ, তারিখ, মূল বার্তা, কাজের ধরন (voice/video), অডিওর সেকেন্ড এবং হোয়াটসঅ্যাপ মেসেজ আইডি।</li>
+              <li><span class="about-badge">leads</span>: নতুন লিডের প্রথম বার্তার সময় (<span class="about-badge">first_contact_at</span>), প্রথম কাজ ডেলিভারির সময় (<span class="about-badge">first_job_delivered_at</span>) ও মোট রূপান্তর সময়।</li>
+            </ul>
+          </li>
+          <li><strong>হোয়াটসঅ্যাপ সেশন নিরাপত্তা:</strong> লোকাল ডিরেক্টরি (<span class="about-badge">.wwebjs_auth</span>)-এ এনক্রিপ্ট হয়ে থাকে, ফলে বারবার কিউআর কোড স্ক্যান করতে হয় না।</li>
+          <li><strong>ফোন নম্বর ম্যাপিং ও প্রাইভেসি:</strong> হোয়াটসঅ্যাপের এনক্রিপ্টেড LID থেকে স্বয়ংক্রিয়ভাবে আসল মোবাইল নম্বর উদ্ধার করে ক্লায়েন্ট অ্যাকাউন্টে সাজানো হয়।</li>
+        </ul>
+      </div>
+
+      <div class="about-section">
+        <h3>৪. দ্রুত রেফারেন্স কমান্ড (QUICK CHEAT SHEET)</h3>
+        <p><span class="about-badge">!due</span> &rarr; নিজের চ্যাটে মোট বকেয়া ও গ্রাহকদের তালিকা দেখতে।</p>
+        <p><span class="about-badge">বিল [টাকা] টাকা</span> &rarr; ক্লায়েন্টের চ্যাটে নতুন কাজের বিল যোগ করতে।</p>
+        <p><span class="about-badge">[টাকা] টাকা পেয়েছি, ধন্যবাদ</span> &rarr; ক্লায়েন্টের চ্যাটে পরিশোধ গ্রহণ রেকর্ড করতে।</p>
+        <p><span class="about-badge">বকেয়া [টাকা] টাকা</span> &rarr; ক্লায়েন্টের মোট বকেয়া সরাসরি সেট/রিসেট করতে।</p>
+        <p><span class="about-badge">Delete for Everyone</span> &rarr; যেকোনো ভুল বার্তা আনসেন্ড করলে স্বয়ংক্রিয়ভাবে হিসাব রিভোক।</p>
+      </div>
+
+      <div class="about-section" style="margin-bottom: 0;">
+        <h3>৫. সফটওয়্যার আপডেট নীতি (DOCUMENTATION INTEGRITY)</h3>
+        <p>সফটওয়্যারে নতুন যেকোনো ফিচার, সার্ভিসের ধরন বা সিস্টেমের পরিবর্তন যুক্ত হলে এই নির্দেশিকা স্বয়ংক্রিয়ভাবে হালনাগাদ ও সমকালীন রাখা হয়।</p>
+      </div>
+
+      <div class="modal-actions" style="margin-top: 14px;">
+        <button class="btn btn-solid" style="flex: 1;" onclick="closeAboutModal()">✕ বন্ধ করুন (CLOSE)</button>
       </div>
     </div>
   </div>
@@ -845,7 +996,7 @@
 
         const waText = encodeURIComponent(
           'আসসালামু আলাইকুম ' + (cust.name ? cust.name + ', ' : '') + 
-          'মুন্নী সফট থেকে আপনার অডিও ও বিলের বকেয়া হিসাব: মোট বকেয়া ৳ ' + formatNumberBangla(dueVal) + ' টাকা।'
+          'নিউজ ভয়েস (News Voice) থেকে আপনার অডিও ও বিলের বকেয়া হিসাব: মোট বকেয়া ৳ ' + formatNumberBangla(dueVal) + ' টাকা।'
         );
 
         let convInfo = '';
@@ -901,7 +1052,7 @@
         const cleanPhone = (summary.phone_number || '').replace(/\D/g, '');
         const waText = encodeURIComponent(
           'আসসালামু আলাইকুম ' + (summary.name ? summary.name + ', ' : '') + 
-          'মুন্নী সফট থেকে আপনার অডিও ও বিলের বকেয়া হিসাব:\n' +
+          'নিউজ ভয়েস (News Voice) থেকে আপনার অডিও ও বিলের বকেয়া হিসাব:\n' +
           'মোট বিল: ৳ ' + formatNumberBangla(summary.total_bill) + '\n' +
           'মোট পরিশোধ: ৳ ' + formatNumberBangla(summary.total_paid) + '\n' +
           'মোট বর্তমান বকেয়া: ৳ ' + formatNumberBangla(summary.due_amount) + ' টাকা।'
@@ -945,8 +1096,27 @@
       document.getElementById('statement-modal').classList.remove('open');
     }
 
+    function openAboutModal() {
+      document.getElementById('about-modal').classList.add('open');
+    }
+
+    function closeAboutModal() {
+      document.getElementById('about-modal').classList.remove('open');
+    }
+
     document.getElementById('statement-modal').addEventListener('click', (e) => {
       if (e.target.id === 'statement-modal') closeModal();
+    });
+
+    document.getElementById('about-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'about-modal') closeAboutModal();
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeModal();
+        closeAboutModal();
+      }
     });
 
     document.getElementById('search-box').addEventListener('input', (e) => {

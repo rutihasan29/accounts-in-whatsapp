@@ -165,7 +165,7 @@ function renderPrintableStatement({ summary, transactions }) {
 </head>
 <body>
   <div class="header">
-    <h1>MUNNI SOFT &bull; STATEMENT OF ACCOUNT</h1>
+    <h1>NEWS VOICE &bull; STATEMENT OF ACCOUNT</h1>
     <div>OFFICIAL CLIENT COPY &bull; VOICE &amp; AUDIO DISPATCH SERVICES</div>
   </div>
 
