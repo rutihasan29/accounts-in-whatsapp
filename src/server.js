@@ -8,11 +8,39 @@ const {
   getCustomerSummary,
   getCustomerTransactions,
   getAllCustomersSummary,
-  getDashboardStats
+  getDashboardStats,
+  recordAdSpend,
+  getAdSpendList,
+  getAdSpendSummary,
+  getSimulationBaselines
 } = require('./db');
 const { PORT } = require('./config');
 
 const DASHBOARD_HTML_PATH = path.join(__dirname, 'dashboard.html');
+
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+      if (body.length > 1e6) {
+        req.destroy();
+        reject(new Error('Payload too large'));
+      }
+    });
+    req.on('end', () => {
+      if (!body.trim()) {
+        return resolve({});
+      }
+      try {
+        resolve(JSON.parse(body));
+      } catch (e) {
+        reject(new Error('Invalid JSON payload: ' + e.message));
+      }
+    });
+    req.on('error', reject);
+  });
+}
 
 function escapeHtml(str) {
   if (!str) return '';
@@ -45,7 +73,10 @@ function renderHtmlPage(options = {}) {
     try {
       const stats = getDashboardStats(db);
       const customers = getAllCustomersSummary(db);
-      const initialJson = JSON.stringify({ stats, customers });
+      const simBaselines = getSimulationBaselines(db);
+      const adSpendSummary = getAdSpendSummary(db);
+      const adSpendList = getAdSpendList(db, { limit: 60 });
+      const initialJson = JSON.stringify({ stats, customers, simBaselines, adSpendSummary, adSpendList });
       html = html.replace('/*__INITIAL_DATA__*/', `window.__INITIAL_DATA__ = ${initialJson};`);
     } catch (e) {
       console.error('Error pre-rendering initial data in dashboard:', e.message);
@@ -210,14 +241,14 @@ function renderPrintableStatement({ summary, transactions }) {
 }
 
 function startWebServer({ db, port = PORT }) {
-  const server = http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
     const parsedUrl = url.parse(req.url, true);
     const pathname = parsedUrl.pathname;
     const method = req.method.toUpperCase();
 
     // CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
     if (method === 'OPTIONS') {
@@ -267,6 +298,47 @@ function startWebServer({ db, port = PORT }) {
         const transactions = getCustomerTransactions(db, phone);
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ summary, transactions }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+      return;
+    }
+
+    // API: Ad Spend - GET list & summary
+    if (pathname === '/api/ad-spend' && method === 'GET') {
+      try {
+        const summary = getAdSpendSummary(db);
+        const list = getAdSpendList(db, { limit: 90 });
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ summary, list }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+      return;
+    }
+
+    // API: Ad Spend - POST record ad spend (single date or continuous range)
+    if (pathname === '/api/ad-spend' && method === 'POST') {
+      try {
+        const body = await readJsonBody(req);
+        const result = recordAdSpend(db, body);
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'ok', result }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', error: err.message }));
+      }
+      return;
+    }
+
+    // API: Simulation baselines derived from historical transactions & ad spend
+    if (pathname === '/api/simulation/baselines' && method === 'GET') {
+      try {
+        const baselines = getSimulationBaselines(db);
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify(baselines));
       } catch (err) {
         res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: err.message }));

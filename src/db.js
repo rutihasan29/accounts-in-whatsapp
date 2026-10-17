@@ -133,10 +133,19 @@ function initDb(dbPath) {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS ad_spend (
+      spend_date TEXT PRIMARY KEY,
+      amount REAL NOT NULL,
+      note TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE INDEX IF NOT EXISTS idx_transactions_phone ON transactions(phone_number);
     CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type);
     CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
     CREATE INDEX IF NOT EXISTS idx_leads_first_contact ON leads(first_contact_at);
+    CREATE INDEX IF NOT EXISTS idx_ad_spend_date ON ad_spend(spend_date);
   `);
 
   // Ensure message_id, job_type, duration_seconds exist for pre-existing databases before indexing
@@ -518,6 +527,186 @@ function getDashboardStats(db) {
   };
 }
 
+function parseDateYMD(d) {
+  if (!d) return null;
+  if (d instanceof Date) {
+    return d.toISOString().split('T')[0];
+  }
+  if (typeof d === 'string') {
+    const trimmed = d.trim();
+    const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) return `${match[1]}-${match[2]}-${match[3]}`;
+  }
+  return null;
+}
+
+function getDatesBetween(startDateStr, endDateStr) {
+  const dates = [];
+  const start = new Date(startDateStr + 'T00:00:00Z');
+  const end = new Date(endDateStr + 'T00:00:00Z');
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+    return dates;
+  }
+  let [earlier, later] = start <= end ? [start, end] : [end, start];
+  const curr = new Date(earlier);
+  while (curr <= later) {
+    dates.push(curr.toISOString().split('T')[0]);
+    curr.setUTCDate(curr.getUTCDate() + 1);
+  }
+  return dates;
+}
+
+function recordAdSpend(db, { date, startDate, endDate, dailyAmount, amount, note = null }) {
+  const spendAmount = Number(dailyAmount !== undefined ? dailyAmount : amount);
+  if (isNaN(spendAmount) || spendAmount < 0) {
+    throw new Error('Valid ad spend amount is required');
+  }
+
+  const sDate = parseDateYMD(date || startDate);
+  const eDate = parseDateYMD(endDate || date || startDate);
+
+  if (!sDate) {
+    throw new Error('Valid date is required');
+  }
+
+  const targetDates = getDatesBetween(sDate, eDate);
+  if (targetDates.length === 0) {
+    targetDates.push(sDate);
+  }
+
+  const upsertStmt = db.prepare(`
+    INSERT INTO ad_spend (spend_date, amount, note, updated_at)
+    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(spend_date) DO UPDATE SET
+      amount = excluded.amount,
+      note = COALESCE(excluded.note, ad_spend.note),
+      updated_at = CURRENT_TIMESTAMP
+  `);
+
+  const runUpsert = db.transaction((dates) => {
+    for (const d of dates) {
+      upsertStmt.run(d, spendAmount, note);
+    }
+  });
+
+  runUpsert(targetDates);
+
+  return {
+    count: targetDates.length,
+    totalAmount: spendAmount * targetDates.length,
+    dates: targetDates
+  };
+}
+
+function getAdSpendList(db, { limit = 100 } = {}) {
+  const rows = db.prepare(`
+    SELECT 
+      a.spend_date,
+      a.amount,
+      a.note,
+      a.created_at,
+      a.updated_at,
+      (SELECT COUNT(*) FROM leads WHERE strftime('%Y-%m-%d', first_contact_at, 'localtime') = a.spend_date) AS leads_count
+    FROM ad_spend a
+    ORDER BY a.spend_date DESC
+    LIMIT ?
+  `).all(limit);
+
+  return rows.map((r) => {
+    const leads = r.leads_count || 0;
+    const cpl = leads > 0 ? Math.round((r.amount / leads) * 100) / 100 : null;
+    return {
+      ...r,
+      daily_cpl: cpl
+    };
+  });
+}
+
+function getAdSpendSummary(db) {
+  const totalRow = db.prepare(`
+    SELECT 
+      COALESCE(SUM(amount), 0) AS total_spend,
+      COUNT(spend_date) AS days_count,
+      COALESCE(AVG(amount), 0) AS avg_daily_spend,
+      MIN(spend_date) AS first_date,
+      MAX(spend_date) AS last_date
+    FROM ad_spend
+  `).get();
+
+  return {
+    totalSpend: totalRow.total_spend || 0,
+    daysCount: totalRow.days_count || 0,
+    avgDailySpend: Math.round((totalRow.avg_daily_spend || 0) * 100) / 100,
+    firstDate: totalRow.first_date,
+    lastDate: totalRow.last_date
+  };
+}
+
+function getSimulationBaselines(db) {
+  const txStats = db.prepare(`
+    SELECT 
+      COUNT(*) AS total_jobs,
+      COALESCE(SUM(amount), 0) AS total_billed,
+      COALESCE(AVG(amount), 0) AS avg_ticket,
+      COUNT(DISTINCT phone_number) AS paying_customers
+    FROM transactions 
+    WHERE type = 'BILL'
+  `).get();
+
+  const totalJobs = txStats.total_jobs || 0;
+  const totalBilled = txStats.total_billed || 0;
+  const avgTicket = totalJobs > 0 ? Math.round((totalBilled / totalJobs) * 100) / 100 : 250;
+  const payingCustomers = txStats.paying_customers || 0;
+  const repeatFrequency = payingCustomers > 0 ? Math.round((totalJobs / payingCustomers) * 100) / 100 : 2.0;
+
+  const grossMarginRate = PROFIT_MARGINS.voice || 0.60;
+  const avgGrossProfitPerJob = Math.round(avgTicket * grossMarginRate * 100) / 100;
+
+  const leadStats = db.prepare(`
+    SELECT 
+      COUNT(*) AS total_leads,
+      COUNT(CASE WHEN status = 'CONVERTED' THEN 1 END) AS converted_leads,
+      COALESCE(AVG(conversion_duration_seconds), 0) AS avg_duration_sec
+    FROM leads
+  `).get();
+
+  const totalLeads = leadStats.total_leads || 0;
+  const convertedLeads = leadStats.converted_leads || 0;
+  const conversionRate = totalLeads > 0 ? Math.round((convertedLeads / totalLeads) * 1000) / 10 : 25.0;
+  const avgTurnaroundSeconds = Math.round(leadStats.avg_duration_sec || 0);
+
+  const spendList = getAdSpendList(db, { limit: 90 });
+  const spendSummary = getAdSpendSummary(db);
+
+  const totalAdSpend = spendSummary.totalSpend;
+  const totalLeadsWithAds = spendList.reduce((acc, r) => acc + (r.leads_count || 0), 0);
+  const historicalCpl = totalLeadsWithAds > 0 && totalAdSpend > 0 
+    ? Math.round((totalAdSpend / totalLeadsWithAds) * 100) / 100 
+    : (totalLeads > 0 && totalAdSpend > 0 ? Math.round((totalAdSpend / totalLeads) * 100) / 100 : 50);
+
+  const historicalCac = convertedLeads > 0 && totalAdSpend > 0
+    ? Math.round((totalAdSpend / convertedLeads) * 100) / 100
+    : Math.round((historicalCpl / ((conversionRate || 25) / 100)) * 100) / 100;
+
+  return {
+    avgTicket,
+    grossMarginRate,
+    avgGrossProfitPerJob,
+    totalJobs,
+    uniquePayingCustomers: payingCustomers,
+    repeatJobFrequency: repeatFrequency,
+    totalLeads,
+    convertedLeads,
+    conversionRate,
+    avgTurnaroundSeconds,
+    totalAdSpend,
+    adSpendDays: spendSummary.daysCount,
+    historicalCpl,
+    historicalCac,
+    dailyCplHistory: spendList.slice(0, 30)
+  };
+}
+
 module.exports = {
   initDb,
   recordTransaction,
@@ -532,5 +721,9 @@ module.exports = {
   getDashboardStats,
   getBusinessPerformanceMetrics,
   PROFIT_MARGINS,
-  migrateCustomerPhone
+  migrateCustomerPhone,
+  recordAdSpend,
+  getAdSpendList,
+  getAdSpendSummary,
+  getSimulationBaselines
 };

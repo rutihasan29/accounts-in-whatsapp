@@ -14,7 +14,11 @@ const {
   getDashboardStats,
   getBusinessPerformanceMetrics,
   PROFIT_MARGINS,
-  migrateCustomerPhone
+  migrateCustomerPhone,
+  recordAdSpend,
+  getAdSpendList,
+  getAdSpendSummary,
+  getSimulationBaselines
 } = require('../src/db');
 
 describe('Database Module', () => {
@@ -415,5 +419,84 @@ describe('Database Module', () => {
     assert.strictEqual(metrics.daily.conversion.leadsCount, 1);
     assert.strictEqual(metrics.daily.conversion.convertedCount, 1);
     assert.strictEqual(metrics.daily.conversion.conversionRate, 100);
+  });
+
+  describe('Ad Spend Tracking & Growth Simulation Baselines', () => {
+    it('records ad spend for a single date and allows updating it', () => {
+      const res = recordAdSpend(db, { date: '2026-10-10', amount: 350, note: 'Facebook test' });
+      assert.strictEqual(res.count, 1);
+      assert.strictEqual(res.totalAmount, 350);
+
+      const list = getAdSpendList(db);
+      assert.strictEqual(list.length, 1);
+      assert.strictEqual(list[0].spend_date, '2026-10-10');
+      assert.strictEqual(list[0].amount, 350);
+      assert.strictEqual(list[0].note, 'Facebook test');
+
+      // Update existing date
+      const resUpdate = recordAdSpend(db, { date: '2026-10-10', amount: 450, note: 'Facebook revised' });
+      assert.strictEqual(resUpdate.count, 1);
+      const listUpdated = getAdSpendList(db);
+      assert.strictEqual(listUpdated.length, 1);
+      assert.strictEqual(listUpdated[0].amount, 450);
+      assert.strictEqual(listUpdated[0].note, 'Facebook revised');
+    });
+
+    it('records ad spend across a continuous date range', () => {
+      // 4 continuous days: Oct 12 to Oct 15 at 200 BDT/day
+      const res = recordAdSpend(db, {
+        startDate: '2026-10-12',
+        endDate: '2026-10-15',
+        dailyAmount: 200,
+        note: 'Google campaign'
+      });
+      assert.strictEqual(res.count, 4);
+      assert.strictEqual(res.totalAmount, 800);
+
+      const summary = getAdSpendSummary(db);
+      assert.strictEqual(summary.totalSpend, 800);
+      assert.strictEqual(summary.daysCount, 4);
+    });
+
+    it('calculates daily CPL per date based on leads received that day', () => {
+      // Record spend for 2026-10-12
+      recordAdSpend(db, { date: '2026-10-12', amount: 200, note: 'Daily test' });
+
+      // Add 2 leads on that date
+      db.prepare(`
+        INSERT INTO leads (phone_number, name, status, first_contact_at)
+        VALUES ('8801999990001', 'Lead 1', 'PENDING', '2026-10-12 10:00:00'),
+               ('8801999990002', 'Lead 2', 'PENDING', '2026-10-12 14:30:00')
+      `).run();
+
+      const list = getAdSpendList(db);
+      const oct12 = list.find((e) => e.spend_date === '2026-10-12');
+      assert.ok(oct12);
+      assert.strictEqual(oct12.leads_count, 2);
+      assert.strictEqual(oct12.daily_cpl, 100); // 200 / 2 = 100
+    });
+
+    it('calculates comprehensive simulation baselines from historical data', () => {
+      recordAdSpend(db, { date: '2026-10-10', amount: 500 });
+      recordTransaction(db, {
+        phone: '8801700000001',
+        name: 'Client A',
+        type: 'BILL',
+        amount: 300,
+        rawText: 'বিল ৩০০ টাকা',
+        jobType: 'voice'
+      });
+
+      const baselines = getSimulationBaselines(db);
+      assert.ok(baselines);
+      assert.strictEqual(baselines.avgTicket, 300);
+      assert.strictEqual(baselines.grossMarginRate, 0.6);
+      assert.strictEqual(baselines.avgGrossProfitPerJob, 180);
+      assert.strictEqual(baselines.totalJobs, 1);
+      assert.strictEqual(baselines.uniquePayingCustomers, 1);
+      assert.strictEqual(baselines.repeatJobFrequency, 1);
+      assert.strictEqual(baselines.totalAdSpend, 500);
+      assert.ok(baselines.dailyCplHistory.length > 0);
+    });
   });
 });

@@ -574,6 +574,182 @@
       font-size: 13px;
     }
 
+    /* Growth Simulator & Ad Budget Styling */
+    .sim-box {
+      border: 2px solid var(--border);
+      padding: 10px;
+      margin-bottom: 14px;
+      background: #FFFFFF;
+    }
+
+    .sim-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 6px;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .sim-title {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .sim-subtabs {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+
+    .sim-tab-btn {
+      padding: 3px 8px;
+      border: 1px solid var(--border);
+      background: #FFF;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      border-radius: 0;
+      text-transform: uppercase;
+    }
+
+    .sim-tab-btn.active {
+      background: #000;
+      color: #FFF;
+    }
+
+    .sim-panel {
+      display: none;
+    }
+
+    .sim-panel.active {
+      display: block;
+    }
+
+    .sim-form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    @media (max-width: 600px) {
+      .sim-form-row {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .sim-field {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .sim-label {
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      color: var(--muted);
+      letter-spacing: 0.5px;
+    }
+
+    .sim-input {
+      width: 100%;
+      padding: 6px 8px;
+      border: 1px solid var(--border);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      background: #FFF;
+      color: #000;
+      border-radius: 0;
+      outline: none;
+    }
+
+    .sim-input:focus {
+      outline: 2px solid #000;
+    }
+
+    .sim-result-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .sim-result-card {
+      border: 1px solid var(--border);
+      padding: 6px 8px;
+      background: var(--paper-gray);
+    }
+
+    .sim-result-card.highlight {
+      background: #000;
+      color: #FFF;
+    }
+
+    .sim-result-card.highlight .sim-label {
+      color: #CCC;
+    }
+
+    .sim-result-card.highlight .sim-sub {
+      color: #DDD;
+    }
+
+    .sim-result-card.span-full {
+      grid-column: span 2;
+    }
+
+    .sim-res-val {
+      font-size: 16px;
+      font-weight: 900;
+      font-variant-numeric: tabular-nums;
+      margin: 2px 0;
+    }
+
+    .sim-sub {
+      font-size: 9px;
+      color: var(--muted);
+    }
+
+    .sim-table-wrap {
+      max-height: 220px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      margin-top: 8px;
+    }
+
+    .sim-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+
+    .sim-table th, .sim-table td {
+      border-bottom: 1px solid var(--border-light);
+      padding: 5px 6px;
+      text-align: left;
+    }
+
+    .sim-table th {
+      background: var(--paper-gray);
+      font-weight: 800;
+      text-transform: uppercase;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    .sim-table .num-col {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
     /* Print Styles: Exact physical official paper format */
     @media print {
       body {
@@ -673,6 +849,232 @@
         <div class="summary-item">
           <span class="summary-label">আজকের বিল (BILLED)</span>
           <span class="summary-value" id="sum-today-billed">৳ ০</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Growth Simulator & Daily Ad Budget Engine -->
+    <div class="perf-box" id="sim-box">
+      <div class="perf-header">
+        <div class="perf-title">📈 প্রবৃদ্ধি সিমুলেটর ও বিজ্ঞাপন বাজেট (GROWTH SIMULATOR)</div>
+        <div class="sim-subtabs">
+          <button class="sim-tab-btn active" id="sim-btn-target" onclick="setSimTab('target')">🎯 লক্ষ্য পূরণ</button>
+          <button class="sim-tab-btn" id="sim-btn-growth" onclick="setSimTab('growth')">⚡ ব্রেক-ইভেন</button>
+          <button class="sim-tab-btn" id="sim-btn-budget" onclick="setSimTab('budget')">💸 বাজেট এন্ট্রি</button>
+          <button class="sim-tab-btn" id="sim-toggle-btn" onclick="toggleSimVisibility()" title="প্রদর্শন / লুকান">[-]</button>
+        </div>
+      </div>
+
+      <div id="sim-body">
+        <!-- TAB 1: TARGET PLANNER -->
+        <div id="sim-panel-target" class="sim-panel active">
+          <div style="font-size: 11px; color: var(--muted); margin-bottom: 8px;">
+            ঐতিহাসিক তথ্যের ভিত্তিতে আপনার মুনাফা বা ক্লায়েন্ট লক্ষ্য অর্জনের রিভার্স প্ল্যানার।
+          </div>
+          <div class="sim-form-row">
+            <div class="sim-field">
+              <label class="sim-label">লক্ষ্যের ধরন (GOAL TYPE)</label>
+              <select id="sim-target-type" class="sim-input" onchange="runTargetSimulation()">
+                <option value="profit">গ্রস প্রফিট লক্ষ্য (Gross Profit ৳)</option>
+                <option value="customers">পেইং ক্লায়েন্ট লক্ষ্য (Paying Clients)</option>
+              </select>
+            </div>
+            <div class="sim-field">
+              <label class="sim-label" id="sim-target-val-label">টার্গেট পরিমাণ (TARGET ৳)</label>
+              <input type="number" id="sim-target-val" class="sim-input" value="50000" min="1" step="500" oninput="runTargetSimulation()">
+            </div>
+          </div>
+          <div class="sim-form-row">
+            <div class="sim-field">
+              <label class="sim-label">সময়কাল (TIMEFRAME)</label>
+              <select id="sim-target-period" class="sim-input" onchange="runTargetSimulation()">
+                <option value="monthly">মাসিক (৩০ দিন)</option>
+                <option value="weekly">সাপ্তাহিক (৭ দিন)</option>
+                <option value="daily">দৈনিক (১ দিন)</option>
+              </select>
+            </div>
+            <div class="sim-field" style="justify-content: flex-end;">
+              <div style="font-size: 10px; color: var(--muted); padding: 5px 6px; border: 1px dashed var(--border-light); background: var(--paper-gray);" id="sim-baselines-tag">
+                ঐতিহাসিক তথ্য: লোড হচ্ছে...
+              </div>
+            </div>
+          </div>
+
+          <div class="sim-result-grid">
+            <div class="sim-result-card">
+              <div class="sim-label">প্রয়োজনীয় মোট রেভিনিউ / বিল</div>
+              <div class="sim-res-val" id="sim-res-revenue">৳ ০</div>
+              <div class="sim-sub">৬০% গ্রস মার্জিন সাপেক্ষে</div>
+            </div>
+            <div class="sim-result-card">
+              <div class="sim-label">প্রয়োজনীয় মোট কাজ / অর্ডার</div>
+              <div class="sim-res-val" id="sim-res-jobs">০ টি</div>
+              <div class="sim-sub" id="sim-res-jobs-sub">গড় টিকিট ৳ ০ এর ভিত্তিতে</div>
+            </div>
+            <div class="sim-result-card">
+              <div class="sim-label">প্রয়োজনীয় পেইং ক্লায়েন্ট</div>
+              <div class="sim-res-val" id="sim-res-customers">০ জন</div>
+              <div class="sim-sub" id="sim-res-cust-sub">ক্লায়েন্ট প্রতি ০ টি কাজের ভিত্তিতে</div>
+            </div>
+            <div class="sim-result-card">
+              <div class="sim-label">প্রয়োজনীয় মোট ইনবাউন্ড লিড</div>
+              <div class="sim-res-val" id="sim-res-leads">০ টি</div>
+              <div class="sim-sub" id="sim-res-leads-sub">রূপান্তর হার ০% এর ভিত্তিতে</div>
+            </div>
+            <div class="sim-result-card highlight">
+              <div class="sim-label">প্রয়োজনীয় বিজ্ঞাপন বাজেট</div>
+              <div class="sim-res-val" id="sim-res-adspend">৳ ০</div>
+              <div class="sim-sub" id="sim-res-adspend-sub">গড় CPL ৳ ০ এর ভিত্তিতে</div>
+            </div>
+            <div class="sim-result-card">
+              <div class="sim-label">প্রতিদিনের অর্জনের গতি (DAILY PACE)</div>
+              <div class="sim-res-val" id="sim-res-pace">০ কাজ / দিন</div>
+              <div class="sim-sub" id="sim-res-pace-sub">দৈনিক ০ টি লিড &bull; ৳ ০ বিজ্ঞাপন</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 2: BREAK-EVEN & GROWTH TIMELINE -->
+        <div id="sim-panel-growth" class="sim-panel">
+          <div style="font-size: 11px; color: var(--muted); margin-bottom: 8px;">
+            বিজ্ঞাপন বাজেট বৃদ্ধি করলে কত দিনে বিনিয়োগ উঠে আসবে (Break-Even) এবং ৩০ দিনে কত লাভ হবে তার প্রাক্কলন।
+          </div>
+          <div class="sim-form-row">
+            <div class="sim-field">
+              <label class="sim-label">প্রস্তাবিত মোট বিজ্ঞাপন বাজেট (AD SPEND ৳)</label>
+              <input type="number" id="sim-growth-budget" class="sim-input" value="5000" min="100" step="500" oninput="onGrowthBudgetChange()">
+            </div>
+            <div class="sim-field">
+              <label class="sim-label">প্রত্যাশিত অর্জিত লিড সংখ্যা (LEADS)</label>
+              <input type="number" id="sim-growth-leads" class="sim-input" value="33" min="1" step="1" oninput="onGrowthLeadsChange()">
+            </div>
+          </div>
+
+          <div class="sim-result-grid">
+            <div class="sim-result-card">
+              <div class="sim-label">প্রত্যাশিত পেইং ক্লায়েন্ট</div>
+              <div class="sim-res-val" id="sim-g-cust">০ জন</div>
+              <div class="sim-sub" id="sim-g-cust-sub">রূপান্তর হার ০%</div>
+            </div>
+            <div class="sim-result-card">
+              <div class="sim-label">ক্লায়েন্ট অধিগ্রহণ ব্যয় (CAC)</div>
+              <div class="sim-res-val" id="sim-g-cac">৳ ০</div>
+              <div class="sim-sub">প্রতি ক্লায়েন্ট অর্জনে ব্যয়</div>
+            </div>
+            <div class="sim-result-card">
+              <div class="sim-label">প্রতি কাজে গ্রস মুনাফা</div>
+              <div class="sim-res-val" id="sim-g-profit-per-job">৳ ০</div>
+              <div class="sim-sub">গড় টিকিট ৳ ০ &times; ৬০%</div>
+            </div>
+            <div class="sim-result-card">
+              <div class="sim-label">ব্রেক-ইভেন হতে প্রয়োজনীয় কাজ</div>
+              <div class="sim-res-val" id="sim-g-be-jobs">০ টি কাজ</div>
+              <div class="sim-sub">CAC উসুল হতে অর্ডার সংখ্যা</div>
+            </div>
+            <div class="sim-result-card highlight span-full">
+              <div class="sim-label">ব্রেক-ইভেন সময়রেখা (PAYBACK TIMELINE)</div>
+              <div class="sim-res-val" id="sim-g-be-timeline">১ম অর্ডারে তাৎক্ষণিক ব্রেক-ইভেন</div>
+              <div class="sim-sub" id="sim-g-be-desc">প্রথম কাজেই বিজ্ঞাপন খরচ উঠে সরাসরি লাভ শুরু হবে</div>
+            </div>
+            <div class="sim-result-card">
+              <div class="sim-label">৩০ দিনে প্রজেক্টেড নেট মুনাফা</div>
+              <div class="sim-res-val" id="sim-g-net-profit">৳ ০</div>
+              <div class="sim-sub">বিজ্ঞাপন খরচ বাদ দিয়ে নিট লাভ</div>
+            </div>
+            <div class="sim-result-card">
+              <div class="sim-label">বিজ্ঞাপনের আরওআই (ROI)</div>
+              <div class="sim-res-val" id="sim-g-roi">০%</div>
+              <div class="sim-sub">বিনিয়োগের উপর লাভ শতাংশ</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 3: AD BUDGET ENTRY & LOG -->
+        <div id="sim-panel-budget" class="sim-panel">
+          <div style="font-size: 11px; color: var(--muted); margin-bottom: 8px;">
+            প্রকৃত দৈনিক বিজ্ঞাপন বাজেট এন্ট্রি করুন। একক তারিখ বা টানা একাধিক তারিখের রেঞ্জে এন্ট্রি করা যাবে।
+          </div>
+
+          <div style="display:flex; gap:12px; margin-bottom:8px; font-size:12px;">
+            <label style="cursor:pointer; display:flex; align-items:center; gap:4px;">
+              <input type="radio" name="spend-mode" value="single" checked onchange="setSpendMode('single')"> একক তারিখ (Single Date)
+            </label>
+            <label style="cursor:pointer; display:flex; align-items:center; gap:4px;">
+              <input type="radio" name="spend-mode" value="range" onchange="setSpendMode('range')"> টানা তারিখের রেঞ্জ (Date Range)
+            </label>
+          </div>
+
+          <!-- Single Date Form -->
+          <div id="spend-form-single">
+            <div class="sim-form-row">
+              <div class="sim-field">
+                <label class="sim-label">তারিখ (DATE)</label>
+                <input type="date" id="spend-date-single" class="sim-input">
+              </div>
+              <div class="sim-field">
+                <label class="sim-label">দৈনিক বাজেট (AMOUNT ৳)</label>
+                <input type="number" id="spend-amt-single" class="sim-input" placeholder="যেমন: ৫০০" min="0" step="50">
+              </div>
+            </div>
+            <div class="sim-field" style="margin-bottom:8px;">
+              <label class="sim-label">ক্যাম্পেইন / বিবরণ (ঐচ্ছিক)</label>
+              <input type="text" id="spend-note-single" class="sim-input" placeholder="যেমন: ফেসবুক ভিডিও ক্যাম্পেইন">
+            </div>
+          </div>
+
+          <!-- Range Form -->
+          <div id="spend-form-range" style="display:none;">
+            <div class="sim-form-row">
+              <div class="sim-field">
+                <label class="sim-label">শুরুর তারিখ (START DATE)</label>
+                <input type="date" id="spend-range-start" class="sim-input">
+              </div>
+              <div class="sim-field">
+                <label class="sim-label">শেষের তারিখ (END DATE)</label>
+                <input type="date" id="spend-range-end" class="sim-input">
+              </div>
+            </div>
+            <div class="sim-form-row">
+              <div class="sim-field">
+                <label class="sim-label">প্রতিদিনের বাজেট রেট (DAILY AMOUNT ৳)</label>
+                <input type="number" id="spend-range-daily" class="sim-input" placeholder="যেমন: ৪০০" min="0" step="50">
+              </div>
+              <div class="sim-field">
+                <label class="sim-label">ক্যাম্পেইন / বিবরণ (ঐচ্ছিক)</label>
+                <input type="text" id="spend-range-note" class="sim-input" placeholder="যেমন: ৭ দিনের অফার বুস্ট">
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px;">
+            <button class="btn btn-solid" style="padding:6px 14px;" onclick="saveAdSpendRecord()">💾 বাজেট এন্ট্রি সংরক্ষণ করুন</button>
+            <span id="spend-status-msg" style="font-size:11px; display:none;"></span>
+          </div>
+
+          <!-- Summary Strip -->
+          <div style="margin-top:12px; padding:6px 8px; border:1px solid var(--border); background:var(--paper-gray); font-size:11px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px;">
+            <span>মোট সংরক্ষিত বিজ্ঞাপন: <strong id="spend-sum-total">৳ ০</strong></span>
+            <span>মোট সক্রিয় দিন: <strong id="spend-sum-days">০ দিন</strong></span>
+            <span>দৈনিক গড় খরচ: <strong id="spend-sum-avg">৳ ০</strong></span>
+          </div>
+
+          <!-- Recent Spends Table with Dynamic Daily CPL -->
+          <div class="sim-table-wrap">
+            <table class="sim-table">
+              <thead>
+                <tr>
+                  <th style="width:25%;">তারিখ</th>
+                  <th class="num-col" style="width:20%;">খরচ (৳)</th>
+                  <th class="num-col" style="width:15%;">লিড</th>
+                  <th class="num-col" style="width:22%;">দৈনিক CPL</th>
+                  <th>ক্যাম্পেইন</th>
+                </tr>
+              </thead>
+              <tbody id="spend-table-rows">
+                <tr><td colspan="5" style="text-align:center; padding:12px;">কোনো বিজ্ঞাপনের রেকর্ড নেই।</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -794,6 +1196,7 @@
               <li><span class="about-badge">customers</span>: ক্লায়েন্টের ফোন নম্বর, নাম, অ্যাকাউন্ট তৈরির তারিখ ও আপডেট হিস্ট্রি।</li>
               <li><span class="about-badge">transactions</span>: প্রতিটি বিল ও পেমেন্টের পরিমাণ, তারিখ, মূল বার্তা, কাজের ধরন (voice/video), অডিওর সেকেন্ড এবং হোয়াটসঅ্যাপ মেসেজ আইডি।</li>
               <li><span class="about-badge">leads</span>: নতুন লিডের প্রথম বার্তার সময় (<span class="about-badge">first_contact_at</span>), প্রথম কাজ ডেলিভারির সময় (<span class="about-badge">first_job_delivered_at</span>) ও মোট রূপান্তর সময়।</li>
+              <li><span class="about-badge">ad_spend</span>: প্রতিদিনের বিজ্ঞাপন খরচ (spend_date, amount, note, leads_count ও dynamic daily_cpl)।</li>
             </ul>
           </li>
           <li><strong>হোয়াটসঅ্যাপ সেশন নিরাপত্তা:</strong> লোকাল ডিরেক্টরি (<span class="about-badge">.wwebjs_auth</span>)-এ এনক্রিপ্ট হয়ে থাকে, ফলে বারবার কিউআর কোড স্ক্যান করতে হয় না।</li>
@@ -802,7 +1205,18 @@
       </div>
 
       <div class="about-section">
-        <h3>৪. দ্রুত রেফারেন্স কমান্ড (QUICK CHEAT SHEET)</h3>
+        <h3>৪. গ্রস প্রফিট ও প্রবৃদ্ধি সিমুলেটর (GROWTH SIMULATOR &amp; AD BUDGET)</h3>
+        <p>সফটওয়্যারটিতে যুক্ত করা হয়েছে একটি স্বয়ংক্রিয় প্রবৃদ্ধি ও বিজ্ঞাপন সিমুলেশন ইঞ্জিন:</p>
+        <ul>
+          <li><strong>লক্ষ্য নির্ধারণ ও রিভার্স প্ল্যানার:</strong> আপনি মাসিক, সাপ্তাহিক বা দৈনিক কত টাকা গ্রস প্রফিট (৬০% মার্জিন) বা কতজন ক্লায়েন্ট পেতে চান তা লিখলে সিস্টেম স্বয়ংক্রিয়ভাবে প্রয়োজনীয় অর্ডার, লিড সংখ্যা ও অনুমিত বিজ্ঞাপন খরচ হিসাব করে দেয়।</li>
+          <li><strong>ব্রেক-ইভেন ও প্রবৃদ্ধি টাইমলাইন:</strong> আপনি কত টাকা বিজ্ঞাপন বাজেট বাড়াতে চান তা লিখলে ক্লায়েন্ট অর্জনের ব্যয় (CAC), ব্রেক-ইভেন হতে কতটি কাজ লাগবে, কত দিনে বিনিয়োগ উঠে আসবে (Payback Timeline) এবং ৩০ দিনে সম্ভাব্য নেট মুনাফা ও ROI গণনা করে দেয়।</li>
+          <li><strong>দৈনিক ও রেঞ্জ বিজ্ঞাপন এন্ট্রি:</strong> অতীত বা বর্তমানের যেকোনো একক তারিখের বা টানা একাধিক তারিখের বিজ্ঞাপন বাজেট এন্ট্রি করা যায়।</li>
+          <li><strong>দৈনিক পরিবর্তনশীল CPL (Cost Per Lead):</strong> প্রতিদিনের বিজ্ঞাপন খরচকে ওইদিনের নতুন ইনবাউন্ড লিড সংখ্যা দিয়ে ভাগ করে স্বয়ংক্রিয়ভাবে দৈনিক নিখুঁত CPL হিসাব করা হয় এবং নতুন তথ্যের ভিত্তিতে সিমুলেশন তাৎক্ষণিক রিক্যালকুলেট হয়।</li>
+        </ul>
+      </div>
+
+      <div class="about-section">
+        <h3>৫. দ্রুত রেফারেন্স কমান্ড (QUICK CHEAT SHEET)</h3>
         <p><span class="about-badge">!due</span> &rarr; নিজের চ্যাটে মোট বকেয়া ও গ্রাহকদের তালিকা দেখতে।</p>
         <p><span class="about-badge">বিল [টাকা] টাকা</span> &rarr; ক্লায়েন্টের চ্যাটে নতুন কাজের বিল যোগ করতে।</p>
         <p><span class="about-badge">[টাকা] টাকা পেয়েছি, ধন্যবাদ</span> &rarr; ক্লায়েন্টের চ্যাটে পরিশোধ গ্রহণ রেকর্ড করতে।</p>
@@ -811,7 +1225,7 @@
       </div>
 
       <div class="about-section" style="margin-bottom: 0;">
-        <h3>৫. সফটওয়্যার আপডেট নীতি (DOCUMENTATION INTEGRITY)</h3>
+        <h3>৬. সফটওয়্যার আপডেট নীতি (DOCUMENTATION INTEGRITY)</h3>
         <p>সফটওয়্যারে নতুন যেকোনো ফিচার, সার্ভিসের ধরন বা সিস্টেমের পরিবর্তন যুক্ত হলে এই নির্দেশিকা স্বয়ংক্রিয়ভাবে হালনাগাদ ও সমকালীন রাখা হয়।</p>
       </div>
 
@@ -825,9 +1239,15 @@
     /*__INITIAL_DATA__*/
     let allCustomers = (window.__INITIAL_DATA__ && window.__INITIAL_DATA__.customers) || [];
     let performanceData = (window.__INITIAL_DATA__ && window.__INITIAL_DATA__.stats && window.__INITIAL_DATA__.stats.performance) || null;
+    let simBaselines = (window.__INITIAL_DATA__ && window.__INITIAL_DATA__.simBaselines) || null;
+    let adSpendSummary = (window.__INITIAL_DATA__ && window.__INITIAL_DATA__.adSpendSummary) || null;
+    let adSpendList = (window.__INITIAL_DATA__ && window.__INITIAL_DATA__.adSpendList) || [];
     let currentTab = 'due';
     let currentPerfPeriod = 'daily';
     let currentFilterText = '';
+    let currentSimTab = 'target';
+    let isSimBoxCollapsed = false;
+    let spendMode = 'single';
 
     const BENGALI_DIGITS = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
     function toBengaliDigits(num) {
@@ -1216,6 +1636,386 @@
       renderCustomerList();
     });
 
+    /* -------------------------------------------------------------
+       GROWTH SIMULATOR & AD BUDGET JAVASCRIPT LOGIC
+       ------------------------------------------------------------- */
+    function initDateInputs() {
+      const today = new Date().toISOString().split('T')[0];
+      const dSingle = document.getElementById('spend-date-single');
+      if (dSingle && !dSingle.value) dSingle.value = today;
+      const dStart = document.getElementById('spend-range-start');
+      if (dStart && !dStart.value) dStart.value = today;
+      const dEnd = document.getElementById('spend-range-end');
+      if (dEnd && !dEnd.value) dEnd.value = today;
+    }
+
+    function toggleSimVisibility() {
+      isSimBoxCollapsed = !isSimBoxCollapsed;
+      const body = document.getElementById('sim-body');
+      const btn = document.getElementById('sim-toggle-btn');
+      if (isSimBoxCollapsed) {
+        body.style.display = 'none';
+        btn.innerText = '[+]';
+      } else {
+        body.style.display = 'block';
+        btn.innerText = '[-]';
+      }
+    }
+
+    function setSimTab(tab) {
+      currentSimTab = tab;
+      const btnT = document.getElementById('sim-btn-target');
+      const btnG = document.getElementById('sim-btn-growth');
+      const btnB = document.getElementById('sim-btn-budget');
+      if (btnT) btnT.classList.toggle('active', tab === 'target');
+      if (btnG) btnG.classList.toggle('active', tab === 'growth');
+      if (btnB) btnB.classList.toggle('active', tab === 'budget');
+
+      const pT = document.getElementById('sim-panel-target');
+      const pG = document.getElementById('sim-panel-growth');
+      const pB = document.getElementById('sim-panel-budget');
+      if (pT) pT.classList.toggle('active', tab === 'target');
+      if (pG) pG.classList.toggle('active', tab === 'growth');
+      if (pB) pB.classList.toggle('active', tab === 'budget');
+
+      if (tab === 'target') runTargetSimulation();
+      if (tab === 'growth') runGrowthSimulation();
+    }
+
+    function setSpendMode(mode) {
+      spendMode = mode;
+      const fSingle = document.getElementById('spend-form-single');
+      const fRange = document.getElementById('spend-form-range');
+      if (fSingle) fSingle.style.display = mode === 'single' ? 'block' : 'none';
+      if (fRange) fRange.style.display = mode === 'range' ? 'block' : 'none';
+    }
+
+    function applySimBaselines(baselines) {
+      if (!baselines) return;
+      simBaselines = baselines;
+
+      const avgTicket = baselines.avgTicket || 500;
+      const convRatePct = Math.round((baselines.conversionRate || 0.25) * 100);
+      const cpl = baselines.historicalCpl || 150;
+
+      const tagEl = document.getElementById('sim-baselines-tag');
+      if (tagEl) {
+        tagEl.innerText = 'ঐতিহাসিক গড় টিকিট ৳ ' + formatNumberBangla(avgTicket) + ' • মার্জিন ৬০% • রূপান্তর ' + toBengaliDigits(convRatePct) + '% • গড় CPL ৳ ' + formatNumberBangla(cpl);
+      }
+
+      runTargetSimulation();
+      runGrowthSimulation();
+    }
+
+    function runTargetSimulation() {
+      const typeEl = document.getElementById('sim-target-type');
+      const targetType = typeEl ? typeEl.value : 'profit';
+      const valEl = document.getElementById('sim-target-val');
+      const val = parseFloat(valEl ? valEl.value : 0) || 0;
+      const periodEl = document.getElementById('sim-target-period');
+      const period = periodEl ? periodEl.value : 'monthly';
+
+      const labelEl = document.getElementById('sim-target-val-label');
+      if (labelEl) {
+        labelEl.innerText = targetType === 'profit' ? 'টার্গেট নিট মুনাফা (TARGET ৳)' : 'টার্গেট পেইং ক্লায়েন্ট সংখ্যা (CUSTOMERS)';
+      }
+
+      const days = period === 'monthly' ? 30 : (period === 'weekly' ? 7 : 1);
+
+      const avgTicket = (simBaselines && simBaselines.avgTicket > 0) ? simBaselines.avgTicket : 500;
+      const grossMarginRate = (simBaselines && simBaselines.grossMarginRate > 0) ? simBaselines.grossMarginRate : 0.60;
+      const profitPerJob = (simBaselines && simBaselines.avgGrossProfitPerJob > 0) ? simBaselines.avgGrossProfitPerJob : (avgTicket * grossMarginRate);
+      const repeatFreq = (simBaselines && simBaselines.repeatJobFrequency > 0) ? simBaselines.repeatJobFrequency : 1.5;
+      const convRate = (simBaselines && simBaselines.conversionRate > 0) ? simBaselines.conversionRate : 0.25;
+      const cpl = (simBaselines && simBaselines.historicalCpl > 0) ? simBaselines.historicalCpl : 150;
+
+      let revenue = 0;
+      let jobs = 0;
+      let customers = 0;
+      let leads = 0;
+      let adSpend = 0;
+
+      if (targetType === 'profit') {
+        const targetProfit = Math.max(1, val);
+        jobs = Math.max(1, Math.ceil(targetProfit / profitPerJob));
+        revenue = jobs * avgTicket;
+        customers = Math.max(1, Math.ceil(jobs / repeatFreq));
+        leads = Math.max(1, Math.ceil(customers / convRate));
+        adSpend = Math.round(leads * cpl);
+      } else {
+        customers = Math.max(1, Math.round(val));
+        leads = Math.max(1, Math.ceil(customers / convRate));
+        jobs = Math.max(1, Math.ceil(customers * repeatFreq));
+        revenue = jobs * avgTicket;
+        adSpend = Math.round(leads * cpl);
+      }
+
+      const jobsPerDay = (jobs / days).toFixed(1);
+      const leadsPerDay = (leads / days).toFixed(1);
+      const spendPerDay = Math.round(adSpend / days);
+
+      const revEl = document.getElementById('sim-res-revenue');
+      if (revEl) revEl.innerText = '৳ ' + formatNumberBangla(revenue);
+
+      const jobsEl = document.getElementById('sim-res-jobs');
+      if (jobsEl) jobsEl.innerText = toBengaliDigits(jobs) + ' টি';
+
+      const jobsSub = document.getElementById('sim-res-jobs-sub');
+      if (jobsSub) jobsSub.innerText = 'গড় টিকিট ৳ ' + formatNumberBangla(avgTicket) + ' এর ভিত্তিতে';
+
+      const custEl = document.getElementById('sim-res-customers');
+      if (custEl) custEl.innerText = toBengaliDigits(customers) + ' জন';
+
+      const custSub = document.getElementById('sim-res-cust-sub');
+      if (custSub) custSub.innerText = 'ক্লায়েন্ট প্রতি ' + toBengaliDigits(repeatFreq.toFixed(1)) + ' টি কাজের ভিত্তিতে';
+
+      const leadsEl = document.getElementById('sim-res-leads');
+      if (leadsEl) leadsEl.innerText = toBengaliDigits(leads) + ' টি';
+
+      const leadsSub = document.getElementById('sim-res-leads-sub');
+      if (leadsSub) leadsSub.innerText = 'রূপান্তর হার ' + toBengaliDigits(Math.round(convRate * 100)) + '% এর ভিত্তিতে';
+
+      const spendEl = document.getElementById('sim-res-adspend');
+      if (spendEl) spendEl.innerText = '৳ ' + formatNumberBangla(adSpend);
+
+      const spendSub = document.getElementById('sim-res-adspend-sub');
+      if (spendSub) spendSub.innerText = 'গড় CPL ৳ ' + formatNumberBangla(cpl) + ' এর ভিত্তিতে';
+
+      const paceEl = document.getElementById('sim-res-pace');
+      if (paceEl) paceEl.innerText = toBengaliDigits(jobsPerDay) + ' কাজ / দিন';
+
+      const paceSub = document.getElementById('sim-res-pace-sub');
+      if (paceSub) paceSub.innerText = 'দৈনিক ' + toBengaliDigits(leadsPerDay) + ' টি লিড • ৳ ' + formatNumberBangla(spendPerDay) + ' বিজ্ঞাপন';
+    }
+
+    function onGrowthBudgetChange() {
+      const bEl = document.getElementById('sim-growth-budget');
+      const budget = parseFloat(bEl ? bEl.value : 0) || 0;
+      const cpl = (simBaselines && simBaselines.historicalCpl > 0) ? simBaselines.historicalCpl : 150;
+      const leads = Math.max(1, Math.round(budget / cpl));
+      const lEl = document.getElementById('sim-growth-leads');
+      if (lEl) lEl.value = leads;
+      runGrowthSimulation();
+    }
+
+    function onGrowthLeadsChange() {
+      runGrowthSimulation();
+    }
+
+    function runGrowthSimulation() {
+      const bEl = document.getElementById('sim-growth-budget');
+      const budget = parseFloat(bEl ? bEl.value : 0) || 0;
+      const lEl = document.getElementById('sim-growth-leads');
+      const leads = parseFloat(lEl ? lEl.value : 0) || 0;
+
+      const avgTicket = (simBaselines && simBaselines.avgTicket > 0) ? simBaselines.avgTicket : 500;
+      const grossMarginRate = (simBaselines && simBaselines.grossMarginRate > 0) ? simBaselines.grossMarginRate : 0.60;
+      const profitPerJob = (simBaselines && simBaselines.avgGrossProfitPerJob > 0) ? simBaselines.avgGrossProfitPerJob : (avgTicket * grossMarginRate);
+      const convRate = (simBaselines && simBaselines.conversionRate > 0) ? simBaselines.conversionRate : 0.25;
+      const repeatFreq = (simBaselines && simBaselines.repeatJobFrequency > 0) ? simBaselines.repeatJobFrequency : 1.5;
+
+      const acquiredCust = Math.max(1, Math.round(leads * convRate));
+      const cac = Math.max(1, Math.round(budget / acquiredCust));
+      const beJobs = profitPerJob > 0 ? (cac / profitPerJob) : 1;
+
+      let beTitle = '';
+      let beDesc = '';
+
+      if (beJobs <= 1) {
+        beTitle = '১ম অর্ডারে তাৎক্ষণিক ব্রেক-ইভেন (Day ১)';
+        beDesc = 'প্রথম ডেলিভারির মুনাফা (৳ ' + formatNumberBangla(profitPerJob) + ') বিজ্ঞাপন খরচ (৳ ' + formatNumberBangla(cac) + ') ছাড়িয়ে যাবে!';
+      } else {
+        const neededJobs = Math.ceil(beJobs);
+        const reorderIntervalDays = 14;
+        const estDays = Math.round((beJobs - 1) * reorderIntervalDays) + 1;
+        beTitle = 'আনুমানিক ' + toBengaliDigits(estDays) + ' দিন (' + toBengaliDigits(neededJobs) + ' টি অর্ডার)';
+        beDesc = 'ক্লায়েন্টের ' + toBengaliDigits(neededJobs) + ' টি পুনরাবৃত্ত কাজের মাধ্যমে বিজ্ঞাপন ব্যয় উসুল হয়ে পূর্ণ নিট লাভ শুরু হবে।';
+      }
+
+      // 30-day projection
+      const monthJobs = Math.round(acquiredCust * Math.min(repeatFreq, 2.0));
+      const monthRev = monthJobs * avgTicket;
+      const monthProfit = monthRev * grossMarginRate;
+      const netProfit = monthProfit - budget;
+      const roi = budget > 0 ? Math.round((netProfit / budget) * 100) : 0;
+
+      const custEl = document.getElementById('sim-g-cust');
+      if (custEl) custEl.innerText = toBengaliDigits(acquiredCust) + ' জন';
+
+      const custSub = document.getElementById('sim-g-cust-sub');
+      if (custSub) custSub.innerText = 'রূপান্তর হার ' + toBengaliDigits(Math.round(convRate * 100)) + '%';
+
+      const cacEl = document.getElementById('sim-g-cac');
+      if (cacEl) cacEl.innerText = '৳ ' + formatNumberBangla(cac);
+
+      const ppjEl = document.getElementById('sim-g-profit-per-job');
+      if (ppjEl) ppjEl.innerText = '৳ ' + formatNumberBangla(profitPerJob);
+
+      const bejEl = document.getElementById('sim-g-be-jobs');
+      if (bejEl) bejEl.innerText = toBengaliDigits(beJobs.toFixed(1)) + ' টি কাজ';
+
+      const betEl = document.getElementById('sim-g-be-timeline');
+      if (betEl) betEl.innerText = beTitle;
+
+      const bedEl = document.getElementById('sim-g-be-desc');
+      if (bedEl) bedEl.innerText = beDesc;
+
+      const npEl = document.getElementById('sim-g-net-profit');
+      if (npEl) npEl.innerText = (netProfit >= 0 ? '+' : '') + '৳ ' + formatNumberBangla(netProfit);
+
+      const roiEl = document.getElementById('sim-g-roi');
+      if (roiEl) roiEl.innerText = (roi >= 0 ? '+' : '') + toBengaliDigits(roi) + '%' + (roi >= 0 ? ' নিট লাভ' : ' ক্ষতি');
+    }
+
+    function renderAdSpend(summary, list) {
+      if (summary) {
+        adSpendSummary = summary;
+        const totEl = document.getElementById('spend-sum-total');
+        if (totEl) totEl.innerText = '৳ ' + formatNumberBangla(summary.totalSpend || 0);
+
+        const daysEl = document.getElementById('spend-sum-days');
+        if (daysEl) daysEl.innerText = toBengaliDigits(summary.daysCount || 0) + ' দিন';
+
+        const avgEl = document.getElementById('spend-sum-avg');
+        if (avgEl) avgEl.innerText = '৳ ' + formatNumberBangla(summary.avgDailySpend || 0);
+      }
+
+      if (Array.isArray(list)) {
+        adSpendList = list;
+        const tbody = document.getElementById('spend-table-rows');
+        if (!tbody) return;
+
+        if (list.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:12px;">কোনো বিজ্ঞাপনের রেকর্ড নেই।</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = list.map(item => {
+          const dtParts = (item.spend_date || '').split('-');
+          const formattedDate = dtParts.length === 3 ? `${toBengaliDigits(dtParts[2])}/${toBengaliDigits(dtParts[1])}/${toBengaliDigits(dtParts[0])}` : toBengaliDigits(item.spend_date);
+          const amountBangla = '৳ ' + formatNumberBangla(item.amount);
+          const leadsBangla = toBengaliDigits(item.leads_count || 0) + ' টি';
+          
+          let cplBangla = '--';
+          if (item.leads_count > 0 && item.daily_cpl !== null && item.daily_cpl !== undefined) {
+            cplBangla = '৳ ' + formatNumberBangla(item.daily_cpl);
+          }
+
+          const noteText = item.note ? escapeHtml(item.note) : '--';
+
+          return '<tr>' +
+            '<td style="white-space:nowrap;">' + formattedDate + '</td>' +
+            '<td class="num-col"><strong>' + amountBangla + '</strong></td>' +
+            '<td class="num-col">' + leadsBangla + '</td>' +
+            '<td class="num-col">' + cplBangla + '</td>' +
+            '<td>' + noteText + '</td>' +
+          '</tr>';
+        }).join('');
+      }
+    }
+
+    async function saveAdSpendRecord() {
+      const statusEl = document.getElementById('spend-status-msg');
+      if (statusEl) {
+        statusEl.style.display = 'inline-block';
+        statusEl.style.color = 'var(--muted)';
+        statusEl.innerText = 'সংরক্ষণ করা হচ্ছে...';
+      }
+
+      let payload = {};
+      if (spendMode === 'single') {
+        const d = document.getElementById('spend-date-single').value;
+        const amt = parseFloat(document.getElementById('spend-amt-single').value);
+        const note = document.getElementById('spend-note-single').value.trim();
+
+        if (!d) {
+          alert('অনুগ্রহ করে তারিখ নির্বাচন করুন।');
+          if (statusEl) statusEl.style.display = 'none';
+          return;
+        }
+        if (isNaN(amt) || amt < 0) {
+          alert('অনুগ্রহ করে সঠিক দৈনিক বাজেট পরিমাণ লিখুন।');
+          if (statusEl) statusEl.style.display = 'none';
+          return;
+        }
+        payload = { date: d, amount: amt, note };
+      } else {
+        const s = document.getElementById('spend-range-start').value;
+        const e = document.getElementById('spend-range-end').value;
+        const amt = parseFloat(document.getElementById('spend-range-daily').value);
+        const note = document.getElementById('spend-range-note').value.trim();
+
+        if (!s || !e) {
+          alert('অনুগ্রহ করে শুরু ও শেষের তারিখ নির্বাচন করুন।');
+          if (statusEl) statusEl.style.display = 'none';
+          return;
+        }
+        if (isNaN(amt) || amt < 0) {
+          alert('অনুগ্রহ করে সঠিক দৈনিক বাজেট রেট লিখুন।');
+          if (statusEl) statusEl.style.display = 'none';
+          return;
+        }
+        payload = { startDate: s, endDate: e, dailyAmount: amt, note };
+      }
+
+      try {
+        const res = await fetch('/api/ad-spend', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const result = await res.json();
+        if (!res.ok || result.status !== 'ok') {
+          throw new Error(result.error || 'সংরক্ষণ ব্যর্থ হয়েছে');
+        }
+
+        if (statusEl) {
+          statusEl.style.color = '#000';
+          statusEl.style.fontWeight = 'bold';
+          statusEl.innerText = '✓ ' + toBengaliDigits(result.result.count) + ' দিনের বাজেট সংরক্ষিত হয়েছে (মোট ৳ ' + formatNumberBangla(result.result.totalAmount) + ')';
+          setTimeout(() => { if (statusEl) statusEl.style.display = 'none'; }, 4000);
+        }
+
+        // Clear amount inputs
+        const amtSingleEl = document.getElementById('spend-amt-single');
+        if (amtSingleEl) amtSingleEl.value = '';
+        const amtRangeEl = document.getElementById('spend-range-daily');
+        if (amtRangeEl) amtRangeEl.value = '';
+
+        // Refresh ad spend list and baselines
+        await Promise.all([
+          loadAdSpend(),
+          loadSimulationBaselines()
+        ]);
+      } catch (err) {
+        if (statusEl) {
+          statusEl.style.color = 'red';
+          statusEl.innerText = 'ভুল: ' + err.message;
+        }
+        alert('বাজেট সংরক্ষণে সমস্যা হয়েছে: ' + err.message);
+      }
+    }
+
+    async function loadAdSpend() {
+      try {
+        const res = await fetch('/api/ad-spend');
+        const data = await res.json();
+        renderAdSpend(data.summary, data.list);
+      } catch (err) {
+        console.error('Failed to load ad spend:', err);
+      }
+    }
+
+    async function loadSimulationBaselines() {
+      try {
+        const res = await fetch('/api/simulation/baselines');
+        const baselines = await res.json();
+        applySimBaselines(baselines);
+      } catch (err) {
+        console.error('Failed to load simulation baselines:', err);
+      }
+    }
+
     // Hydrate initial data if pre-rendered
     if (window.__INITIAL_DATA__) {
       if (window.__INITIAL_DATA__.stats) {
@@ -1224,13 +2024,27 @@
       if (window.__INITIAL_DATA__.customers) {
         renderCustomerList();
       }
+      if (window.__INITIAL_DATA__.simBaselines) {
+        applySimBaselines(window.__INITIAL_DATA__.simBaselines);
+      }
+      if (window.__INITIAL_DATA__.adSpendSummary || window.__INITIAL_DATA__.adSpendList) {
+        renderAdSpend(window.__INITIAL_DATA__.adSpendSummary, window.__INITIAL_DATA__.adSpendList);
+      }
     }
+
+    initDateInputs();
+    runTargetSimulation();
+    runGrowthSimulation();
 
     // Initial load and periodic refresh
     loadStats();
     loadCustomers();
+    loadSimulationBaselines();
+    loadAdSpend();
     setInterval(loadStats, 15000);
     setInterval(loadCustomers, 25000);
+    setInterval(loadSimulationBaselines, 30000);
+    setInterval(loadAdSpend, 30000);
   </script>
 </body>
 </html>

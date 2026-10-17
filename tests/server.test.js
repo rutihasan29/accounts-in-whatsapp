@@ -20,6 +20,36 @@ function makeRequest(url) {
   });
 }
 
+function makePostRequest(urlStr, bodyObj) {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(bodyObj);
+    const parsed = new URL(urlStr);
+    const req = http.request({
+      hostname: parsed.hostname,
+      port: parsed.port,
+      path: parsed.pathname + (parsed.search || ''),
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload)
+      }
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        resolve({
+          statusCode: res.statusCode,
+          headers: res.headers,
+          body: data
+        });
+      });
+    });
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
 describe('Web Server & Frontend Endpoints', () => {
   let db;
   let server;
@@ -127,6 +157,55 @@ describe('Web Server & Frontend Endpoints', () => {
     assert.ok(res.body.includes('Rahim Traders'));
     assert.ok(res.body.includes('1,000'));
     assert.ok(res.body.includes('PRINT / SAVE AS PDF'));
+  });
+
+  it('POST /api/ad-spend records ad spend for single date and date range', async () => {
+    // 1. Single date
+    const res1 = await makePostRequest(`${baseUrl}/api/ad-spend`, {
+      date: '2026-10-14',
+      amount: 400,
+      note: 'Facebook Campaign'
+    });
+    assert.strictEqual(res1.statusCode, 200);
+    const body1 = JSON.parse(res1.body);
+    assert.strictEqual(body1.status, 'ok');
+    assert.strictEqual(body1.result.count, 1);
+    assert.strictEqual(body1.result.totalAmount, 400);
+
+    // 2. Date range
+    const res2 = await makePostRequest(`${baseUrl}/api/ad-spend`, {
+      startDate: '2026-10-15',
+      endDate: '2026-10-17',
+      dailyAmount: 300,
+      note: 'Continuous 3-day test'
+    });
+    assert.strictEqual(res2.statusCode, 200);
+    const body2 = JSON.parse(res2.body);
+    assert.strictEqual(body2.status, 'ok');
+    assert.strictEqual(body2.result.count, 3);
+    assert.strictEqual(body2.result.totalAmount, 900);
+  });
+
+  it('GET /api/ad-spend returns summary and recent ad spend entries', async () => {
+    const res = await makeRequest(`${baseUrl}/api/ad-spend`);
+    assert.strictEqual(res.statusCode, 200);
+    const json = JSON.parse(res.body);
+    assert.ok(json.summary);
+    assert.strictEqual(json.summary.daysCount, 4);
+    assert.strictEqual(json.summary.totalSpend, 1300); // 400 + 900
+    assert.ok(Array.isArray(json.list));
+    assert.strictEqual(json.list.length, 4);
+  });
+
+  it('GET /api/simulation/baselines returns unit economics baselines', async () => {
+    const res = await makeRequest(`${baseUrl}/api/simulation/baselines`);
+    assert.strictEqual(res.statusCode, 200);
+    const baselines = JSON.parse(res.body);
+    assert.ok(baselines.avgTicket > 0);
+    assert.strictEqual(baselines.grossMarginRate, 0.6);
+    assert.ok(baselines.avgGrossProfitPerJob > 0);
+    assert.ok(baselines.totalJobs > 0);
+    assert.strictEqual(baselines.totalAdSpend, 1300);
   });
 
   it('GET /unknown-route returns 404', async () => {
