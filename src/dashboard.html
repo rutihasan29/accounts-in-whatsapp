@@ -812,7 +812,7 @@
         </div>
 
         <div class="perf-card">
-          <div class="perf-label">মোট মুনাফা (GROSS PROFIT - ৬০%)</div>
+          <div class="perf-label">মোট মুনাফা (GROSS PROFIT: অডিও ৬০% • ভিডিও ৩৪%)</div>
           <div class="perf-value-row">
             <span class="perf-main-value highlight" id="perf-profit-amount">৳ ০</span>
             <span class="perf-growth-badge" id="perf-profit-growth">০%</span>
@@ -893,18 +893,24 @@
                 <option value="daily">দৈনিক (১ দিন)</option>
               </select>
             </div>
-            <div class="sim-field" style="justify-content: flex-end;">
-              <div style="font-size: 10px; color: var(--muted); padding: 5px 6px; border: 1px dashed var(--border-light); background: var(--paper-gray);" id="sim-baselines-tag">
-                ঐতিহাসিক তথ্য: লোড হচ্ছে...
-              </div>
+            <div class="sim-field">
+              <label class="sim-label">কাজের ধরন (CATEGORY)</label>
+              <select id="sim-target-category" class="sim-input" onchange="runTargetSimulation()">
+                <option value="blended">মিশ্র / সামগ্রিক হিসাব</option>
+                <option value="voice">ভয়েস-ওভার / অডিও (৬০% মুনাফা)</option>
+                <option value="video">ভিডিও এডিটিং (৩৪% মুনাফা)</option>
+              </select>
             </div>
+          </div>
+          <div style="margin-bottom:8px; font-size: 10px; color: var(--muted); padding: 5px 6px; border: 1px dashed var(--border-light); background: var(--paper-gray);" id="sim-baselines-tag">
+            ঐতিহাসিক তথ্য: লোড হচ্ছে...
           </div>
 
           <div class="sim-result-grid">
             <div class="sim-result-card">
               <div class="sim-label">প্রয়োজনীয় মোট রেভিনিউ / বিল</div>
               <div class="sim-res-val" id="sim-res-revenue">৳ ০</div>
-              <div class="sim-sub">৬০% গ্রস মার্জিন সাপেক্ষে</div>
+              <div class="sim-sub" id="sim-res-margin-sub">৬০% গ্রস মার্জিন সাপেক্ষে</div>
             </div>
             <div class="sim-result-card">
               <div class="sim-label">প্রয়োজনীয় মোট কাজ / অর্ডার</div>
@@ -949,6 +955,21 @@
               <input type="number" id="sim-growth-leads" class="sim-input" value="33" min="1" step="1" oninput="onGrowthLeadsChange()">
             </div>
           </div>
+          <div class="sim-form-row">
+            <div class="sim-field">
+              <label class="sim-label">কাজের ধরন (SERVICE CATEGORY)</label>
+              <select id="sim-growth-category" class="sim-input" onchange="runGrowthSimulation()">
+                <option value="blended">মিশ্র / সামগ্রিক হিসাব</option>
+                <option value="voice">ভয়েস-ওভার / অডিও (৬০% মুনাফা)</option>
+                <option value="video">ভিডিও এডিটিং (৩৪% মুনাফা)</option>
+              </select>
+            </div>
+            <div class="sim-field" style="justify-content: flex-end;">
+              <div style="font-size: 10px; color: var(--muted); padding: 5px 6px; border: 1px dashed var(--border-light); background: var(--paper-gray);">
+                মার্জিন রেট: অডিও ৬০% | ভিডিও ৩৪%
+              </div>
+            </div>
+          </div>
 
           <div class="sim-result-grid">
             <div class="sim-result-card">
@@ -964,7 +985,7 @@
             <div class="sim-result-card">
               <div class="sim-label">প্রতি কাজে গ্রস মুনাফা</div>
               <div class="sim-res-val" id="sim-g-profit-per-job">৳ ০</div>
-              <div class="sim-sub">গড় টিকিট ৳ ০ &times; ৬০%</div>
+              <div class="sim-sub" id="sim-g-ppj-sub">গড় টিকিট ৳ ০ &times; ৬০%</div>
             </div>
             <div class="sim-result-card">
               <div class="sim-label">ব্রেক-ইভেন হতে প্রয়োজনীয় কাজ</div>
@@ -1181,7 +1202,7 @@
           <li><strong>ভুল বার্তা আনসেন্ড সুরক্ষা (Auto Revoke):</strong> কোনো বিল বা পেমেন্ট মেসেজ পাঠানোর পর তা হোয়াটসঅ্যাপে <em>Delete for Everyone</em> করলে সিস্টেম স্বয়ংক্রিয়ভাবে উক্ত লেনদেন লেজার থেকে বাতিল করে আগের ব্যালেন্স ফিরিয়ে আনে।</li>
           <li><strong>সেলফ-চ্যাটে বকেয়া রিপোর্ট (<span class="about-badge">!due</span>):</strong> নিজের চ্যাটে (Message Yourself) <span class="about-badge">!due</span> লিখে পাঠালে তাৎক্ষণিকভাবে সব বকেয়াদার ক্লায়েন্ট ও মোট বকেয়ার সুন্দর বাংলা তালিকা রিপ্লাই আসে।</li>
           <li><strong>হিসাব রসিদ ও ভাউচার:</strong> ড্যাশবোর্ডে যেকোনো ক্লায়েন্টের ওপর ক্লিক করে অফিসিয়াল ভাউচার দেখা, প্রিন্ট/পিডিএফ সেভ করা এবং হোয়াটসঅ্যাপে রিমাইন্ডার পাঠানো যায়।</li>
-          <li><strong>ব্যবসায়িক পারফরম্যান্স (KPI):</strong> দৈনিক, সাপ্তাহিক ও মাসিক ভিত্তিতে মোট সম্পন্ন কাজ (Jobs), ৬০% গ্রস প্রফিট ও গ্রোথ রেট (Growth %) রিয়েল-টাইমে বিশ্লেষণ করা যায়।</li>
+          <li><strong>ব্যবসায়িক পারফরম্যান্স (KPI):</strong> দৈনিক, সাপ্তাহিক ও মাসিক ভিত্তিতে মোট সম্পন্ন কাজ (Jobs), গ্রস প্রফিট (অডিও ৬০% ও ভিডিও ৩৪%) ও গ্রোথ রেট (Growth %) রিয়েল-টাইমে বিশ্লেষণ করা যায়।</li>
           <li><strong>লিড ট্র্যাকিং ও রূপান্তর:</strong> নতুন কন্টাক্ট থেকে মেসেজ এলে স্বয়ংক্রিয়ভাবে লিড হিসেবে রেকর্ড হয় এবং প্রথম কাজ ডেলিভারি পর্যন্ত গ্রাহক রূপান্তর গতি (Turnaround Duration) ট্র্যাকিং থাকে।</li>
         </ul>
       </div>
@@ -1208,7 +1229,7 @@
         <h3>৪. গ্রস প্রফিট ও প্রবৃদ্ধি সিমুলেটর (GROWTH SIMULATOR &amp; AD BUDGET)</h3>
         <p>সফটওয়্যারটিতে যুক্ত করা হয়েছে একটি স্বয়ংক্রিয় প্রবৃদ্ধি ও বিজ্ঞাপন সিমুলেশন ইঞ্জিন:</p>
         <ul>
-          <li><strong>লক্ষ্য নির্ধারণ ও রিভার্স প্ল্যানার:</strong> আপনি মাসিক, সাপ্তাহিক বা দৈনিক কত টাকা গ্রস প্রফিট (৬০% মার্জিন) বা কতজন ক্লায়েন্ট পেতে চান তা লিখলে সিস্টেম স্বয়ংক্রিয়ভাবে প্রয়োজনীয় অর্ডার, লিড সংখ্যা ও অনুমিত বিজ্ঞাপন খরচ হিসাব করে দেয়।</li>
+          <li><strong>লক্ষ্য নির্ধারণ ও রিভার্স প্ল্যানার:</strong> আপনি মাসিক, সাপ্তাহিক বা দৈনিক কত টাকা গ্রস প্রফিট (অডিও ৬০% ও ভিডিও ৩৪% মার্জিন) বা কতজন ক্লায়েন্ট পেতে চান তা লিখলে সিস্টেম স্বয়ংক্রিয়ভাবে প্রয়োজনীয় অর্ডার, লিড সংখ্যা ও অনুমিত বিজ্ঞাপন খরচ হিসাব করে দেয়।</li>
           <li><strong>ব্রেক-ইভেন ও প্রবৃদ্ধি টাইমলাইন:</strong> আপনি কত টাকা বিজ্ঞাপন বাজেট বাড়াতে চান তা লিখলে ক্লায়েন্ট অর্জনের ব্যয় (CAC), ব্রেক-ইভেন হতে কতটি কাজ লাগবে, কত দিনে বিনিয়োগ উঠে আসবে (Payback Timeline) এবং ৩০ দিনে সম্ভাব্য নেট মুনাফা ও ROI গণনা করে দেয়।</li>
           <li><strong>দৈনিক ও রেঞ্জ বিজ্ঞাপন এন্ট্রি:</strong> অতীত বা বর্তমানের যেকোনো একক তারিখের বা টানা একাধিক তারিখের বিজ্ঞাপন বাজেট এন্ট্রি করা যায়।</li>
           <li><strong>দৈনিক পরিবর্তনশীল CPL (Cost Per Lead):</strong> প্রতিদিনের বিজ্ঞাপন খরচকে ওইদিনের নতুন ইনবাউন্ড লিড সংখ্যা দিয়ে ভাগ করে স্বয়ংক্রিয়ভাবে দৈনিক নিখুঁত CPL হিসাব করা হয় এবং নতুন তথ্যের ভিত্তিতে সিমুলেশন তাৎক্ষণিক রিক্যালকুলেট হয়।</li>
@@ -1697,10 +1718,12 @@
       const avgTicket = baselines.avgTicket || 500;
       const convRatePct = Math.round((baselines.conversionRate || 0.25) * 100);
       const cpl = baselines.historicalCpl || 150;
+      const voicePct = Math.round(((baselines.profitMargins && baselines.profitMargins.voice) || 0.60) * 100);
+      const videoPct = Math.round(((baselines.profitMargins && baselines.profitMargins.video) || 0.34) * 100);
 
       const tagEl = document.getElementById('sim-baselines-tag');
       if (tagEl) {
-        tagEl.innerText = 'ঐতিহাসিক গড় টিকিট ৳ ' + formatNumberBangla(avgTicket) + ' • মার্জিন ৬০% • রূপান্তর ' + toBengaliDigits(convRatePct) + '% • গড় CPL ৳ ' + formatNumberBangla(cpl);
+        tagEl.innerText = 'ঐতিহাসিক গড় টিকিট ৳ ' + formatNumberBangla(avgTicket) + ' • মার্জিন: অডিও ' + toBengaliDigits(voicePct) + '% / ভিডিও ' + toBengaliDigits(videoPct) + '% • রূপান্তর ' + toBengaliDigits(convRatePct) + '% • CPL ৳ ' + formatNumberBangla(cpl);
       }
 
       runTargetSimulation();
@@ -1715,6 +1738,9 @@
       const periodEl = document.getElementById('sim-target-period');
       const period = periodEl ? periodEl.value : 'monthly';
 
+      const catEl = document.getElementById('sim-target-category');
+      const category = catEl ? catEl.value : 'blended';
+
       const labelEl = document.getElementById('sim-target-val-label');
       if (labelEl) {
         labelEl.innerText = targetType === 'profit' ? 'টার্গেট নিট মুনাফা (TARGET ৳)' : 'টার্গেট পেইং ক্লায়েন্ট সংখ্যা (CUSTOMERS)';
@@ -1723,8 +1749,21 @@
       const days = period === 'monthly' ? 30 : (period === 'weekly' ? 7 : 1);
 
       const avgTicket = (simBaselines && simBaselines.avgTicket > 0) ? simBaselines.avgTicket : 500;
-      const grossMarginRate = (simBaselines && simBaselines.grossMarginRate > 0) ? simBaselines.grossMarginRate : 0.60;
-      const profitPerJob = (simBaselines && simBaselines.avgGrossProfitPerJob > 0) ? simBaselines.avgGrossProfitPerJob : (avgTicket * grossMarginRate);
+
+      let grossMarginRate;
+      let marginLabel;
+      if (category === 'voice') {
+        grossMarginRate = 0.60;
+        marginLabel = 'অডিও ৬০% মার্জিন সাপেক্ষে';
+      } else if (category === 'video') {
+        grossMarginRate = 0.34;
+        marginLabel = 'ভিডিও ৩৪% মার্জিন সাপেক্ষে';
+      } else {
+        grossMarginRate = (simBaselines && simBaselines.grossMarginRate > 0) ? simBaselines.grossMarginRate : 0.60;
+        marginLabel = toBengaliDigits(Math.round(grossMarginRate * 100)) + '% সামগ্রিক মার্জিন সাপেক্ষে';
+      }
+
+      const profitPerJob = (avgTicket * grossMarginRate);
       const repeatFreq = (simBaselines && simBaselines.repeatJobFrequency > 0) ? simBaselines.repeatJobFrequency : 1.5;
       const convRate = (simBaselines && simBaselines.conversionRate > 0) ? simBaselines.conversionRate : 0.25;
       const cpl = (simBaselines && simBaselines.historicalCpl > 0) ? simBaselines.historicalCpl : 150;
@@ -1756,6 +1795,9 @@
 
       const revEl = document.getElementById('sim-res-revenue');
       if (revEl) revEl.innerText = '৳ ' + formatNumberBangla(revenue);
+
+      const revSub = document.getElementById('sim-res-margin-sub');
+      if (revSub) revSub.innerText = marginLabel;
 
       const jobsEl = document.getElementById('sim-res-jobs');
       if (jobsEl) jobsEl.innerText = toBengaliDigits(jobs) + ' টি';
@@ -1808,9 +1850,25 @@
       const lEl = document.getElementById('sim-growth-leads');
       const leads = parseFloat(lEl ? lEl.value : 0) || 0;
 
+      const catEl = document.getElementById('sim-growth-category');
+      const category = catEl ? catEl.value : 'blended';
+
       const avgTicket = (simBaselines && simBaselines.avgTicket > 0) ? simBaselines.avgTicket : 500;
-      const grossMarginRate = (simBaselines && simBaselines.grossMarginRate > 0) ? simBaselines.grossMarginRate : 0.60;
-      const profitPerJob = (simBaselines && simBaselines.avgGrossProfitPerJob > 0) ? simBaselines.avgGrossProfitPerJob : (avgTicket * grossMarginRate);
+
+      let grossMarginRate;
+      let marginPctText;
+      if (category === 'voice') {
+        grossMarginRate = 0.60;
+        marginPctText = '৬০%';
+      } else if (category === 'video') {
+        grossMarginRate = 0.34;
+        marginPctText = '৩৪%';
+      } else {
+        grossMarginRate = (simBaselines && simBaselines.grossMarginRate > 0) ? simBaselines.grossMarginRate : 0.60;
+        marginPctText = toBengaliDigits(Math.round(grossMarginRate * 100)) + '%';
+      }
+
+      const profitPerJob = (avgTicket * grossMarginRate);
       const convRate = (simBaselines && simBaselines.conversionRate > 0) ? simBaselines.conversionRate : 0.25;
       const repeatFreq = (simBaselines && simBaselines.repeatJobFrequency > 0) ? simBaselines.repeatJobFrequency : 1.5;
 
@@ -1850,6 +1908,9 @@
 
       const ppjEl = document.getElementById('sim-g-profit-per-job');
       if (ppjEl) ppjEl.innerText = '৳ ' + formatNumberBangla(profitPerJob);
+
+      const ppjSub = document.getElementById('sim-g-ppj-sub');
+      if (ppjSub) ppjSub.innerText = 'গড় টিকিট ৳ ' + formatNumberBangla(avgTicket) + ' × ' + marginPctText;
 
       const bejEl = document.getElementById('sim-g-be-jobs');
       if (bejEl) bejEl.innerText = toBengaliDigits(beJobs.toFixed(1)) + ' টি কাজ';

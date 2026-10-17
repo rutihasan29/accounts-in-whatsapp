@@ -380,6 +380,8 @@ function getAllCustomersSummary(db) {
 
 const PROFIT_MARGINS = {
   voice: 0.60,
+  audio: 0.60,
+  video: 0.34,
   default: 0.60
 };
 
@@ -659,8 +661,13 @@ function getSimulationBaselines(db) {
   const payingCustomers = txStats.paying_customers || 0;
   const repeatFrequency = payingCustomers > 0 ? Math.round((totalJobs / payingCustomers) * 100) / 100 : 2.0;
 
-  const grossMarginRate = PROFIT_MARGINS.voice || 0.60;
-  const avgGrossProfitPerJob = Math.round(avgTicket * grossMarginRate * 100) / 100;
+  const billRows = db.prepare(`SELECT amount, job_type FROM transactions WHERE type = 'BILL'`).all();
+  let totalGrossProfit = 0;
+  for (const r of billRows) {
+    totalGrossProfit += r.amount * getProfitMargin(r.job_type);
+  }
+  const grossMarginRate = totalBilled > 0 ? (Math.round((totalGrossProfit / totalBilled) * 100) / 100) : (PROFIT_MARGINS.voice || 0.60);
+  const avgGrossProfitPerJob = totalJobs > 0 ? Math.round((totalGrossProfit / totalJobs) * 100) / 100 : Math.round(avgTicket * grossMarginRate * 100) / 100;
 
   const leadStats = db.prepare(`
     SELECT 
@@ -691,6 +698,7 @@ function getSimulationBaselines(db) {
   return {
     avgTicket,
     grossMarginRate,
+    profitMargins: PROFIT_MARGINS,
     avgGrossProfitPerJob,
     totalJobs,
     uniquePayingCustomers: payingCustomers,

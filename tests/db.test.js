@@ -360,6 +360,42 @@ describe('Database Module', () => {
     assert.strictEqual(metrics.monthly.grossProfit, 90);
   });
 
+  it('calculates differentiated gross profit: 60% for voice/audio and 34% for video', () => {
+    assert.strictEqual(PROFIT_MARGINS.voice, 0.60);
+    assert.strictEqual(PROFIT_MARGINS.audio, 0.60);
+    assert.strictEqual(PROFIT_MARGINS.video, 0.34);
+
+    const memDb = initDb(':memory:');
+    // Voice job: 1000 * 0.60 = 600
+    recordTransaction(memDb, {
+      phone: '8801999999991',
+      type: 'BILL',
+      amount: 1000,
+      rawText: 'বিল ১০০০ টাকা',
+      jobType: 'voice'
+    });
+    // Video job: 1000 * 0.34 = 340
+    recordTransaction(memDb, {
+      phone: '8801999999992',
+      type: 'BILL',
+      amount: 1000,
+      rawText: 'বিল ১০০০ টাকা',
+      jobType: 'video'
+    });
+
+    const metrics = getBusinessPerformanceMetrics(memDb);
+    assert.strictEqual(metrics.daily.jobsCount, 2);
+    // 600 + 340 = 940
+    assert.strictEqual(metrics.daily.grossProfit, 940);
+
+    const baselines = getSimulationBaselines(memDb);
+    // Total billed = 2000, Total GP = 940 => Blended margin = 940 / 2000 = 0.47
+    assert.strictEqual(baselines.grossMarginRate, 0.47);
+    assert.strictEqual(baselines.avgGrossProfitPerJob, 470);
+    assert.strictEqual(baselines.profitMargins.voice, 0.60);
+    assert.strictEqual(baselines.profitMargins.video, 0.34);
+  });
+
   it('records new lead and ignores if contact is already customer or existing lead', () => {
     // 1. Record a brand new lead
     const res1 = recordLead(db, { phone: '8801811111111', name: 'New Reporter' });
