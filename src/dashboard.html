@@ -750,6 +750,36 @@
       font-variant-numeric: tabular-nums;
     }
 
+    .sim-footnote {
+      margin-top: 12px;
+      padding: 8px 10px;
+      border: 1px dashed var(--border);
+      background: var(--paper-gray);
+      font-size: 10px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .sim-footnote-title {
+      font-weight: 800;
+      color: #000;
+      margin-bottom: 6px;
+      letter-spacing: 0.5px;
+      font-size: 10.5px;
+    }
+
+    .sim-footnote-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px 12px;
+    }
+
+    @media (max-width: 600px) {
+      .sim-footnote-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
     /* Print Styles: Exact physical official paper format */
     @media print {
       body {
@@ -1095,6 +1125,21 @@
                 <tr><td colspan="5" style="text-align:center; padding:12px;">কোনো বিজ্ঞাপনের রেকর্ড নেই।</td></tr>
               </tbody>
             </table>
+          </div>
+        </div>
+
+        <!-- Calculation Logic & Formulas Footnote -->
+        <div class="sim-footnote">
+          <div class="sim-footnote-title">[ ডেটা ও হিসাবের ভিত্তি &bull; CALCULATION LOGIC &amp; FORMULAS ]</div>
+          <div class="sim-footnote-grid">
+            <div>&bull; <strong>গড় টিকিট (Avg Ticket):</strong> মোট সফল বিলিং &divide; মোট সম্পন্ন কাজের সংখ্যা।</div>
+            <div>&bull; <strong>মুনাফা মার্জিন (Margin):</strong> অডিও সেবায় ৬০% এবং ভিডিও এডিটিং সেবায় ৩৪% নির্ধারিত গ্রস প্রফিট।</div>
+            <div>&bull; <strong>রূপান্তর হার (Conv Rate):</strong> ডেটাবেজের মোট পেইং ক্লায়েন্ট &divide; মোট ইনবাউন্ড লিড সংখ্যা।</div>
+            <div>&bull; <strong>গড় CPL (Cost Per Lead):</strong> মোট সংরক্ষিত বিজ্ঞাপন বাজেট &divide; অর্জিত লিড সংখ্যা।</div>
+            <div>&bull; <strong>প্রয়োজনীয় কাজ ও ক্লায়েন্ট:</strong> লক্ষ্য মুনাফা &divide; (গড় টিকিট &times; মার্জিন); ক্লায়েন্ট = কাজ &divide; পুনরাবৃত্তির হার।</div>
+            <div>&bull; <strong>প্রয়োজনীয় বিজ্ঞাপন:</strong> (প্রয়োজনীয় ক্লায়েন্ট &divide; রূপান্তর হার) &times; লিড প্রতি গড় CPL।</div>
+            <div>&bull; <strong>CAC ও ব্রেক-ইভেন:</strong> বাজেট &divide; অর্জিত ক্লায়েন্ট; ব্রেক-ইভেন কাজ = CAC &divide; প্রতি কাজের মুনাফা।</div>
+            <div>&bull; <strong>৩০ দিনের নেট লাভ:</strong> (প্রজেক্টেড মোট আয় &times; মার্জিন রেট) &minus; মোট বিজ্ঞাপন বাজেট।</div>
           </div>
         </div>
       </div>
