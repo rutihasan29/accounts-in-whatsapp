@@ -232,7 +232,7 @@ async function handleMessageCreate({ msg, client, db }) {
         const leadRes = recordLead(db, { phone, name: contactName });
         if (leadRes?.status === 'NEW_LEAD') {
           console.log(`[LEAD] New lead recorded: +${phone}${contactName ? ` (${contactName})` : ''}`);
-          const targetChat = msg.id?.remote || msg.from || (phone ? `${phone}@c.us` : null);
+          const targetChat = (phone ? `${phone}@c.us` : null) || msg.id?.remote || msg.from;
           let welcomeResult = null;
           if (targetChat) {
             const isTest = process.env.NODE_ENV === 'test' || process.argv.some(a => a.includes('test'));

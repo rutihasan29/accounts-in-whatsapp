@@ -11,6 +11,7 @@
     "reset-lead": "node scripts/reset-lead.js"
   },
   "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@ffprobe-installer/ffprobe": "^2.1.2",
     "better-sqlite3": "^11.8.1",
     "music-metadata": "^7.14.0",

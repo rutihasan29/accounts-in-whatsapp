@@ -98,15 +98,24 @@ async function sendWelcomeDemo({
         const res = await client.sendMessage(targetChat, item.text);
         sentResults.push({ type: 'text', res });
       } else if (item.type === 'audio') {
-        const filePath = item.filePath || (item.filename ? path.join(__dirname, '..', item.filename) : null);
+        let filePath = item.filePath || (item.filename ? path.join(__dirname, '..', item.filename) : null);
+        // Prefer .mp3 version if available for fast and reliable WhatsApp delivery
+        if (filePath && filePath.endsWith('.wav')) {
+          const mp3Candidate = filePath.replace(/\.wav$/, '.mp3');
+          if (fs.existsSync(mp3Candidate)) {
+            filePath = mp3Candidate;
+          }
+        }
         if (filePath && fs.existsSync(filePath)) {
           let media;
           if (MediaClass && typeof MediaClass.fromFilePath === 'function') {
             media = MediaClass.fromFilePath(filePath);
           } else {
             const b64data = fs.readFileSync(filePath, { encoding: 'base64' });
+            const ext = path.extname(filePath).toLowerCase();
+            const mimeType = ext === '.mp3' ? 'audio/mp3' : (ext === '.wav' ? 'audio/wav' : 'audio/ogg');
             media = {
-              mimetype: 'audio/wav',
+              mimetype: mimeType,
               data: b64data,
               filename: path.basename(filePath)
             };
