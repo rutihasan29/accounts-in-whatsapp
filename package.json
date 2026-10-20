@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node index.js",
     "web": "node src/server.js",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "reset-lead": "node scripts/reset-lead.js"
   },
   "dependencies": {
     "@ffprobe-installer/ffprobe": "^2.1.2",
