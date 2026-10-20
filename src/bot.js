@@ -647,6 +647,18 @@ function setupBotHandlers({ client, db }) {
     console.log('🔐 Authentication successful. Session stored.');
   });
 
+  client.on('loading_screen', (percent, message) => {
+    console.log(`⏳ Loading screen: ${percent}% - ${message}`);
+  });
+
+  client.on('change_state', (state) => {
+    console.log('🔄 State changed:', state);
+  });
+
+  client.on('disconnected', (reason) => {
+    console.log('⚠️ Disconnected:', reason);
+  });
+
   client.on('auth_failure', (msg) => {
     console.error('❌ Authentication failed:', msg);
   });
