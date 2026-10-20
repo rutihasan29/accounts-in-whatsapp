@@ -17,6 +17,7 @@ const {
   formatBillMessage,
   resolveAudioDuration
 } = require('./audio');
+const { sendWelcomeDemo } = require('./welcome');
 const qrcode = require('qrcode-terminal');
 
 // Track auto-sent bill messages to prevent duplicate ledger entries on message_create echo
@@ -231,7 +232,19 @@ async function handleMessageCreate({ msg, client, db }) {
         const leadRes = recordLead(db, { phone, name: contactName });
         if (leadRes?.status === 'NEW_LEAD') {
           console.log(`[LEAD] New lead recorded: +${phone}${contactName ? ` (${contactName})` : ''}`);
-          return { action: 'RECORDED_NEW_LEAD', details: { phone, name: contactName } };
+          const targetChat = msg.id?.remote || msg.from || (phone ? `${phone}@c.us` : null);
+          let welcomeResult = null;
+          if (targetChat) {
+            const isTest = process.env.NODE_ENV === 'test' || process.argv.some(a => a.includes('test'));
+            welcomeResult = await sendWelcomeDemo({
+              client,
+              targetChat,
+              db,
+              phone,
+              delayMs: isTest ? 0 : 800
+            });
+          }
+          return { action: 'RECORDED_NEW_LEAD', details: { phone, name: contactName, welcomeResult } };
         }
       }
     } catch (err) {

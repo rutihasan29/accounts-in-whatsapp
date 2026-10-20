@@ -125,6 +125,7 @@ function initDb(dbPath) {
       phone_number TEXT PRIMARY KEY,
       name TEXT,
       status TEXT DEFAULT 'PENDING',
+      welcome_sent INTEGER DEFAULT 0,
       first_contact_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       first_job_delivered_at DATETIME,
       conversion_duration_seconds INTEGER,
@@ -162,6 +163,11 @@ function initDb(dbPath) {
     }
     db.exec('CREATE INDEX IF NOT EXISTS idx_transactions_message_id ON transactions(message_id);');
     db.exec('CREATE INDEX IF NOT EXISTS idx_transactions_job_type ON transactions(job_type);');
+
+    const leadCols = db.pragma('table_info(leads)');
+    if (!leadCols.some(c => c.name === 'welcome_sent')) {
+      db.exec('ALTER TABLE leads ADD COLUMN welcome_sent INTEGER DEFAULT 0;');
+    }
   } catch (err) {
     console.error('Error ensuring columns/indexes in SQLite:', err);
   }
