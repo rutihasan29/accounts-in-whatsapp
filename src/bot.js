@@ -2,11 +2,14 @@ const { parseMessage } = require('./parser');
 const {
   recordTransaction,
   recordLead,
+  recordExistingContact,
   updateTransactionMessageId,
   deleteTransactionByMessageId,
   getDueList,
   getCustomerSummary,
-  migrateCustomerPhone
+  migrateCustomerPhone,
+  recordBotState,
+  heartbeatBotState
 } = require('./db');
 const {
   isAudioDocumentMessage,
@@ -18,6 +21,9 @@ const {
   resolveAudioDuration
 } = require('./audio');
 const { sendWelcomeDemo } = require('./welcome');
+const { syncExistingInboxContacts } = require('./sync');
+const { classifyChat } = require('./classifier');
+const { handleClassificationAction } = require('./dispatch');
 const qrcode = require('qrcode-terminal');
 
 // Track auto-sent bill messages to prevent duplicate ledger entries on message_create echo
@@ -209,8 +215,21 @@ async function resolveCustomerPhone({ client, recipient, msg }) {
   return recipient.split('@')[0].split(':')[0].replace(/\D/g, '');
 }
 
-async function handleMessageCreate({ msg, client, db }) {
+function isTestEnv() {
+  return process.env.NODE_ENV === 'test' || process.argv.some(a => a.includes('test'));
+}
+
+async function handleMessageCreate({
+  msg,
+  client,
+  db,
+  classifierFn = null,
+  dispatchFn = null
+} = {}) {
   const isSelf = isSelfChat(msg, client);
+  const isTest = isTestEnv();
+  const activeClassifierFn = classifierFn || (!isTest ? classifyChat : null);
+  const activeDispatchFn = dispatchFn || handleClassificationAction;
 
   if (!msg.fromMe && !isSelf) {
     const rawSender = msg.from || msg.id?.remote || '';
@@ -221,11 +240,40 @@ async function handleMessageCreate({ msg, client, db }) {
     try {
       const phone = await resolveCustomerPhone({ client, recipient: rawSender, msg });
       if (phone) {
+        let contact = null;
         let contactName = null;
         try {
           if (client && typeof client.getContactById === 'function') {
-            const contact = await client.getContactById(rawSender);
+            contact = await client.getContactById(rawSender);
             contactName = contact?.name || contact?.pushname || null;
+          }
+        } catch {}
+
+        // Safeguard 1: If contact is saved in user's phone contacts (isMyContact === true),
+        // they are an existing contact, NOT a new cold inbound lead!
+        if (contact?.isMyContact === true) {
+          console.log(`[LEAD] Sender +${phone} (${contactName || 'saved contact'}) is in phone contacts. Skipping welcome demo.`);
+          recordExistingContact(db, { phone, name: contactName });
+          if (!activeClassifierFn) {
+            return { action: 'IGNORED_EXISTING_CONTACT', details: { phone, name: contactName } };
+          }
+        }
+
+        // Safeguard 2: Check if this chat has existing message history in inbox
+        let chat = null;
+        try {
+          if (typeof msg.getChat === 'function') {
+            chat = await msg.getChat();
+            if (chat && typeof chat.fetchMessages === 'function') {
+              const prevMsgs = await chat.fetchMessages({ limit: 5 });
+              if (Array.isArray(prevMsgs) && prevMsgs.some(m => m.id?._serialized !== msg.id?._serialized)) {
+                console.log(`[LEAD] Sender +${phone} has existing chat history in inbox. Skipping welcome demo.`);
+                recordExistingContact(db, { phone, name: contactName });
+                if (!activeClassifierFn) {
+                  return { action: 'IGNORED_EXISTING_CHAT_HISTORY', details: { phone, name: contactName } };
+                }
+              }
+            }
           }
         } catch {}
 
@@ -235,7 +283,6 @@ async function handleMessageCreate({ msg, client, db }) {
           const targetChat = (phone ? `${phone}@c.us` : null) || msg.id?.remote || msg.from;
           let welcomeResult = null;
           if (targetChat) {
-            const isTest = process.env.NODE_ENV === 'test' || process.argv.some(a => a.includes('test'));
             welcomeResult = await sendWelcomeDemo({
               client,
               targetChat,
@@ -244,11 +291,35 @@ async function handleMessageCreate({ msg, client, db }) {
               delayMs: isTest ? 0 : 800
             });
           }
-          return { action: 'RECORDED_NEW_LEAD', details: { phone, name: contactName, welcomeResult } };
+          if (!classifierFn) {
+            return { action: 'RECORDED_NEW_LEAD', details: { phone, name: contactName, welcomeResult } };
+          }
+        }
+
+        // For existing contacts or chats where welcome demo is NOT currently in-flight:
+        if (activeClassifierFn) {
+          if (!chat && typeof msg.getChat === 'function') {
+            try {
+              chat = await msg.getChat();
+            } catch {}
+          }
+          const history = chat && typeof chat.fetchMessages === 'function'
+            ? await chat.fetchMessages({ limit: 10 })
+            : [msg];
+          const myUser = getMyUser(client);
+          const classificationResult = await activeClassifierFn({ messages: history, myUser });
+          return await activeDispatchFn({
+            client,
+            chat,
+            classificationResult,
+            customerPhone: phone,
+            customerName: contactName,
+            latestMessageText: msg.body || ''
+          });
         }
       }
     } catch (err) {
-      console.warn('[LEAD] Error checking/recording lead:', err.message);
+      console.warn('[LEAD] Error checking/recording lead or classifying:', err.message);
     }
 
     return { action: 'IGNORED_NOT_FROM_ME' };
@@ -616,6 +687,8 @@ async function handleMessageRevoke({ after, before, client, db }) {
 }
 
 function setupBotHandlers({ client, db }) {
+  let heartbeatInterval = null;
+
   client.on('qr', (qr) => {
     console.log('Scan the QR code below to log in:');
     qrcode.generate(qr, { small: true });
@@ -624,6 +697,14 @@ function setupBotHandlers({ client, db }) {
   client.on('ready', async () => {
     console.log('✅ WhatsApp Web Client is ready!');
     console.log(`Logged in as: ${client.info?.wid?.user}`);
+
+    try {
+      recordBotState(db, 'ONLINE', 'READY');
+      if (heartbeatInterval) clearInterval(heartbeatInterval);
+      heartbeatInterval = setInterval(() => {
+        try { heartbeatBotState(db); } catch {}
+      }, 30000);
+    } catch {}
 
     // Auto-migrate any existing LID customer records in the database to actual phone numbers
     try {
@@ -641,6 +722,13 @@ function setupBotHandlers({ client, db }) {
     } catch (e) {
       // Non-fatal if migration query fails
     }
+
+    // Auto-sync all existing inbox chats and saved contacts so they never receive welcome demo
+    try {
+      await syncExistingInboxContacts({ client, db, resolveCustomerPhone });
+    } catch (e) {
+      console.warn('[SYNC] Error syncing existing contacts on ready:', e.message);
+    }
   });
 
   client.on('authenticated', () => {
@@ -653,14 +741,30 @@ function setupBotHandlers({ client, db }) {
 
   client.on('change_state', (state) => {
     console.log('🔄 State changed:', state);
+    try {
+      if (state === 'CONNECTED') {
+        recordBotState(db, 'ONLINE', 'STATE_CONNECTED');
+      } else if (state === 'DISCONNECTED' || state === 'UNPAIRED') {
+        if (heartbeatInterval) clearInterval(heartbeatInterval);
+        recordBotState(db, 'OFFLINE', `STATE_${state}`);
+      }
+    } catch {}
   });
 
   client.on('disconnected', (reason) => {
     console.log('⚠️ Disconnected:', reason);
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
+    try {
+      recordBotState(db, 'OFFLINE', typeof reason === 'string' ? reason : 'DISCONNECTED');
+    } catch {}
   });
 
   client.on('auth_failure', (msg) => {
     console.error('❌ Authentication failed:', msg);
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
+    try {
+      recordBotState(db, 'OFFLINE', typeof msg === 'string' ? msg : 'AUTH_FAILURE');
+    } catch {}
   });
 
   client.on('message_create', async (msg) => {
@@ -690,6 +794,7 @@ module.exports = {
   handleMessageRevoke,
   getCandidateMessageIds,
   setupBotHandlers,
+  syncExistingInboxContacts,
   sentAutoBillMsgIds,
   pendingAutoBills
 };
