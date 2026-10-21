@@ -89,6 +89,7 @@ test('classifyChat returns ESCALATE on API error or timeout', async () => {
 test('classifyChat falls back to ESCALATE when apiKey is missing', async () => {
   const res = await classifyChat({
     messages: [{ fromMe: false, body: 'Hello' }],
+    provider: 'gemini',
     apiKey: ''
   });
 
@@ -213,4 +214,82 @@ test('classifyChat falls back to ESCALATE when API returns invalid classificatio
   });
 
   assert.equal(res.classification, 'ESCALATE');
+});
+
+test('classifyChat calls OpenRouter when provider is openrouter', async () => {
+  let calledUrl = null;
+  let capturedBody = null;
+
+  const mockFetch = async (url, opts) => {
+    calledUrl = url;
+    capturedBody = JSON.parse(opts.body);
+    return {
+      ok: true,
+      json: async () => ({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              classification: 'VOICE_JOB',
+              confidence: 'HIGH',
+              extracted_script: 'Nemotron script text',
+              reason: 'Valid voice request'
+            })
+          }
+        }]
+      })
+    };
+  };
+
+  const res = await classifyChat({
+    messages: [{ fromMe: false, body: 'Voice lagbe: Nemotron script text' }],
+    provider: 'openrouter',
+    apiKey: 'sk-or-dummy',
+    fetchFn: mockFetch
+  });
+
+  assert.equal(res.classification, 'VOICE_JOB');
+  assert.equal(res.extracted_script, 'Nemotron script text');
+  assert.ok(calledUrl.includes('openrouter.ai'));
+  assert.equal(capturedBody.model, 'nvidia/nemotron-3.5-lightning:free');
+});
+
+test('classifyChat falls back to Gemini when OpenRouter call fails', async () => {
+  let calls = [];
+
+  const mockFetch = async (url) => {
+    calls.push(url);
+    if (url.includes('openrouter.ai')) {
+      throw new Error('Rate limit exceeded (429)');
+    }
+    // Gemini fallback response
+    return {
+      ok: true,
+      json: async () => ({
+        candidates: [{
+          content: {
+            parts: [{
+              text: JSON.stringify({
+                classification: 'VOICE_JOB',
+                confidence: 'HIGH',
+                extracted_script: 'Fallback script',
+                reason: 'Gemini fallback success'
+              })
+            }]
+          }
+        }]
+      })
+    };
+  };
+
+  const res = await classifyChat({
+    messages: [{ fromMe: false, body: 'Voice lagbe' }],
+    provider: 'openrouter',
+    apiKey: 'dummy-key',
+    fetchFn: mockFetch
+  });
+
+  assert.equal(res.classification, 'VOICE_JOB');
+  assert.equal(res.extracted_script, 'Fallback script');
+  assert.ok(calls.some(u => u.includes('openrouter.ai')));
+  assert.ok(calls.some(u => u.includes('generativelanguage.googleapis.com')));
 });

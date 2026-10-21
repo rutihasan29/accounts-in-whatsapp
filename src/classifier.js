@@ -53,24 +53,79 @@ function buildHistoryTranscript(messages, myUser) {
     .join('\n');
 }
 
-async function classifyChat({
-  messages,
-  myUser,
-  apiKey = config.GEMINI_API_KEY,
-  model = config.GEMINI_MODEL || 'gemini-3.5-flash',
+async function classifyWithOpenRouter({
+  transcript,
+  apiKey = config.OPENROUTER_API_KEY,
+  model = config.OPENROUTER_MODEL || 'nvidia/nemotron-3.5-lightning:free',
   fetchFn = globalThis.fetch,
   timeoutMs = 6000
 }) {
   if (!apiKey) {
-    console.warn('[CLASSIFIER] No GEMINI_API_KEY provided; falling back to ESCALATE');
-    return {
-      classification: 'ESCALATE',
-      confidence: 'LOW',
-      extracted_script: '',
-      reason: 'Missing GEMINI_API_KEY'
-    };
+    throw new Error('Missing OPENROUTER_API_KEY');
   }
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetchFn('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: SYSTEM_INSTRUCTION },
+          { role: 'user', content: `Here is the conversation history (oldest to newest):\n\n${transcript}` }
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.1
+      }),
+      signal: controller.signal
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`OpenRouter API error ${res.status}: ${errText.slice(0, 200)}`);
+    }
+
+    const data = await res.json();
+    const content = data?.choices?.[0]?.message?.content;
+    if (!content) {
+      throw new Error('Empty response from OpenRouter API');
+    }
+
+    let cleaned = content.trim();
+    if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+    }
+    const parsed = JSON.parse(cleaned);
+    let classification = parsed.classification || 'OTHER';
+    if (!VALID_CLASSIFICATIONS.has(classification)) {
+      classification = 'ESCALATE';
+    }
+    return {
+      classification,
+      confidence: parsed.confidence || 'LOW',
+      extracted_script: parsed.extracted_script || '',
+      reason: parsed.reason || ''
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function classifyChat({
+  messages,
+  myUser,
+  provider = config.LLM_PROVIDER,
+  apiKey = undefined,
+  model = null,
+  fetchFn = globalThis.fetch,
+  timeoutMs = 6000
+}) {
   const transcript = buildHistoryTranscript(messages, myUser);
   if (!transcript) {
     return {
@@ -81,7 +136,47 @@ async function classifyChat({
     };
   }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const effectiveKey = apiKey !== undefined ? apiKey : (provider === 'openrouter' ? config.OPENROUTER_API_KEY : config.GEMINI_API_KEY);
+
+  if (!effectiveKey) {
+    const missingMsg = provider === 'openrouter' ? 'Missing OPENROUTER_API_KEY' : 'Missing GEMINI_API_KEY';
+    console.warn(`[CLASSIFIER] ${missingMsg}; falling back to ESCALATE`);
+    return {
+      classification: 'ESCALATE',
+      confidence: 'LOW',
+      extracted_script: '',
+      reason: missingMsg
+    };
+  }
+
+  if (provider === 'openrouter') {
+    try {
+      return await classifyWithOpenRouter({
+        transcript,
+        apiKey: effectiveKey,
+        model: model || config.OPENROUTER_MODEL,
+        fetchFn,
+        timeoutMs
+      });
+    } catch (err) {
+      console.warn('[CLASSIFIER] OpenRouter failed, falling back to Gemini:', err.message);
+    }
+  }
+
+  const geminiKey = (apiKey !== undefined && provider !== 'openrouter') ? apiKey : config.GEMINI_API_KEY;
+  const geminiModel = model || config.GEMINI_MODEL || 'gemini-3.5-flash';
+
+  if (!geminiKey) {
+    console.warn('[CLASSIFIER] No GEMINI_API_KEY provided; falling back to ESCALATE');
+    return {
+      classification: 'ESCALATE',
+      confidence: 'LOW',
+      extracted_script: '',
+      reason: 'Missing GEMINI_API_KEY'
+    };
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiKey}`;
 
   const payload = {
     system_instruction: {
@@ -156,5 +251,6 @@ module.exports = {
   SYSTEM_INSTRUCTION,
   VALID_CLASSIFICATIONS,
   buildHistoryTranscript,
+  classifyWithOpenRouter,
   classifyChat
 };
