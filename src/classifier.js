@@ -58,7 +58,7 @@ async function classifyWithOpenRouter({
   apiKey = config.OPENROUTER_API_KEY,
   model = config.OPENROUTER_MODEL || 'nvidia/nemotron-3.5-lightning:free',
   fetchFn = globalThis.fetch,
-  timeoutMs = 6000
+  timeoutMs = 12000
 }) {
   if (!apiKey) {
     throw new Error('Missing OPENROUTER_API_KEY');
@@ -85,6 +85,8 @@ async function classifyWithOpenRouter({
           { role: 'user', content: `Here is the conversation history (oldest to newest):\n\n${transcript}` }
         ],
         response_format: { type: 'json_object' },
+        include_reasoning: false,
+        max_tokens: 300,
         temperature: 0.1
       }),
       signal: controller.signal
@@ -128,7 +130,7 @@ async function classifyChat({
   apiKey = undefined,
   model = null,
   fetchFn = globalThis.fetch,
-  timeoutMs = 6000
+  timeoutMs = 12000
 }) {
   const transcript = buildHistoryTranscript(messages, myUser);
   if (!transcript) {
@@ -212,6 +214,18 @@ async function classifyChat({
       });
     } finally {
       clearTimeout(timeout);
+    }
+
+    if (!response.ok && (response.status === 503 || response.status === 429) && geminiModel !== 'gemini-flash-latest') {
+      console.warn(`[CLASSIFIER] Gemini returned ${response.status} (high demand/rate limit), retrying with gemini-flash-latest...`);
+      const fallbackUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${geminiKey}`;
+      try {
+        response = await fetchFn(fallbackUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+      } catch {}
     }
 
     if (!response.ok) {
