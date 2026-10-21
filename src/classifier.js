@@ -57,6 +57,7 @@ async function classifyChat({
   messages,
   myUser,
   apiKey = config.GEMINI_API_KEY,
+  model = config.GEMINI_MODEL || 'gemini-3.5-flash',
   fetchFn = globalThis.fetch,
   timeoutMs = 6000
 }) {
@@ -80,7 +81,7 @@ async function classifyChat({
     };
   }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const payload = {
     system_instruction: {
