@@ -250,7 +250,7 @@ test('classifyChat calls OpenRouter when provider is openrouter', async () => {
   assert.equal(res.classification, 'VOICE_JOB');
   assert.equal(res.extracted_script, 'Nemotron script text');
   assert.ok(calledUrl.includes('openrouter.ai'));
-  assert.equal(capturedBody.model, 'nvidia/nemotron-3.5-lightning:free');
+  assert.ok(capturedBody.models.includes('nvidia/nemotron-3.5-lightning:free'));
 });
 
 test('classifyChat falls back to Gemini when OpenRouter call fails', async () => {

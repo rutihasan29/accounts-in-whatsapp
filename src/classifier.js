@@ -75,7 +75,11 @@ async function classifyWithOpenRouter({
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model,
+        models: [
+          model,
+          'minimax/minimax-m3.1-flash:free',
+          'nvidia/nemotron-3-super-120b-a12b:free'
+        ],
         messages: [
           { role: 'system', content: SYSTEM_INSTRUCTION },
           { role: 'user', content: `Here is the conversation history (oldest to newest):\n\n${transcript}` }
