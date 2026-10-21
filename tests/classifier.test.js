@@ -132,3 +132,85 @@ test('classifyChat handles markdown json code blocks in API response', async () 
   assert.equal(res.confidence, 'HIGH');
   assert.equal(res.reason, 'Greeting');
 });
+
+test('buildHistoryTranscript attributes [Bot] correctly based on myUser when fromMe is false or undefined', () => {
+  const msgs = [
+    { fromMe: false, from: '8801831366604@c.us', body: 'Outgoing message synced from web client' },
+    { fromMe: undefined, author: '8801831366604:15@c.us', body: 'Another bot message' },
+    { fromMe: false, from: '8801700000000@c.us', body: 'Customer reply' }
+  ];
+  const transcript = buildHistoryTranscript(msgs, '8801831366604');
+  assert.match(transcript, /\[Bot\]: Outgoing message synced from web client/);
+  assert.match(transcript, /\[Bot\]: Another bot message/);
+  assert.match(transcript, /\[Customer\]: Customer reply/);
+});
+
+test('classifyChat handles multi-turn confirmation ("শুধু ভয়েস?" -> "হ্যাঁ" -> VOICE_JOB)', async () => {
+  let capturedPayload = null;
+  const mockFetch = async (url, options) => {
+    capturedPayload = JSON.parse(options.body);
+    return {
+      ok: true,
+      json: async () => ({
+        candidates: [{
+          content: {
+            parts: [{
+              text: JSON.stringify({
+                classification: 'VOICE_JOB',
+                confidence: 'HIGH',
+                extracted_script: 'স্পেশাল বিরিয়ানি এখন হোম ডেলিভারি ফ্রি। এখনই অর্ডার করুন।',
+                reason: 'Customer affirmatively confirmed voice only after bot question'
+              })
+            }]
+          }
+        }]
+      })
+    };
+  };
+
+  const messages = [
+    { fromMe: false, body: 'স্পেশাল বিরিয়ানি এখন হোম ডেলিভারি ফ্রি। এখনই অর্ডার করুন।' },
+    { fromMe: true, body: 'শুধু ভয়েস? ' },
+    { fromMe: false, body: 'হ্যাঁ' }
+  ];
+
+  const res = await classifyChat({
+    messages,
+    myUser: '8801340517587',
+    apiKey: 'dummy-key',
+    fetchFn: mockFetch
+  });
+
+  assert.equal(res.classification, 'VOICE_JOB');
+  assert.equal(res.extracted_script, 'স্পেশাল বিরিয়ানি এখন হোম ডেলিভারি ফ্রি। এখনই অর্ডার করুন।');
+  assert.ok(capturedPayload.contents[0].parts[0].text.includes('[Bot]: শুধু ভয়েস?'));
+  assert.ok(capturedPayload.contents[0].parts[0].text.includes('[Customer]: হ্যাঁ'));
+});
+
+test('classifyChat falls back to ESCALATE when API returns invalid classification enum', async () => {
+  const mockFetch = async () => ({
+    ok: true,
+    json: async () => ({
+      candidates: [{
+        content: {
+          parts: [{
+            text: JSON.stringify({
+              classification: 'UNRECOGNIZED_CATEGORY',
+              confidence: 'HIGH',
+              extracted_script: '',
+              reason: 'Unknown enum value'
+            })
+          }]
+        }
+      }]
+    })
+  });
+
+  const res = await classifyChat({
+    messages: [{ fromMe: false, body: 'Hello' }],
+    apiKey: 'dummy-key',
+    fetchFn: mockFetch
+  });
+
+  assert.equal(res.classification, 'ESCALATE');
+});

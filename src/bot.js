@@ -216,7 +216,18 @@ async function resolveCustomerPhone({ client, recipient, msg }) {
 }
 
 function isTestEnv() {
-  return process.env.NODE_ENV === 'test' || process.argv.some(a => a.includes('test'));
+  return (
+    process.env.NODE_ENV === 'test' ||
+    Boolean(process.execArgv && process.execArgv.includes('--test')) ||
+    process.argv.slice(1).some(a =>
+      a === '--test' ||
+      a.endsWith('.test.js') ||
+      a.includes('.test.js') ||
+      /[\\/]tests[\\/]/.test(a) ||
+      a.startsWith('tests/') ||
+      a.startsWith('tests\\')
+    )
+  );
 }
 
 async function handleMessageCreate({
@@ -304,7 +315,7 @@ async function handleMessageCreate({
             } catch {}
           }
           const history = chat && typeof chat.fetchMessages === 'function'
-            ? await chat.fetchMessages({ limit: 10 })
+            ? await chat.fetchMessages({ limit: 10 }).catch(() => [msg])
             : [msg];
           const myUser = getMyUser(client);
           const classificationResult = await activeClassifierFn({ messages: history, myUser });
@@ -796,5 +807,6 @@ module.exports = {
   setupBotHandlers,
   syncExistingInboxContacts,
   sentAutoBillMsgIds,
-  pendingAutoBills
+  pendingAutoBills,
+  isTestEnv
 };

@@ -26,13 +26,27 @@ Return strictly a JSON object:
   "reason": "string"
 }`;
 
+const VALID_CLASSIFICATIONS = new Set([
+  'VOICE_JOB',
+  'SCRIPT_PENDING_CONFIRMATION',
+  'ESCALATE',
+  'OTHER'
+]);
+
 function buildHistoryTranscript(messages, myUser) {
   if (!Array.isArray(messages) || messages.length === 0) return '';
+  const cleanMyUser = myUser ? String(myUser).replace(/\D/g, '') : '';
   return messages
     .filter(m => m && (m.body || m.hasMedia))
     .map(m => {
-      const isMe = Boolean(m.fromMe || (myUser && (m.author === myUser || m.from === myUser)));
-      const sender = isMe ? '[Bot]' : '[Customer]';
+      const isBot = Boolean(
+        m.fromMe ||
+        (cleanMyUser && (
+          (m.author && String(m.author).replace(/\D/g, '').startsWith(cleanMyUser)) ||
+          (m.from && String(m.from).replace(/\D/g, '').startsWith(cleanMyUser))
+        ))
+      );
+      const sender = isBot ? '[Bot]' : '[Customer]';
       const text = (m.body || (m.hasMedia ? '<Media attached>' : '')).trim();
       return `${sender}: ${text}`;
     })
@@ -116,8 +130,12 @@ async function classifyChat({
       cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
     }
     const parsed = JSON.parse(cleaned);
+    let classification = parsed.classification || 'OTHER';
+    if (!VALID_CLASSIFICATIONS.has(classification)) {
+      classification = 'ESCALATE';
+    }
     return {
-      classification: parsed.classification || 'OTHER',
+      classification,
       confidence: parsed.confidence || 'LOW',
       extracted_script: parsed.extracted_script || '',
       reason: parsed.reason || ''
@@ -135,6 +153,7 @@ async function classifyChat({
 
 module.exports = {
   SYSTEM_INSTRUCTION,
+  VALID_CLASSIFICATIONS,
   buildHistoryTranscript,
   classifyChat
 };
