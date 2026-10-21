@@ -58,7 +58,7 @@ async function classifyWithOpenRouter({
   apiKey = config.OPENROUTER_API_KEY,
   model = config.OPENROUTER_MODEL || 'nvidia/nemotron-3.5-lightning:free',
   fetchFn = globalThis.fetch,
-  timeoutMs = 12000
+  timeoutMs = 15000
 }) {
   if (!apiKey) {
     throw new Error('Missing OPENROUTER_API_KEY');
@@ -85,8 +85,7 @@ async function classifyWithOpenRouter({
           { role: 'user', content: `Here is the conversation history (oldest to newest):\n\n${transcript}` }
         ],
         response_format: { type: 'json_object' },
-        include_reasoning: false,
-        max_tokens: 300,
+        max_tokens: 1500,
         temperature: 0.1
       }),
       signal: controller.signal
@@ -130,7 +129,7 @@ async function classifyChat({
   apiKey = undefined,
   model = null,
   fetchFn = globalThis.fetch,
-  timeoutMs = 12000
+  timeoutMs = 15000
 }) {
   const transcript = buildHistoryTranscript(messages, myUser);
   if (!transcript) {
