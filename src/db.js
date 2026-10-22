@@ -142,11 +142,56 @@ function initDb(dbPath) {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS bot_uptime_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      status TEXT NOT NULL CHECK(status IN ('ONLINE', 'OFFLINE')),
+      started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      ended_at DATETIME DEFAULT NULL,
+      duration_seconds INTEGER DEFAULT NULL,
+      last_heartbeat_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      reason TEXT DEFAULT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS video_customers (
+      phone_number TEXT PRIMARY KEY,
+      note TEXT DEFAULT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS voice_job_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id TEXT UNIQUE NOT NULL,
+      customer_phone TEXT NOT NULL,
+      customer_name TEXT,
+      customer_script_msg_id TEXT,
+      va2_forward_msg_id TEXT,
+      script_text TEXT NOT NULL,
+      headline TEXT,
+      status TEXT NOT NULL DEFAULT 'PENDING_VA2',
+      va2_audio_msg_id TEXT,
+      va2_audio_filename TEXT,
+      final_audio_filename TEXT,
+      original_duration_seconds REAL,
+      clean_duration_seconds REAL,
+      aircheck_model_used TEXT,
+      cuts_applied_count INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      delivered_at DATETIME
+    );
+
     CREATE INDEX IF NOT EXISTS idx_transactions_phone ON transactions(phone_number);
     CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type);
     CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
     CREATE INDEX IF NOT EXISTS idx_leads_first_contact ON leads(first_contact_at);
     CREATE INDEX IF NOT EXISTS idx_ad_spend_date ON ad_spend(spend_date);
+    CREATE INDEX IF NOT EXISTS idx_uptime_status ON bot_uptime_logs(status);
+    CREATE INDEX IF NOT EXISTS idx_uptime_started ON bot_uptime_logs(started_at);
+    CREATE INDEX IF NOT EXISTS idx_video_customers_phone ON video_customers(phone_number);
+    CREATE INDEX IF NOT EXISTS idx_voice_job_va2_msg ON voice_job_orders(va2_forward_msg_id);
+    CREATE INDEX IF NOT EXISTS idx_voice_job_customer_phone ON voice_job_orders(customer_phone);
+    CREATE INDEX IF NOT EXISTS idx_voice_job_status ON voice_job_orders(status);
   `);
 
   // Ensure message_id, job_type, duration_seconds exist for pre-existing databases before indexing
@@ -217,6 +262,28 @@ function recordLead(db, { phone, name = null }) {
 function getLead(db, phone) {
   if (!phone) return null;
   return db.prepare('SELECT * FROM leads WHERE phone_number = ?').get(phone) || null;
+}
+
+function recordExistingContact(db, { phone, name = null, timestamp = null }) {
+  if (!phone) return null;
+
+  const existingCust = db.prepare('SELECT phone_number FROM customers WHERE phone_number = ?').get(phone);
+  if (existingCust) {
+    db.prepare(`
+      INSERT INTO leads (phone_number, name, status, welcome_sent, first_contact_at)
+      VALUES (?, ?, 'CONVERTED', 1, COALESCE(?, CURRENT_TIMESTAMP))
+      ON CONFLICT(phone_number) DO UPDATE SET welcome_sent = 1, name = COALESCE(excluded.name, leads.name), updated_at = CURRENT_TIMESTAMP
+    `).run(phone, name, timestamp);
+    return { status: 'EXISTING_CUSTOMER', phone };
+  }
+
+  db.prepare(`
+    INSERT INTO leads (phone_number, name, status, welcome_sent, first_contact_at)
+    VALUES (?, ?, 'EXISTING', 1, COALESCE(?, CURRENT_TIMESTAMP))
+    ON CONFLICT(phone_number) DO UPDATE SET welcome_sent = 1, name = COALESCE(excluded.name, leads.name), updated_at = CURRENT_TIMESTAMP
+  `).run(phone, name, timestamp);
+
+  return { status: 'RECORDED_EXISTING', phone, name };
 }
 
 function recordTransaction(db, {
@@ -721,10 +788,382 @@ function getSimulationBaselines(db) {
   };
 }
 
+function recoverUngracefulShutdown(db) {
+  const openSession = db.prepare('SELECT * FROM bot_uptime_logs WHERE ended_at IS NULL ORDER BY id DESC LIMIT 1').get();
+  if (!openSession) return;
+
+  if (openSession.status === 'ONLINE') {
+    const endedAt = openSession.last_heartbeat_at || openSession.started_at;
+    db.prepare(`
+      UPDATE bot_uptime_logs
+      SET ended_at = ?,
+          duration_seconds = MAX(0, CAST((strftime('%s', ?) - strftime('%s', started_at)) AS INTEGER))
+      WHERE id = ?
+    `).run(endedAt, endedAt, openSession.id);
+
+    db.prepare(`
+      INSERT INTO bot_uptime_logs (status, started_at, ended_at, duration_seconds, last_heartbeat_at, reason)
+      VALUES ('OFFLINE', ?, CURRENT_TIMESTAMP, MAX(0, CAST((strftime('%s', CURRENT_TIMESTAMP) - strftime('%s', ?)) AS INTEGER)), CURRENT_TIMESTAMP, 'CRASH_RECOVERED')
+    `).run(endedAt, endedAt);
+  }
+}
+
+function recordBotState(db, status, reason = null) {
+  if (!status || (status !== 'ONLINE' && status !== 'OFFLINE')) return null;
+
+  const currentOpen = db.prepare('SELECT * FROM bot_uptime_logs WHERE ended_at IS NULL ORDER BY id DESC LIMIT 1').get();
+  if (currentOpen && currentOpen.status === status) {
+    db.prepare(`
+      UPDATE bot_uptime_logs
+      SET last_heartbeat_at = CURRENT_TIMESTAMP,
+          reason = COALESCE(?, reason)
+      WHERE id = ?
+    `).run(reason, currentOpen.id);
+    return currentOpen;
+  }
+
+  if (currentOpen) {
+    db.prepare(`
+      UPDATE bot_uptime_logs
+      SET ended_at = CURRENT_TIMESTAMP,
+          duration_seconds = MAX(0, CAST((strftime('%s', CURRENT_TIMESTAMP) - strftime('%s', started_at)) AS INTEGER)),
+          last_heartbeat_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(currentOpen.id);
+  }
+
+  const info = db.prepare(`
+    INSERT INTO bot_uptime_logs (status, started_at, last_heartbeat_at, reason)
+    VALUES (?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)
+  `).run(status, reason);
+
+  return db.prepare('SELECT * FROM bot_uptime_logs WHERE id = ?').get(info.lastInsertRowid);
+}
+
+function heartbeatBotState(db) {
+  const currentOpen = db.prepare('SELECT * FROM bot_uptime_logs WHERE ended_at IS NULL ORDER BY id DESC LIMIT 1').get();
+  if (currentOpen) {
+    db.prepare(`
+      UPDATE bot_uptime_logs
+      SET last_heartbeat_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(currentOpen.id);
+  }
+}
+
+function getBotUptimeStats(db, { limit = 20 } = {}) {
+  const current = db.prepare('SELECT * FROM bot_uptime_logs WHERE ended_at IS NULL ORDER BY id DESC LIMIT 1').get();
+  const currentStatus = current ? current.status : 'OFFLINE';
+  const startedAt = current ? current.started_at : null;
+
+  let currentDurationSeconds = 0;
+  if (current) {
+    const durRow = db.prepare("SELECT MAX(0, CAST((strftime('%s', CURRENT_TIMESTAMP) - strftime('%s', ?)) AS INTEGER)) AS dur").get(current.started_at);
+    currentDurationSeconds = durRow?.dur || 0;
+  }
+
+  const todayRows = db.prepare(`
+    SELECT status, started_at, COALESCE(ended_at, CURRENT_TIMESTAMP) AS session_end
+    FROM bot_uptime_logs
+    WHERE date(COALESCE(ended_at, CURRENT_TIMESTAMP), 'localtime') >= date('now', 'localtime')
+       OR date(started_at, 'localtime') >= date('now', 'localtime')
+    ORDER BY id ASC
+  `).all();
+
+  const midnightRow = db.prepare("SELECT datetime('now', 'start of day', 'utc') AS midnight").get();
+  const todayStartTs = midnightRow?.midnight ? new Date(midnightRow.midnight).getTime() : Date.now() - 86400000;
+  const nowTs = Date.now();
+
+  let todayOnlineSeconds = 0;
+  let todayOfflineSeconds = 0;
+
+  for (const row of todayRows) {
+    const rowStart = Math.max(new Date(row.started_at + 'Z').getTime(), todayStartTs);
+    const rowEnd = Math.min(new Date(row.session_end + 'Z').getTime(), nowTs);
+    const sec = Math.max(0, Math.floor((rowEnd - rowStart) / 1000));
+    if (row.status === 'ONLINE') {
+      todayOnlineSeconds += sec;
+    } else {
+      todayOfflineSeconds += sec;
+    }
+  }
+
+  const totalTrackedToday = todayOnlineSeconds + todayOfflineSeconds;
+  const todayUptimePercent = totalTrackedToday > 0
+    ? Math.round((todayOnlineSeconds / totalTrackedToday) * 1000) / 10
+    : (currentStatus === 'ONLINE' ? 100 : 0);
+
+  const recentLogs = db.prepare(`
+    SELECT 
+      id,
+      status,
+      started_at,
+      ended_at,
+      COALESCE(duration_seconds, MAX(0, CAST((strftime('%s', CURRENT_TIMESTAMP) - strftime('%s', started_at)) AS INTEGER))) AS duration_seconds,
+      reason,
+      created_at
+    FROM bot_uptime_logs
+    ORDER BY id DESC
+    LIMIT ?
+  `).all(limit);
+
+  return {
+    currentStatus,
+    currentSessionStartedAt: startedAt,
+    currentDurationSeconds,
+    todayUptimePercent,
+    todayOnlineSeconds,
+    todayOfflineSeconds,
+    recentLogs
+  };
+}
+
+function addVideoCustomer(db, phone, note = null) {
+  if (!db || !phone) return null;
+  const cleanPhone = String(phone).replace(/\D/g, '');
+  if (!cleanPhone) return null;
+
+  db.prepare(`
+    INSERT INTO video_customers (phone_number, note, updated_at)
+    VALUES (?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(phone_number) DO UPDATE SET
+      note = COALESCE(excluded.note, video_customers.note),
+      updated_at = CURRENT_TIMESTAMP
+  `).run(cleanPhone, note ? String(note).trim() : null);
+
+  return db.prepare('SELECT phone_number, note, created_at, updated_at FROM video_customers WHERE phone_number = ?').get(cleanPhone);
+}
+
+function removeVideoCustomer(db, phone) {
+  if (!db || !phone) return { phone_number: null, deleted: false };
+  const cleanPhone = String(phone).replace(/\D/g, '');
+  if (!cleanPhone) return { phone_number: null, deleted: false };
+
+  const candidates = [cleanPhone];
+  if (cleanPhone.startsWith('880') && cleanPhone.length === 13) {
+    candidates.push(cleanPhone.slice(2));
+  } else if (cleanPhone.startsWith('01') && cleanPhone.length === 11) {
+    candidates.push(`88${cleanPhone}`);
+  }
+
+  const placeholders = candidates.map(() => '?').join(',');
+  const res = db.prepare(`DELETE FROM video_customers WHERE phone_number IN (${placeholders})`).run(...candidates);
+  return { phone_number: cleanPhone, deleted: res.changes > 0 };
+}
+
+function getVideoCustomers(db) {
+  if (!db) return [];
+  return db.prepare('SELECT phone_number, note, created_at, updated_at FROM video_customers ORDER BY created_at DESC').all();
+}
+
+function isVideoCustomer(db, phone) {
+  if (!db || !phone) return false;
+  const cleanPhone = String(phone).replace(/\D/g, '');
+  if (!cleanPhone) return false;
+
+  const candidates = [cleanPhone];
+  if (cleanPhone.startsWith('880') && cleanPhone.length === 13) {
+    candidates.push(cleanPhone.slice(2));
+  } else if (cleanPhone.startsWith('01') && cleanPhone.length === 11) {
+    candidates.push(`88${cleanPhone}`);
+  }
+
+  const placeholders = candidates.map(() => '?').join(',');
+
+  // 1. Explicit entry in video_customers
+  try {
+    const explicit = db.prepare(`SELECT 1 AS is_video FROM video_customers WHERE phone_number IN (${placeholders}) LIMIT 1`).get(...candidates);
+    if (explicit && (explicit.is_video === 1 || explicit['1'] === 1)) return true;
+  } catch {}
+
+  // 2. Pure video transaction history: customer has at least 1 video transaction and 0 voice/audio transactions
+  try {
+    const stats = db.prepare(`
+      SELECT 
+        SUM(CASE WHEN LOWER(job_type) = 'video' THEN 1 ELSE 0 END) AS video_count,
+        SUM(CASE WHEN LOWER(job_type) IN ('voice', 'audio') THEN 1 ELSE 0 END) AS voice_count
+      FROM transactions
+      WHERE phone_number IN (${placeholders})
+    `).get(...candidates);
+
+    if (stats && Number(stats.video_count) > 0 && Number(stats.voice_count || 0) === 0) {
+      return true;
+    }
+  } catch {}
+
+  return false;
+}
+
+function createVoiceJobOrder(db, {
+  customerPhone,
+  customerName = null,
+  customerScriptMsgId = null,
+  va2ForwardMsgId = null,
+  scriptText,
+  headline = null
+} = {}) {
+  if (!db) return null;
+  const cleanPhone = String(customerPhone || '').replace(/\D/g, '');
+  const orderId = `VJO-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+  const cleanScript = scriptText != null ? String(scriptText) : '';
+
+  const stmt = db.prepare(`
+    INSERT INTO voice_job_orders (
+      order_id,
+      customer_phone,
+      customer_name,
+      customer_script_msg_id,
+      va2_forward_msg_id,
+      script_text,
+      headline,
+      status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING_VA2')
+  `);
+
+  stmt.run(
+    orderId,
+    cleanPhone,
+    customerName,
+    customerScriptMsgId,
+    va2ForwardMsgId,
+    cleanScript,
+    headline
+  );
+
+  return db.prepare('SELECT * FROM voice_job_orders WHERE order_id = ?').get(orderId) || null;
+}
+
+function findVoiceJobOrderByVa2MsgId(db, va2ForwardMsgId) {
+  if (!db || !va2ForwardMsgId) return null;
+  const idStr = String(va2ForwardMsgId).trim();
+  if (!idStr) return null;
+
+  const direct = db.prepare('SELECT * FROM voice_job_orders WHERE va2_forward_msg_id = ? ORDER BY id DESC LIMIT 1').get(idStr);
+  if (direct) return direct;
+
+  const bareId = idStr.includes('_') ? idStr.split('_').pop() : idStr;
+  const match = db.prepare(`
+    SELECT * FROM voice_job_orders 
+    WHERE va2_forward_msg_id = ? 
+       OR va2_forward_msg_id LIKE '%_' || ?
+       OR ? LIKE '%_' || va2_forward_msg_id
+    ORDER BY id DESC LIMIT 1
+  `).get(bareId, bareId, idStr);
+  return match || null;
+}
+
+function findVoiceJobOrderByScriptText(db, scriptText) {
+  if (!db || !scriptText) return null;
+  const trimmed = String(scriptText).trim();
+  if (!trimmed) return null;
+
+  return db.prepare(`
+    SELECT * FROM voice_job_orders
+    WHERE status = 'PENDING_VA2'
+      AND length(trim(script_text)) > 0
+      AND (
+        trim(script_text) = ?
+        OR instr(script_text, ?) > 0
+        OR instr(?, trim(script_text)) > 0
+      )
+    ORDER BY created_at DESC, id DESC
+    LIMIT 1
+  `).get(trimmed, trimmed, trimmed) || null;
+}
+
+function findLatestPendingVoiceJob(db, { customerPhone } = {}) {
+  if (!db) return null;
+  if (customerPhone) {
+    const cleanPhone = String(customerPhone).replace(/\D/g, '');
+    if (cleanPhone) {
+      const candidates = [cleanPhone];
+      if (cleanPhone.startsWith('880') && cleanPhone.length === 13) {
+        candidates.push(cleanPhone.slice(2));
+      } else if (cleanPhone.startsWith('01') && cleanPhone.length === 11) {
+        candidates.push(`88${cleanPhone}`);
+      }
+      const placeholders = candidates.map(() => '?').join(',');
+      return db.prepare(`
+        SELECT * FROM voice_job_orders
+        WHERE status = 'PENDING_VA2' AND customer_phone IN (${placeholders})
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+      `).get(...candidates) || null;
+    }
+  }
+
+  return db.prepare(`
+    SELECT * FROM voice_job_orders
+    WHERE status = 'PENDING_VA2'
+    ORDER BY created_at DESC, id DESC
+    LIMIT 1
+  `).get() || null;
+}
+
+function updateVoiceJobVa2ForwardMsgId(db, orderId, va2ForwardMsgId) {
+  if (!db || !orderId) return { updated: false };
+  const res = db.prepare(`
+    UPDATE voice_job_orders
+    SET va2_forward_msg_id = ?
+    WHERE order_id = ?
+  `).run(va2ForwardMsgId || null, orderId);
+  return { updated: res.changes > 0 };
+}
+
+function updateVoiceJobDelivered(db, orderId, {
+  va2AudioMsgId = null,
+  va2AudioFilename = null,
+  finalAudioFilename = null,
+  cleanDuration = null,
+  cleanDurationSeconds = null,
+  originalDuration = null,
+  originalDurationSeconds = null,
+  cutsCount = null,
+  cutsAppliedCount = null,
+  modelUsed = null,
+  aircheckModelUsed = null
+} = {}) {
+  if (!db || !orderId) return { updated: false };
+  const finalCleanDur = cleanDuration !== null && cleanDuration !== undefined ? cleanDuration : cleanDurationSeconds;
+  const finalOrigDur = originalDuration !== null && originalDuration !== undefined ? originalDuration : originalDurationSeconds;
+  const finalCuts = cutsCount !== null && cutsCount !== undefined ? cutsCount : (cutsAppliedCount !== null && cutsAppliedCount !== undefined ? cutsAppliedCount : 0);
+  const finalModel = modelUsed || aircheckModelUsed || null;
+
+  const res = db.prepare(`
+    UPDATE voice_job_orders
+    SET status = 'DELIVERED',
+        delivered_at = CURRENT_TIMESTAMP,
+        va2_audio_msg_id = COALESCE(?, va2_audio_msg_id),
+        va2_audio_filename = COALESCE(?, va2_audio_filename),
+        final_audio_filename = COALESCE(?, final_audio_filename),
+        clean_duration_seconds = COALESCE(?, clean_duration_seconds),
+        original_duration_seconds = COALESCE(?, original_duration_seconds),
+        cuts_applied_count = COALESCE(?, cuts_applied_count),
+        aircheck_model_used = COALESCE(?, aircheck_model_used)
+    WHERE order_id = ?
+  `).run(
+    va2AudioMsgId,
+    va2AudioFilename,
+    finalAudioFilename,
+    finalCleanDur,
+    finalOrigDur,
+    finalCuts,
+    finalModel,
+    orderId
+  );
+  return { updated: res.changes > 0 };
+}
+
+function getVoiceJobOrder(db, orderId) {
+  if (!db || !orderId) return null;
+  return db.prepare('SELECT * FROM voice_job_orders WHERE order_id = ?').get(orderId) || null;
+}
+
 module.exports = {
   initDb,
   recordTransaction,
   recordLead,
+  recordExistingContact,
   getLead,
   updateTransactionMessageId,
   deleteTransactionByMessageId,
@@ -739,5 +1178,20 @@ module.exports = {
   recordAdSpend,
   getAdSpendList,
   getAdSpendSummary,
-  getSimulationBaselines
+  getSimulationBaselines,
+  recordBotState,
+  heartbeatBotState,
+  recoverUngracefulShutdown,
+  getBotUptimeStats,
+  addVideoCustomer,
+  removeVideoCustomer,
+  getVideoCustomers,
+  isVideoCustomer,
+  createVoiceJobOrder,
+  findVoiceJobOrderByVa2MsgId,
+  findVoiceJobOrderByScriptText,
+  findLatestPendingVoiceJob,
+  updateVoiceJobVa2ForwardMsgId,
+  updateVoiceJobDelivered,
+  getVoiceJobOrder
 };

@@ -18,7 +18,18 @@ const {
   recordAdSpend,
   getAdSpendList,
   getAdSpendSummary,
-  getSimulationBaselines
+  getSimulationBaselines,
+  addVideoCustomer,
+  removeVideoCustomer,
+  getVideoCustomers,
+  isVideoCustomer,
+  createVoiceJobOrder,
+  findVoiceJobOrderByVa2MsgId,
+  findVoiceJobOrderByScriptText,
+  findLatestPendingVoiceJob,
+  updateVoiceJobVa2ForwardMsgId,
+  updateVoiceJobDelivered,
+  getVoiceJobOrder
 } = require('../src/db');
 
 describe('Database Module', () => {
@@ -533,6 +544,246 @@ describe('Database Module', () => {
       assert.strictEqual(baselines.repeatJobFrequency, 1);
       assert.strictEqual(baselines.totalAdSpend, 500);
       assert.ok(baselines.dailyCplHistory.length > 0);
+    });
+  });
+
+  describe('Video Customers', () => {
+    it('adds, retrieves, and removes a video customer', () => {
+      const added = addVideoCustomer(db, '+8801711223344', 'Regular News Video');
+      assert.ok(added);
+      assert.strictEqual(added.phone_number, '8801711223344');
+      assert.strictEqual(added.note, 'Regular News Video');
+
+      const list = getVideoCustomers(db);
+      assert.strictEqual(list.length, 1);
+      assert.strictEqual(list[0].phone_number, '8801711223344');
+      assert.strictEqual(list[0].note, 'Regular News Video');
+
+      assert.strictEqual(isVideoCustomer(db, '8801711223344'), true);
+      assert.strictEqual(isVideoCustomer(db, '01711223344'), true);
+      assert.strictEqual(isVideoCustomer(db, '+8801711223344'), true);
+
+      const del = removeVideoCustomer(db, '8801711223344');
+      assert.strictEqual(del.deleted, true);
+      assert.strictEqual(isVideoCustomer(db, '8801711223344'), false);
+    });
+
+    it('identifies pure video customer based on transaction history', () => {
+      // Customer has video transactions only
+      recordTransaction(db, {
+        phone: '8801799887766',
+        name: 'Video Only Client',
+        type: 'BILL',
+        amount: 800,
+        rawText: 'বিল ৮০০ টাকা',
+        jobType: 'video'
+      });
+
+      assert.strictEqual(isVideoCustomer(db, '8801799887766'), true);
+      assert.strictEqual(isVideoCustomer(db, '01799887766'), true);
+
+      // Now add a voice transaction for this customer -> no longer pure video customer!
+      recordTransaction(db, {
+        phone: '8801799887766',
+        type: 'BILL',
+        amount: 150,
+        rawText: 'বিল ১৫০ টাকা',
+        jobType: 'voice'
+      });
+
+      assert.strictEqual(isVideoCustomer(db, '8801799887766'), false);
+    });
+
+    it('returns false for unknown customer or audio-only customer', () => {
+      assert.strictEqual(isVideoCustomer(db, '8801700000999'), false);
+      assert.strictEqual(isVideoCustomer(db, ''), false);
+      assert.strictEqual(isVideoCustomer(null, '8801700000999'), false);
+
+      recordTransaction(db, {
+        phone: '8801700000999',
+        type: 'BILL',
+        amount: 100,
+        rawText: 'বিল ১০০ টাকা',
+        jobType: 'voice'
+      });
+      assert.strictEqual(isVideoCustomer(db, '8801700000999'), false);
+    });
+  });
+
+  describe('Voice Job Orders', () => {
+    it('creates a voice job order and verifies order_id, status PENDING_VA2, and phone normalization', () => {
+      const order = createVoiceJobOrder(db, {
+        customerPhone: '+880 1711-223344',
+        customerName: 'Munni Voice Client',
+        customerScriptMsgId: 'msg_cust_01',
+        va2ForwardMsgId: 'msg_va2_fwd_01',
+        scriptText: 'আজকের প্রধান খবর: পদ্মা সেতুর কাজ সফলভাবে সম্পন্ন হয়েছে।',
+        headline: 'পদ্মা সেতু সংবাদ'
+      });
+
+      assert.ok(order, 'Order should be created');
+      assert.ok(order.id > 0, 'Order should have autoincrement id');
+      assert.match(order.order_id, /^VJO-\d+-\d{4}$/, 'Order ID should match VJO pattern');
+      assert.strictEqual(order.customer_phone, '8801711223344', 'Phone number should be stripped of non-digits');
+      assert.strictEqual(order.customer_name, 'Munni Voice Client');
+      assert.strictEqual(order.customer_script_msg_id, 'msg_cust_01');
+      assert.strictEqual(order.va2_forward_msg_id, 'msg_va2_fwd_01');
+      assert.strictEqual(order.script_text, 'আজকের প্রধান খবর: পদ্মা সেতুর কাজ সফলভাবে সম্পন্ন হয়েছে।');
+      assert.strictEqual(order.headline, 'পদ্মা সেতু সংবাদ');
+      assert.strictEqual(order.status, 'PENDING_VA2');
+      assert.strictEqual(order.va2_audio_msg_id, null);
+      assert.strictEqual(order.va2_audio_filename, null);
+      assert.strictEqual(order.final_audio_filename, null);
+      assert.strictEqual(order.clean_duration_seconds, null);
+      assert.strictEqual(order.cuts_applied_count, 0);
+      assert.ok(order.created_at, 'created_at should be populated');
+      assert.strictEqual(order.delivered_at, null);
+    });
+
+    it('finds order by va2_forward_msg_id (direct match and serialized stanza format)', () => {
+      const order = createVoiceJobOrder(db, {
+        customerPhone: '01811223344',
+        scriptText: 'স্পোর্টস বুলেটিন: বাংলাদেশ জয়ী',
+        va2ForwardMsgId: 'VA2_MSG_12345'
+      });
+
+      // Direct exact match
+      const found = findVoiceJobOrderByVa2MsgId(db, 'VA2_MSG_12345');
+      assert.ok(found);
+      assert.strictEqual(found.order_id, order.order_id);
+
+      // Stanza serialized search
+      const foundByStanza = findVoiceJobOrderByVa2MsgId(db, 'true_8801999999999@c.us_VA2_MSG_12345');
+      assert.ok(foundByStanza);
+      assert.strictEqual(foundByStanza.order_id, order.order_id);
+
+      // Non-matching ID returns null
+      assert.strictEqual(findVoiceJobOrderByVa2MsgId(db, 'NON_EXISTENT_MSG'), null);
+      assert.strictEqual(findVoiceJobOrderByVa2MsgId(db, null), null);
+    });
+
+    it('finds order by script text match (exact and substring)', () => {
+      const fullScript = 'আজকের বিশেষ বুলেটিন: ঢাকায় নতুন ফ্লাইওভার উদ্বোধন করলেন প্রধানমন্ত্রী। বিস্তারিত আসছে...';
+      const order = createVoiceJobOrder(db, {
+        customerPhone: '01700112233',
+        scriptText: fullScript,
+        headline: 'ফ্লাইওভার উদ্বোধন'
+      });
+
+      // 1. Exact match
+      const exactMatch = findVoiceJobOrderByScriptText(db, fullScript);
+      assert.ok(exactMatch);
+      assert.strictEqual(exactMatch.order_id, order.order_id);
+
+      // 2. Query is substring of stored script
+      const subQueryMatch = findVoiceJobOrderByScriptText(db, 'ঢাকায় নতুন ফ্লাইওভার উদ্বোধন');
+      assert.ok(subQueryMatch);
+      assert.strictEqual(subQueryMatch.order_id, order.order_id);
+
+      // 3. Stored script is substring of query
+      const longerQuery = `ব্রেকিং নিউজ আপডেট: ${fullScript} পরবর্তী খবর রাত ৮টায়।`;
+      const superQueryMatch = findVoiceJobOrderByScriptText(db, longerQuery);
+      assert.ok(superQueryMatch);
+      assert.strictEqual(superQueryMatch.order_id, order.order_id);
+
+      // 4. Non-matching query returns null
+      assert.strictEqual(findVoiceJobOrderByScriptText(db, 'সম্পূর্ণ অমিল কোনো স্ক্রিপ্ট যা ডাটাবেজে নেই'), null);
+      assert.strictEqual(findVoiceJobOrderByScriptText(db, ''), null);
+      assert.strictEqual(findVoiceJobOrderByScriptText(db, null), null);
+    });
+
+    it('finds latest pending voice job optionally filtered by customerPhone', () => {
+      // Create first order for Customer A
+      const order1 = createVoiceJobOrder(db, {
+        customerPhone: '01711000001',
+        scriptText: 'স্ক্রিপ্ট ১'
+      });
+
+      // Create second order for Customer B
+      const order2 = createVoiceJobOrder(db, {
+        customerPhone: '01711000002',
+        scriptText: 'স্ক্রিপ্ট ২'
+      });
+
+      // Latest pending across all customers should be order2
+      const latestAll = findLatestPendingVoiceJob(db);
+      assert.ok(latestAll);
+      assert.strictEqual(latestAll.order_id, order2.order_id);
+
+      // Latest pending for Customer A should be order1
+      const latestA = findLatestPendingVoiceJob(db, { customerPhone: '01711000001' });
+      assert.ok(latestA);
+      assert.strictEqual(latestA.order_id, order1.order_id);
+
+      // Latest pending with country code normalization
+      const latestANormalized = findLatestPendingVoiceJob(db, { customerPhone: '+880 1711-000001' });
+      assert.ok(latestANormalized);
+      assert.strictEqual(latestANormalized.order_id, order1.order_id);
+
+      // Mark order2 as delivered; latest across all should now be order1
+      updateVoiceJobDelivered(db, order2.order_id, {
+        cleanDuration: 30,
+        finalAudioFilename: 'order2_clean.mp3'
+      });
+      const latestAfterDelivered = findLatestPendingVoiceJob(db);
+      assert.ok(latestAfterDelivered);
+      assert.strictEqual(latestAfterDelivered.order_id, order1.order_id);
+
+      // Customer B should now have no pending jobs
+      assert.strictEqual(findLatestPendingVoiceJob(db, { customerPhone: '01711000002' }), null);
+    });
+
+    it('updates va2_forward_msg_id', () => {
+      const order = createVoiceJobOrder(db, {
+        customerPhone: '01711555555',
+        scriptText: 'ভয়েস টেস্ট'
+      });
+      assert.strictEqual(order.va2_forward_msg_id, null);
+
+      const res = updateVoiceJobVa2ForwardMsgId(db, order.order_id, 'FWD_MSG_NEW_789');
+      assert.strictEqual(res.updated, true);
+
+      const updated = findVoiceJobOrderByVa2MsgId(db, 'FWD_MSG_NEW_789');
+      assert.ok(updated);
+      assert.strictEqual(updated.order_id, order.order_id);
+      assert.strictEqual(updated.va2_forward_msg_id, 'FWD_MSG_NEW_789');
+
+      // Non-existent order
+      assert.strictEqual(updateVoiceJobVa2ForwardMsgId(db, 'NON_EXISTENT_ID', 'SOME_MSG').updated, false);
+      assert.strictEqual(updateVoiceJobVa2ForwardMsgId(db, null, 'SOME_MSG').updated, false);
+    });
+
+    it('updates voice job as delivered and verifies status DELIVERED and delivered_at timestamp', () => {
+      const order = createVoiceJobOrder(db, {
+        customerPhone: '01711666666',
+        scriptText: 'নিউজ বুলেটিন ডেলিভারি টেস্ট'
+      });
+
+      const res = updateVoiceJobDelivered(db, order.order_id, {
+        va2AudioMsgId: 'va2_audio_msg_999',
+        va2AudioFilename: 'va2_raw_audio.mp3',
+        finalAudioFilename: 'final_clean_voice.mp3',
+        cleanDuration: 48.75,
+        cutsCount: 4,
+        modelUsed: 'gemini-2.5-pro'
+      });
+
+      assert.strictEqual(res.updated, true);
+
+      const record = getVoiceJobOrder(db, order.order_id);
+      assert.ok(record);
+      assert.strictEqual(record.status, 'DELIVERED');
+      assert.ok(record.delivered_at, 'delivered_at should have a timestamp');
+      assert.strictEqual(record.va2_audio_msg_id, 'va2_audio_msg_999');
+      assert.strictEqual(record.va2_audio_filename, 'va2_raw_audio.mp3');
+      assert.strictEqual(record.final_audio_filename, 'final_clean_voice.mp3');
+      assert.strictEqual(record.clean_duration_seconds, 48.75);
+      assert.strictEqual(record.cuts_applied_count, 4);
+      assert.strictEqual(record.aircheck_model_used, 'gemini-2.5-pro');
+
+      // Non-existent order returns updated: false
+      const failedRes = updateVoiceJobDelivered(db, 'NON_EXISTENT_ORDER_ID', { cleanDuration: 10 });
+      assert.strictEqual(failedRes.updated, false);
     });
   });
 });
