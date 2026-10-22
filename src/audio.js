@@ -468,6 +468,88 @@ async function resolveAudioDuration({ msg, client }) {
   return null;
 }
 
+/**
+ * Checks if a string contains Bengali Unicode characters (\u0980-\u09FF).
+ */
+function hasBengaliCharacters(str) {
+  return Boolean(str && /[\u0980-\u09FF]/.test(String(str)));
+}
+
+/**
+ * Formats duration in seconds for inclusion in voice filenames.
+ * E.g.:
+ * - under 60s: '45s', '0s'
+ * - 60s or more: '1m 23s', '1m 0s', '2m 0s'
+ */
+function formatDurationForFilename(seconds) {
+  const rounded = Math.max(0, Math.round(Number(seconds) || 0));
+  if (rounded < 60) {
+    return `${rounded}s`;
+  }
+  const min = Math.floor(rounded / 60);
+  const sec = rounded % 60;
+  return `${min}m ${sec}s`;
+}
+
+/**
+ * Extracts a concise Bengali headline from a script text.
+ * - Extracts first non-empty line of the script.
+ * - Strips system brackets [নতুন ভয়েস অর্ডার], URLs, HTML tags, emojis, markdown, and punctuation.
+ * - Splits into words and prioritizes words containing Bengali characters.
+ * - Takes up to maxWords (default 5).
+ * - Falls back to 'ভয়েস স্ক্রিপ্ট' if empty, null, or no Bengali characters found.
+ */
+function extractHeadline(scriptText, maxWords = 5) {
+  if (!scriptText || typeof scriptText !== 'string') {
+    return 'ভয়েস স্ক্রিপ্ট';
+  }
+
+  const limit = typeof maxWords === 'number' && maxWords > 0 ? maxWords : 5;
+
+  // Clean bracketed system headers like [নতুন ভয়েস অর্ডার]
+  const cleanedText = scriptText.replace(/\[[^\]]*\]/g, ' ');
+  const lines = cleanedText.split(/\r?\n/);
+
+  for (let line of lines) {
+    let clean = line.replace(/https?:\/\/\S+|www\.\S+/gi, ' ');
+    clean = clean.replace(/<[^>]+>/g, ' ');
+    clean = clean.replace(/\p{Extended_Pictographic}/gu, ' ');
+    clean = clean.replace(/[*_~#`]/g, ' ');
+    clean = clean.replace(/[!"$%&'()*+,\-./:;<=>?@[\\\]^{|}~।॥«»“”‘’]/g, ' ');
+    clean = clean.replace(/^(?:স্ক্রিপ্ট|script)\s*[:ঃ]?\s*/gi, ' ');
+
+    const words = clean.trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) continue;
+
+    const bengaliWords = words.filter((w) => /[\u0980-\u09FF]/.test(w));
+    if (bengaliWords.length > 0) {
+      return bengaliWords.slice(0, limit).join(' ');
+    }
+  }
+
+  return 'ভয়েস স্ক্রিপ্ট';
+}
+
+/**
+ * Builds a clean Bengali audio filename:
+ * `${cleanHeadline} (${formatDurationForFilename(durationSeconds)}).${cleanExt}`
+ * E.g.: 'নবাবপুর ফুড সিটি (1m 23s).mp3'
+ */
+function buildCleanVoiceFilename({ headline, durationSeconds, ext = 'mp3' } = {}) {
+  const cleanHeadline = (headline ? String(headline) : '')
+    .replace(/[\\/:*?"<>|\r\n]/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ') || 'ভয়েস স্ক্রিপ্ট';
+
+  const cleanExt = (ext ? String(ext) : 'mp3')
+    .replace(/^\./, '')
+    .replace(/[\\/:*?"<>|\r\n]/g, '')
+    .trim() || 'mp3';
+
+  const formattedDuration = formatDurationForFilename(durationSeconds);
+  return `${cleanHeadline} (${formattedDuration}).${cleanExt}`;
+}
+
 module.exports = {
   toBengaliDigits,
   formatAudioDuration,
@@ -477,5 +559,9 @@ module.exports = {
   isVideoDocumentMessage,
   getAudioDurationFromBuffer,
   getAudioDurationWithFFprobe,
-  resolveAudioDuration
+  resolveAudioDuration,
+  hasBengaliCharacters,
+  formatDurationForFilename,
+  extractHeadline,
+  buildCleanVoiceFilename
 };

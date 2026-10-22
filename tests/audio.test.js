@@ -5,7 +5,11 @@ const {
   calculateAudioBill,
   formatBillMessage,
   isAudioDocumentMessage,
-  getAudioDurationFromBuffer
+  getAudioDurationFromBuffer,
+  extractHeadline,
+  formatDurationForFilename,
+  buildCleanVoiceFilename,
+  hasBengaliCharacters
 } = require('../src/audio');
 
 describe('Audio Module', () => {
@@ -272,6 +276,117 @@ describe('Audio Module', () => {
       const duration = await getAudioDurationWithFFprobe(buffer, '.wav');
       assert.ok(duration !== null);
       assert.strictEqual(Math.round(duration), 2);
+    });
+  });
+
+  describe('Headline & Filename Formatting', () => {
+    describe('extractHeadline', () => {
+      it('extracts 3-5 words from first line of multi-line script', () => {
+        const script = 'নবাবপুর ফুড সিটি নিয়ে এলো বিশেষ অফার\nদ্বিতীয় লাইন এখানে\nতৃতীয় লাইন এখানে';
+        assert.strictEqual(extractHeadline(script), 'নবাবপুর ফুড সিটি নিয়ে এলো');
+        assert.strictEqual(extractHeadline(script, 3), 'নবাবপুর ফুড সিটি');
+
+        const shortLineScript = 'নবাবপুর ফুড সিটি\nএখানে যাবতীয় খাবারের আয়োজন আছে';
+        assert.strictEqual(extractHeadline(shortLineScript), 'নবাবপুর ফুড সিটি');
+      });
+
+      it('strips markdown, emojis, and [নতুন ভয়েস অর্ডার] headers', () => {
+        const formattedScript = '[নতুন ভয়েস অর্ডার]\n# *নবাবপুর ফুড সিটি* - সেরা অফার! 🍔🔥\nবিস্তারিত জানতে কল করুন ০১৭১১০০০০০০';
+        assert.strictEqual(extractHeadline(formattedScript), 'নবাবপুর ফুড সিটি সেরা অফার');
+
+        const sameLineScript = '[নতুন ভয়েস অর্ডার] _*নবাবপুর ফুড সিটি*_ ~সেরা~ `অফার` 🎉';
+        assert.strictEqual(extractHeadline(sameLineScript), 'নবাবপুর ফুড সিটি সেরা অফার');
+      });
+
+      it('falls back to "ভয়েস স্ক্রিপ্ট" for empty, null, or non-Bengali text', () => {
+        assert.strictEqual(extractHeadline(''), 'ভয়েস স্ক্রিপ্ট');
+        assert.strictEqual(extractHeadline(null), 'ভয়েস স্ক্রিপ্ট');
+        assert.strictEqual(extractHeadline(undefined), 'ভয়েস স্ক্রিপ্ট');
+        assert.strictEqual(extractHeadline('   '), 'ভয়েস স্ক্রিপ্ট');
+        assert.strictEqual(extractHeadline('Hello this is a pure English voice script with no Bengali'), 'ভয়েস স্ক্রিপ্ট');
+        assert.strictEqual(extractHeadline('12345 67890 !@#$%^&*()'), 'ভয়েস স্ক্রিপ্ট');
+      });
+    });
+
+    describe('formatDurationForFilename', () => {
+      it('under 60s formats as 45s', () => {
+        assert.strictEqual(formatDurationForFilename(45), '45s');
+        assert.strictEqual(formatDurationForFilename(15), '15s');
+        assert.strictEqual(formatDurationForFilename(59), '59s');
+        assert.strictEqual(formatDurationForFilename(44.6), '45s');
+      });
+
+      it('over 60s formats as 1m 23s', () => {
+        assert.strictEqual(formatDurationForFilename(83), '1m 23s');
+        assert.strictEqual(formatDurationForFilename(145), '2m 25s');
+        assert.strictEqual(formatDurationForFilename(83.2), '1m 23s');
+      });
+
+      it('exactly 60s formats as 1m 0s', () => {
+        assert.strictEqual(formatDurationForFilename(60), '1m 0s');
+        assert.strictEqual(formatDurationForFilename(120), '2m 0s');
+        assert.strictEqual(formatDurationForFilename(180), '3m 0s');
+      });
+
+      it('zero or invalid formats as 0s', () => {
+        assert.strictEqual(formatDurationForFilename(0), '0s');
+        assert.strictEqual(formatDurationForFilename(null), '0s');
+        assert.strictEqual(formatDurationForFilename(undefined), '0s');
+        assert.strictEqual(formatDurationForFilename(NaN), '0s');
+        assert.strictEqual(formatDurationForFilename(-10), '0s');
+      });
+    });
+
+    describe('buildCleanVoiceFilename', () => {
+      it('formats full filename e.g. নবাবপুর ফুড সিটি (1m 23s).mp3', () => {
+        const filename = buildCleanVoiceFilename({
+          headline: 'নবাবপুর ফুড সিটি',
+          durationSeconds: 83,
+          ext: 'mp3'
+        });
+        assert.strictEqual(filename, 'নবাবপুর ফুড সিটি (1m 23s).mp3');
+
+        // Defaults ext to mp3
+        const filenameDefault = buildCleanVoiceFilename({
+          headline: 'নবাবপুর ফুড সিটি',
+          durationSeconds: 45
+        });
+        assert.strictEqual(filenameDefault, 'নবাবপুর ফুড সিটি (45s).mp3');
+
+        // Handles leading dot in ext
+        const filenameDot = buildCleanVoiceFilename({
+          headline: 'নবাবপুর ফুড সিটি',
+          durationSeconds: 60,
+          ext: '.wav'
+        });
+        assert.strictEqual(filenameDot, 'নবাবপুর ফুড সিটি (1m 0s).wav');
+      });
+
+      it('sanitizes invalid filename characters like :, /, ?', () => {
+        const sanitized = buildCleanVoiceFilename({
+          headline: 'নবাবপুর: ফুড / সিটি? * < > | " \r \n',
+          durationSeconds: 83,
+          ext: 'mp3'
+        });
+        assert.strictEqual(sanitized, 'নবাবপুর ফুড সিটি (1m 23s).mp3');
+      });
+    });
+
+    describe('hasBengaliCharacters', () => {
+      it('returns true for strings with Bengali characters', () => {
+        assert.strictEqual(hasBengaliCharacters('নবাবপুর.mp3'), true);
+        assert.strictEqual(hasBengaliCharacters('voice_নবাবপুর_take1.wav'), true);
+        assert.strictEqual(hasBengaliCharacters('বাংলা'), true);
+      });
+
+      it('returns false for pure English/numeric filenames', () => {
+        assert.strictEqual(hasBengaliCharacters('voice1.mp3'), false);
+        assert.strictEqual(hasBengaliCharacters('audio_take_2.wav'), false);
+        assert.strictEqual(hasBengaliCharacters('12345.mp3'), false);
+        assert.strictEqual(hasBengaliCharacters(''), false);
+        assert.strictEqual(hasBengaliCharacters(null), false);
+        assert.strictEqual(hasBengaliCharacters(undefined), false);
+      });
     });
   });
 });
