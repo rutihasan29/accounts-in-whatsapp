@@ -1,3 +1,4 @@
+const config = require('./config');
 const { parseMessage } = require('./parser');
 const {
   recordTransaction,
@@ -9,7 +10,16 @@ const {
   getCustomerSummary,
   migrateCustomerPhone,
   recordBotState,
-  heartbeatBotState
+  heartbeatBotState,
+  isVideoCustomer,
+  addVideoCustomer,
+  removeVideoCustomer,
+  getVideoCustomers,
+  getBotUptimeStats,
+  getDashboardStats,
+  findVoiceJobOrderByScriptText,
+  findLatestPendingVoiceJob,
+  updateVoiceJobVa2ForwardMsgId
 } = require('./db');
 const {
   isAudioDocumentMessage,
@@ -22,14 +32,29 @@ const {
 } = require('./audio');
 const { sendWelcomeDemo } = require('./welcome');
 const { syncExistingInboxContacts } = require('./sync');
-const { classifyChat } = require('./classifier');
-const { handleClassificationAction } = require('./dispatch');
+const { classifyChat, isAffirmativeConfirmation, isNegativeConfirmation } = require('./classifier');
+const { handleClassificationAction, cancelPendingConfirmation, getPendingConfirmation } = require('./dispatch');
 const qrcode = require('qrcode-terminal');
 
 // Track auto-sent bill messages to prevent duplicate ledger entries on message_create echo
 const sentAutoBillMsgIds = new Set();
 const pendingAutoBills = [];
 const recentOutboundJobTypes = new Map();
+const sentSelfBotMsgIds = new Set();
+
+function isBotSystemMessage(text) {
+  if (!text || typeof text !== 'string') return false;
+  return text.startsWith('ℹ️ কমান্ড বুঝতে পারিনি') ||
+         text.startsWith('ℹ️ বিল বা পেমেন্ট') ||
+         text.startsWith('🤖 *মুন্নিসফট বট') ||
+         text.startsWith('🟢 *মুন্নিসফট বট') ||
+         text.startsWith('📊 *আজকের লেজার') ||
+         text.startsWith('*মুন্নিসফট গ্রাহক বকেয়া তালিকা*') ||
+         text.includes('[সহায়তা প্রয়োজন / Customer Escalation]') ||
+         text.includes('[গ্রাহকের বার্তা / Customer Message]') ||
+         text.includes('[ভিডিও গ্রাহকের বার্তা / Video Customer Message]') ||
+         text.includes('[নতুন ভয়েস অর্ডার]');
+}
 
 const DIGITS_TO_BENGALI = {
   '0': '০', '1': '১', '2': '২', '3': '৩', '4': '৪',
@@ -80,31 +105,80 @@ function getMyUser(client) {
   );
 }
 
+function getMyLid(client) {
+  return (
+    client?.myLid ||
+    client?.info?.lid?._serialized ||
+    ''
+  );
+}
+
+function getMyLidUser(client) {
+  return (
+    client?.myLidUser ||
+    extractUser(client?.myLid) ||
+    extractUser(client?.info?.lid?._serialized) ||
+    client?.info?.lid?.user ||
+    ''
+  );
+}
+
 function isSelfChat(msg, client) {
   const myUser = getMyUser(client);
-  if (!myUser) return false;
+  const myLid = getMyLid(client);
+  const myLidUser = getMyLidUser(client);
+  if (!myUser && !myLidUser) return false;
 
-  const toUser = extractUser(msg.to);
-  const remoteUser = extractUser(msg.id?.remote);
-  const fromUser = extractUser(msg.from);
+  const rawRemote = msg.id?.remote || '';
+  const rawFrom = msg.from || '';
+  const rawTo = msg.to || '';
 
-  // If the message is incoming (fromMe === false), it can only be a self-chat
-  // if it originated from our own account (e.g. multi-device sync from phone where fromUser === myUser).
-  if (msg.fromMe === false) {
-    if (fromUser && fromUser !== myUser) {
-      return false;
-    }
-    return (
-      (remoteUser && remoteUser === myUser) ||
-      (toUser && toUser === myUser)
-    );
+  // Never a group, broadcast, or newsletter
+  if (rawRemote.endsWith('@g.us') || rawRemote.endsWith('@broadcast') || rawRemote.endsWith('@newsletter')) {
+    return false;
   }
 
-  // When fromMe is true: it's self-chat if addressed to myself
-  return (
-    (remoteUser && remoteUser === myUser) ||
-    (toUser && toUser === myUser)
-  );
+  // Never treat messages to or from staff/editors (VE3, VA2) as self-chat
+  const cleanVe3 = String(config.VE3_PHONE || '8801831366604').replace(/\D/g, '');
+  const cleanVa2 = String(config.VA2_PHONE || '8801307760509').replace(/\D/g, '');
+  const remoteUser = extractUser(rawRemote);
+  const fromUser = extractUser(rawFrom);
+  const toUser = extractUser(rawTo);
+  if (remoteUser === cleanVe3 || remoteUser === cleanVa2 || toUser === cleanVe3 || toUser === cleanVa2) {
+    return false;
+  }
+
+  const isMe = (user, jid) => {
+    if (!user && !jid) return false;
+    if (myUser && (user === myUser || jid?.startsWith(`${myUser}@`) || jid?.startsWith(`${myUser}:`))) return true;
+    if (myLid && jid === myLid) return true;
+    if (myLidUser && user === myLidUser) return true;
+    return false;
+  };
+
+  // When fromMe is true: it's self-chat if addressed to myself (via to or remote)
+  if (msg.fromMe === true) {
+    if (isMe(remoteUser, rawRemote) || isMe(toUser, rawTo)) {
+      return true;
+    }
+    // Also if fromMe is true and fromUser matches remoteUser (sender and chat are identical)
+    if (fromUser && (fromUser === remoteUser || rawFrom === rawRemote)) {
+      if (isMe(fromUser, rawFrom)) {
+        return true;
+      }
+    }
+  }
+
+  // When fromMe is false: it can only be self-chat if incoming from myself to myself
+  if (msg.fromMe === false) {
+    if (isMe(fromUser, rawFrom)) {
+      if (isMe(remoteUser, rawRemote) || isMe(toUser, rawTo) || !rawTo || rawRemote === rawFrom) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 async function resolveCustomerPhone({ client, recipient, msg }) {
@@ -230,6 +304,32 @@ function isTestEnv() {
   );
 }
 
+async function resolveChat(client, msg, rawSender, phone) {
+  let chat = null;
+  if (msg && typeof msg.getChat === 'function') {
+    try {
+      chat = await msg.getChat();
+      if (chat) return chat;
+    } catch {}
+  }
+  if (client && typeof client.getChatById === 'function') {
+    const candidates = [
+      msg?.id?.remote,
+      rawSender,
+      phone ? `${phone}@c.us` : null,
+      msg?.from
+    ].filter(Boolean);
+
+    for (const cid of candidates) {
+      try {
+        chat = await client.getChatById(cid);
+        if (chat) return chat;
+      } catch {}
+    }
+  }
+  return chat;
+}
+
 async function handleMessageCreate({
   msg,
   client,
@@ -237,10 +337,215 @@ async function handleMessageCreate({
   classifierFn = null,
   dispatchFn = null
 } = {}) {
-  const isSelf = isSelfChat(msg, client);
+  // Ignore echo of bot's own self-chat replies
+  if (msg.id?._serialized && sentSelfBotMsgIds.has(msg.id._serialized)) {
+    sentSelfBotMsgIds.delete(msg.id._serialized);
+    if (msg.id?.id) sentSelfBotMsgIds.delete(msg.id.id);
+    return { action: 'IGNORED_SELF_BOT_ECHO' };
+  }
+  if (msg.id?.id && sentSelfBotMsgIds.has(msg.id.id)) {
+    sentSelfBotMsgIds.delete(msg.id.id);
+    return { action: 'IGNORED_SELF_BOT_ECHO' };
+  }
+
+  let isSelf = isSelfChat(msg, client);
   const isTest = isTestEnv();
   const activeClassifierFn = classifierFn || (!isTest ? classifyChat : null);
   const activeDispatchFn = dispatchFn || handleClassificationAction;
+
+  // Real WhatsApp Web with LIDs fallback: if isSelf is not yet true and remote is an @lid,
+  // check if that remote LID resolves to the bot's own phone number.
+  // Note: NEVER check msg.getContact()?.isMe here because on outgoing messages (fromMe: true)
+  // the sender is always "me", which would falsely mark messages to VE3/VA2/customers as self-chat.
+  if (!isSelf && client && !client.myLid) {
+    const rawRemote = msg.id?.remote || '';
+    const myUser = getMyUser(client);
+
+    if (rawRemote.endsWith('@lid') && myUser && !rawRemote.endsWith('@g.us') && !rawRemote.endsWith('@broadcast')) {
+      try {
+        const resolvedPhone = await resolveCustomerPhone({ client, recipient: rawRemote, msg });
+        if (resolvedPhone && resolvedPhone === myUser) {
+          isSelf = true;
+          client.myLid = rawRemote;
+          client.myLidUser = extractUser(rawRemote);
+          console.log(`[SELF_CHAT] Auto-learned bot self LID: ${rawRemote}`);
+        }
+      } catch {}
+    }
+  }
+
+  // Handle self-chat messages immediately
+  if (isSelf) {
+    // Ignore any bot-generated system messages or forwarded escalation alerts
+    if (isBotSystemMessage(msg.body)) {
+      return { action: 'IGNORED_SELF_BOT_MESSAGE' };
+    }
+
+    console.log(`[SELF_CHAT] Processing self-chat message: "${msg.body}" (remote: ${msg.id?.remote || msg.to || ''})`);
+
+    const targetChat = msg.id?.remote || msg.to || msg.from;
+    const sendSelfReply = async (text) => {
+      let sent = false;
+
+      // 1. Try client.sendMessage if available
+      if (client && typeof client.sendMessage === 'function' && targetChat) {
+        try {
+          const sentMsg = await client.sendMessage(targetChat, text);
+          if (sentMsg?.id?._serialized) {
+            sentSelfBotMsgIds.add(sentMsg.id._serialized);
+            if (sentMsg.id.id) sentSelfBotMsgIds.add(sentMsg.id.id);
+            setTimeout(() => {
+              if (sentMsg?.id?._serialized) sentSelfBotMsgIds.delete(sentMsg.id._serialized);
+              if (sentMsg?.id?.id) sentSelfBotMsgIds.delete(sentMsg.id.id);
+            }, 120000).unref?.();
+          }
+          sent = true;
+        } catch (err) {
+          console.warn('[SELF_CHAT] client.sendMessage failed, trying chat.sendMessage:', err.message);
+        }
+      }
+
+      // 2. Try chat.sendMessage if client.sendMessage failed or was unavailable
+      if (!sent && typeof msg.getChat === 'function') {
+        try {
+          const chat = await msg.getChat();
+          if (chat && typeof chat.sendMessage === 'function') {
+            await chat.sendMessage(text);
+            sent = true;
+          }
+        } catch (err) {
+          console.warn('[SELF_CHAT] chat.sendMessage failed, trying msg.reply:', err.message);
+        }
+      }
+
+      // 3. Fallback to msg.reply
+      if (!sent && typeof msg.reply === 'function') {
+        try {
+          await msg.reply(text);
+          sent = true;
+        } catch (err) {
+          console.warn('[SELF_CHAT] msg.reply failed:', err.message);
+        }
+      }
+
+      return sent;
+    };
+
+    const parsed = parseMessage(msg.body);
+
+    // 1. Help Command
+    if (parsed && parsed.type === 'COMMAND_HELP') {
+      const helpText = [
+        '🤖 *মুন্নিসফট বট সেলফ-চ্যাট কমান্ড (Bot Commands)*\n',
+        '📌 *বকেয়া ও লেজার:*',
+        '• `due` বা `!due` — সকল গ্রাহকের বকেয়া তালিকা দেখুন',
+        '• `stats` — আজকের বিল, আদায় ও সার্বিক রিপোর্ট\n',
+        '📹 *ভিডিও গ্রাহক ব্যবস্থাপনা:*',
+        '• `video` বা `video list` — ভিডিও গ্রাহকদের তালিকা দেখুন',
+        '• `video add <ফোন> [নোট]` — নতুন ভিডিও গ্রাহক যোগ করুন',
+        '• `video remove <ফোন>` — তালিকা থেকে গ্রাহক বাদ দিন\n',
+        '⚙️ *সিস্টেম ও অবস্থা:*',
+        '• `status` — বট কানেকশন ও আপটাইম রিপোর্ট',
+        '• `help` — এই সাহায্য মেনু দেখুন\n',
+        '💡 *টিপ:* যেকোনো গ্রাহকের চ্যাটে গিয়ে সরাসরি `বিল ৫০০ টাকা` বা `৫০০ টাকা পেয়েছি, ধন্যবাদ` লিখলে স্বয়ংক্রিয়ভাবে লেজারে হিসাব যুক্ত হবে।'
+      ].join('\n');
+
+      await sendSelfReply(helpText);
+      return { action: 'RESPONDED_HELP', details: { text: helpText } };
+    }
+
+    // 2. Due List Command
+    if (parsed && parsed.type === 'COMMAND_DUE') {
+      const dues = getDueList(db);
+      const report = formatDueReport(dues);
+      console.log(`[COMMAND_DUE] !due triggered in self-chat. Found ${dues.length} customer(s) with dues.`);
+      await sendSelfReply(report);
+      return { action: 'RESPONDED_DUE_LIST', details: { count: dues.length } };
+    }
+
+    // 3. Status Command
+    if (parsed && parsed.type === 'COMMAND_STATUS') {
+      const uptime = getBotUptimeStats(db);
+      const statusText = [
+        '🟢 *মুন্নিসফট বট স্ট্যাটাস (Bot Status)*',
+        `• বর্তমান অবস্থা: ${uptime.currentStatus === 'ONLINE' ? 'অনলাইন (ONLINE) ✅' : 'অফলাইন (OFFLINE) ⚠️'}`,
+        `• বট নম্বর: +${getMyUser(client) || 'Active'}`,
+        `• আজকের আপটাইম: ${uptime.todayUptimePercent}%`,
+        `• লোকাল ড্যাশবোর্ড: http://localhost:3000`
+      ].join('\n');
+
+      await sendSelfReply(statusText);
+      return { action: 'RESPONDED_STATUS', details: uptime };
+    }
+
+    // 4. Stats Command
+    if (parsed && parsed.type === 'COMMAND_STATS') {
+      const stats = getDashboardStats(db);
+      const statsText = [
+        '📊 *আজকের লেজার সারসংক্ষেপ (Ledger Summary)*',
+        `• মোট বকেয়া: ৳ ${toBengaliDigits(stats.totalDue)} (${toBengaliDigits(stats.debtorsCount)} জন গ্রাহক)`,
+        `• আজকের নতুন বিল: ৳ ${toBengaliDigits(stats.todayBilled)}`,
+        `• আজকের আদায়: ৳ ${toBengaliDigits(stats.todayCollected)}`,
+        '─────────────────────',
+        `বিস্তারিত দেখতে মোবাইল ড্যাশবোর্ড ভিজিট করুন: http://localhost:3000`
+      ].join('\n');
+
+      await sendSelfReply(statsText);
+      return { action: 'RESPONDED_STATS', details: stats };
+    }
+
+    // 5. Video Command
+    if (parsed && parsed.type === 'COMMAND_VIDEO') {
+      if (parsed.subAction === 'add') {
+        if (!parsed.phone) {
+          await sendSelfReply('❌ সঠিক ফরম্যাট: video add <ফোন_নম্বর> [নোট]\nউদাহরণ: video add 017XXXXXXXX Daily Sports Video');
+          return { action: 'ERROR_VIDEO_COMMAND_MISSING_PHONE' };
+        }
+        const record = addVideoCustomer(db, parsed.phone, parsed.note);
+        await sendSelfReply(`✅ +${parsed.phone} কে ভিডিও গ্রাহক হিসেবে সংরক্ষণ করা হয়েছে।${parsed.note ? `\nনোট: ${parsed.note}` : ''}`);
+        return { action: 'ADDED_VIDEO_CUSTOMER', details: { phone: parsed.phone, note: parsed.note } };
+      }
+
+      if (parsed.subAction === 'remove') {
+        if (!parsed.phone) {
+          await sendSelfReply('❌ সঠিক ফরম্যাট: video remove <ফোন_নম্বর>\nউদাহরণ: video remove 017XXXXXXXX');
+          return { action: 'ERROR_VIDEO_COMMAND_MISSING_PHONE' };
+        }
+        const resDel = removeVideoCustomer(db, parsed.phone);
+        if (resDel.deleted) {
+          await sendSelfReply(`✅ +${parsed.phone} কে ভিডিও গ্রাহক তালিকা থেকে মুছে ফেলা হয়েছে।`);
+        } else {
+          await sendSelfReply(`ℹ️ +${parsed.phone} ভিডিও গ্রাহক তালিকায় পাওয়া যায়নি।`);
+        }
+        return { action: 'REMOVED_VIDEO_CUSTOMER', details: { phone: parsed.phone, deleted: resDel.deleted } };
+      }
+
+      // Default: list
+      const list = getVideoCustomers(db);
+      let replyText = '📹 *ভিডিও গ্রাহক তালিকা (Video Customers):*\n';
+      if (!list || list.length === 0) {
+        replyText += 'বর্তমানে কোনো ভিডিও গ্রাহক তালিকাভুক্ত নেই।\nযোগ করতে লিখুন: video add <ফোন_নম্বর> [নোট]';
+      } else {
+        list.forEach((c, idx) => {
+          replyText += `${toBengaliDigits(idx + 1)}. +${c.phone_number}${c.note ? ` (${c.note})` : ''}\n`;
+        });
+      }
+      await sendSelfReply(replyText.trim());
+      return { action: 'LISTED_VIDEO_CUSTOMERS', details: { count: list.length } };
+    }
+
+    // 6. User sent bill / payment / set due in self-chat
+    if (parsed && (parsed.type === 'BILL' || parsed.type === 'PAYMENT' || parsed.type === 'SET_DUE')) {
+      const guidance = 'ℹ️ বিল বা পেমেন্ট রেকর্ড করার জন্য সংশ্লিষ্ট গ্রাহকের চ্যাটে মেসেজটি পাঠান। সেলফ-চ্যাটে বকেয়া তালিকা দেখতে *due* লিখুন।';
+      await sendSelfReply(guidance);
+      return { action: 'RESPONDED_SELF_LEDGER_GUIDANCE' };
+    }
+
+    // 7. Any other text in self-chat -> Friendly help hint
+    const fallbackText = `ℹ️ কমান্ড বুঝতে পারিনি: "${msg.body}"\n\nউপলব্ধ কমান্ড তালিকা দেখতে *help* লিখুন অথবা বকেয়া তালিকা দেখতে *due* লিখুন।`;
+    await sendSelfReply(fallbackText);
+    return { action: 'RESPONDED_UNKNOWN_SELF_COMMAND', details: { text: msg.body } };
+  }
 
   if (!msg.fromMe && !isSelf) {
     const rawSender = msg.from || msg.id?.remote || '';
@@ -259,6 +564,30 @@ async function handleMessageCreate({
             contactName = contact?.name || contact?.pushname || null;
           }
         } catch {}
+
+        // Video customer check: If customer belongs to video category,
+        // NEVER ask them anything (no "শুধু ভয়েস?", no LLM classifier),
+        // and escalate directly to VE3 as Video Customer Message.
+        if (isVideoCustomer(db, phone)) {
+          cancelPendingConfirmation(phone);
+          recordExistingContact(db, { phone, name: contactName });
+          console.log(`[VIDEO_CUSTOMER] Inbound message from video customer +${phone}. Escalating directly to VE3.`);
+          const activeChat = await resolveChat(client, msg, rawSender, phone);
+          const dispatchRes = await activeDispatchFn({
+            client,
+            chat: activeChat,
+            classificationResult: {
+              classification: 'VIDEO_CUSTOMER',
+              confidence: 'HIGH',
+              extracted_script: msg.body || '',
+              reason: 'ভিডিও গ্রাহক—কোনো প্রশ্ন ছাড়াই সরাসরি VE3 তে ফরোয়ার্ড'
+            },
+            customerPhone: phone,
+            customerName: contactName,
+            latestMessageText: msg.body || ''
+          });
+          return dispatchRes;
+        }
 
         // Safeguard 1: If contact is saved in user's phone contacts (isMyContact === true),
         // they are an existing contact, NOT a new cold inbound lead!
@@ -309,24 +638,87 @@ async function handleMessageCreate({
 
         // For existing contacts or chats where welcome demo is NOT currently in-flight:
         if (activeClassifierFn) {
-          if (!chat && typeof msg.getChat === 'function') {
-            try {
-              chat = await msg.getChat();
-            } catch {}
+          if (!chat) {
+            chat = await resolveChat(client, msg, rawSender, phone);
           }
-          const history = chat && typeof chat.fetchMessages === 'function'
-            ? await chat.fetchMessages({ limit: 10 }).catch(() => [msg])
-            : [msg];
+          let history = [msg];
+          if (chat && typeof chat.fetchMessages === 'function') {
+            try {
+              const fetched = await chat.fetchMessages({ limit: 10 });
+              if (Array.isArray(fetched) && fetched.length > 0) {
+                history = fetched;
+              }
+            } catch (err) {
+              console.warn(`[CHAT] fetchMessages failed for +${phone}:`, err.message);
+            }
+          }
+          if (!Array.isArray(history) || history.length === 0) {
+            history = [msg];
+          } else if (msg.id?._serialized && !history.some(m => m.id?._serialized === msg.id?._serialized)) {
+            history.push(msg);
+          }
+          if (history.length > 10) {
+            history = history.slice(-10);
+          }
+
           const myUser = getMyUser(client);
-          const classificationResult = await activeClassifierFn({ messages: history, myUser });
-          return await activeDispatchFn({
+          const pending = getPendingConfirmation(phone);
+          const rawText = (msg.body || '').trim();
+
+          let classificationResult = null;
+
+          // FAST-PATH A: If bot previously asked "শুধু ভয়েস?" and customer replies affirmatively ("জি", "জী", "হ্যাঁ", etc.)
+          if (pending && pending.script && isAffirmativeConfirmation(rawText)) {
+            console.log(`[CLASSIFIER] Fast-path affirmative confirmation for +${phone} ("${rawText}") confirming pending script`);
+            classificationResult = {
+              classification: 'VOICE_JOB',
+              confidence: 'HIGH',
+              extracted_script: pending.script,
+              reason: `Customer affirmatively confirmed "${rawText}" to "শুধু ভয়েস?"`
+            };
+          } else if (pending && pending.script && isNegativeConfirmation(rawText)) {
+            // FAST-PATH B: If bot previously asked "শুধু ভয়েস?" and customer declines ("না", "no", etc.)
+            console.log(`[CLASSIFIER] Fast-path negative response for +${phone} ("${rawText}") declining voice`);
+            classificationResult = {
+              classification: 'ESCALATE',
+              confidence: 'HIGH',
+              extracted_script: pending.script,
+              reason: `Customer declined voice ("${rawText}") in response to "শুধু ভয়েস?"`
+            };
+          } else {
+            // Context injection: If pending script exists but fetched history is missing the prior question, inject it
+            if (pending && pending.script) {
+              const hasBotQuestion = history.some(m => (m.body || '').includes('শুধু ভয়েস'));
+              if (!hasBotQuestion) {
+                console.log(`[CLASSIFIER] Injecting pending script and "শুধু ভয়েস?" into history for +${phone}`);
+                history = [
+                  { fromMe: false, body: pending.script },
+                  { fromMe: true, body: 'শুধু ভয়েস? ' },
+                  ...history.filter(m => m.id?._serialized === msg.id?._serialized || m === msg)
+                ];
+              }
+            }
+
+            console.log(`[CLASSIFIER] Classifying ${history.length} messages for +${phone}. Latest: "${rawText.slice(0, 100)}"`);
+            classificationResult = await activeClassifierFn({ messages: history, myUser });
+          }
+
+          console.log(`[CLASSIFIER] Result for +${phone}:`, JSON.stringify(classificationResult));
+          const customerScriptMsgId = (pending && pending.customerScriptMsgId)
+            ? pending.customerScriptMsgId
+            : (msg.id?._serialized || msg.id?.id || null);
+
+          const dispatchRes = await activeDispatchFn({
             client,
             chat,
             classificationResult,
             customerPhone: phone,
             customerName: contactName,
-            latestMessageText: msg.body || ''
+            latestMessageText: msg.body || '',
+            db,
+            customerScriptMsgId
           });
+          return dispatchRes;
         }
       }
     } catch (err) {
@@ -339,6 +731,49 @@ async function handleMessageCreate({
   const recipient = msg.to || '';
   if (recipient.endsWith('@g.us') || msg.id?.remote?.endsWith('@g.us')) {
     return { action: 'IGNORED_GROUP' };
+  }
+
+  const cleanVa2 = String(config.VA2_PHONE || '8801307760509').replace(/\D/g, '');
+  const toUser = extractUser(msg.to);
+  const remoteUser = extractUser(msg.id?.remote);
+  let isVa2 = toUser === cleanVa2 || remoteUser === cleanVa2 ||
+    (recipient && recipient.replace(/\D/g, '').includes(cleanVa2)) ||
+    (msg.id?.remote && String(msg.id.remote).replace(/\D/g, '').includes(cleanVa2));
+
+  if (!isVa2 && (msg.to?.endsWith?.('@lid') || msg.id?.remote?.endsWith?.('@lid'))) {
+    try {
+      const resolved = await resolveCustomerPhone({ client, recipient: msg.to || msg.id?.remote, msg });
+      if (resolved === cleanVa2) {
+        isVa2 = true;
+      }
+    } catch {}
+  }
+
+  // Manual Outgoing Forward Tracking for VA2
+  if (msg.fromMe === true && isVa2) {
+    const isEchoOrSystem = isBotSystemMessage(msg.body) ||
+      (msg.id?._serialized && (sentAutoBillMsgIds.has(msg.id._serialized) || sentSelfBotMsgIds.has(msg.id._serialized))) ||
+      (msg.id?.id && (sentAutoBillMsgIds.has(msg.id.id) || sentSelfBotMsgIds.has(msg.id.id)));
+
+    if (msg.body && !isEchoOrSystem && db) {
+      const order = findVoiceJobOrderByScriptText(db, msg.body) || findLatestPendingVoiceJob(db);
+      if (order) {
+        const msgId = msg.id?._serialized || msg.id?.id || (typeof msg.id === 'string' ? msg.id : null);
+        if (!order.va2_forward_msg_id || order.va2_forward_msg_id === msgId) {
+          if (msgId) {
+            updateVoiceJobVa2ForwardMsgId(db, order.order_id, msgId);
+            console.log(`[VA2_FORWARD] Linked manual script message to order ${order.order_id}`);
+          }
+          return {
+            action: 'LINKED_MANUAL_VA2_FORWARD',
+            details: {
+              orderId: order.order_id,
+              va2ForwardMsgId: msgId
+            }
+          };
+        }
+      }
+    }
   }
 
   // Handle video document sent from our side
@@ -477,31 +912,6 @@ async function handleMessageCreate({
 
   if (!parsed) {
     return { action: 'IGNORED_UNMATCHED' };
-  }
-
-  // Handle self-chat command
-  if (isSelf && parsed.type === 'COMMAND_DUE') {
-    const dues = getDueList(db);
-    const report = formatDueReport(dues);
-    console.log(`[COMMAND_DUE] !due triggered in self-chat. Found ${dues.length} customer(s) with dues.`);
-
-    const targetChat = msg.id?.remote || msg.to || msg.from;
-    let sent = false;
-
-    if (client && typeof client.sendMessage === 'function' && targetChat) {
-      try {
-        await client.sendMessage(targetChat, report);
-        sent = true;
-      } catch (err) {
-        console.warn('client.sendMessage failed, falling back to msg.reply:', err.message);
-      }
-    }
-
-    if (!sent && typeof msg.reply === 'function') {
-      await msg.reply(report);
-    }
-
-    return { action: 'RESPONDED_DUE_LIST', details: { count: dues.length } };
   }
 
   // Handle customer transactions
@@ -716,6 +1126,27 @@ function setupBotHandlers({ client, db }) {
         try { heartbeatBotState(db); } catch {}
       }, 30000);
     } catch {}
+
+    // Pre-cache bot's own LID for instant self-chat detection
+    try {
+      if (client?.pupPage && typeof client.pupPage.evaluate === 'function') {
+        const myLidData = await client.pupPage.evaluate(() => {
+          try {
+            const lidWid = window.require('WAWebUserPrefsMeUser')?.getMaybeMeLidUser();
+            return lidWid ? lidWid._serialized : null;
+          } catch {
+            return null;
+          }
+        });
+        if (myLidData) {
+          client.myLid = myLidData;
+          client.myLidUser = extractUser(myLidData);
+          console.log(`[BOT] Bot self LID registered: ${client.myLid} (${client.myLidUser})`);
+        }
+      }
+    } catch (err) {
+      console.warn('[BOT] Failed registering bot self LID:', err.message);
+    }
 
     // Auto-migrate any existing LID customer records in the database to actual phone numbers
     try {

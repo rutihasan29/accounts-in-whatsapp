@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
-const { initDb, getDueList } = require('../src/db');
+const { initDb, getDueList, createVoiceJobOrder } = require('../src/db');
 const {
   formatDueReport,
   handleMessageCreate,
@@ -280,6 +280,168 @@ describe('Bot Message Router', () => {
     const res = await handleMessageCreate({ msg, client, db });
     assert.strictEqual(res.action, 'RESPONDED_DUE_LIST');
     assert.ok(sentMessage.includes('বর্তমানে কোনো গ্রাহকের বকেয়া নেই'));
+  });
+
+  it('replies with help menu when "help" or "menu" sent to self-chat', async () => {
+    const db = initDb(':memory:');
+    let sentMessage = '';
+    const client = {
+      info: { wid: { _serialized: '8801999999999@c.us', user: '8801999999999' } },
+      sendMessage: async (to, text) => {
+        sentMessage = text;
+      }
+    };
+    const msg = {
+      fromMe: true,
+      body: 'help',
+      to: '8801999999999@c.us',
+      id: { remote: '8801999999999@c.us' }
+    };
+
+    const res = await handleMessageCreate({ msg, client, db });
+    assert.strictEqual(res.action, 'RESPONDED_HELP');
+    assert.ok(sentMessage.includes('মুন্নিসফট বট সেলফ-চ্যাট কমান্ড'));
+    assert.ok(sentMessage.includes('due'));
+    assert.ok(sentMessage.includes('video'));
+  });
+
+  it('replies with bot status when "status" or "ping" sent to self-chat', async () => {
+    const db = initDb(':memory:');
+    const { recordBotState } = require('../src/db');
+    recordBotState(db, 'ONLINE');
+    let sentMessage = '';
+    const client = {
+      info: { wid: { _serialized: '8801999999999@c.us', user: '8801999999999' } },
+      sendMessage: async (to, text) => {
+        sentMessage = text;
+      }
+    };
+    const msg = {
+      fromMe: true,
+      body: 'ping',
+      to: '8801999999999@c.us',
+      id: { remote: '8801999999999@c.us' }
+    };
+
+    const res = await handleMessageCreate({ msg, client, db });
+    assert.strictEqual(res.action, 'RESPONDED_STATUS');
+    assert.ok(sentMessage.includes('মুন্নিসফট বট স্ট্যাটাস'));
+    assert.ok(sentMessage.includes('ONLINE'));
+  });
+
+  it('replies with stats summary when "stats" sent to self-chat', async () => {
+    const db = initDb(':memory:');
+    let sentMessage = '';
+    const client = {
+      info: { wid: { _serialized: '8801999999999@c.us', user: '8801999999999' } },
+      sendMessage: async (to, text) => {
+        sentMessage = text;
+      }
+    };
+    const msg = {
+      fromMe: true,
+      body: 'stats',
+      to: '8801999999999@c.us',
+      id: { remote: '8801999999999@c.us' }
+    };
+
+    const res = await handleMessageCreate({ msg, client, db });
+    assert.strictEqual(res.action, 'RESPONDED_STATS');
+    assert.ok(sentMessage.includes('আজকের লেজার সারসংক্ষেপ'));
+    assert.ok(sentMessage.includes('মোট বকেয়া'));
+  });
+
+  it('replies with command guidance when unrecognized message sent to self-chat', async () => {
+    const db = initDb(':memory:');
+    let sentMessage = '';
+    const client = {
+      info: { wid: { _serialized: '8801999999999@c.us', user: '8801999999999' } },
+      sendMessage: async (to, text) => {
+        sentMessage = text;
+      }
+    };
+    const msg = {
+      fromMe: true,
+      body: 'hello what can you do',
+      to: '8801999999999@c.us',
+      id: { remote: '8801999999999@c.us' }
+    };
+
+    const res = await handleMessageCreate({ msg, client, db });
+    assert.strictEqual(res.action, 'RESPONDED_UNKNOWN_SELF_COMMAND');
+    assert.ok(sentMessage.includes('কমান্ড বুঝতে পারিনি'));
+    assert.ok(sentMessage.includes('help'));
+  });
+
+  it('does not treat outgoing escalation message to VE3 as self-chat, even with LID remote and isMe contact', async () => {
+    const db = initDb(':memory:');
+    let sentMessage = '';
+    const client = {
+      myLid: '96950900789260@lid',
+      info: { wid: { _serialized: '8801340517587@c.us', user: '8801340517587' } },
+      sendMessage: async (to, text) => {
+        sentMessage = text;
+      }
+    };
+    const msgVe3 = {
+      fromMe: true,
+      to: '8801831366604@c.us',
+      from: '8801340517587@c.us',
+      id: { remote: '150414083264675@lid', _serialized: 'VE3_OUTBOUND_123' },
+      body: '[সহায়তা প্রয়োজন / Customer Escalation]\nগ্রাহক: +120363229586789471 (Dhaka Post)\nমেসেজ: https://www.dhakapost.com/sports/492316',
+      getContact: async () => ({ isMe: true })
+    };
+
+    const res = await handleMessageCreate({ msg: msgVe3, client, db });
+    assert.strictEqual(res.action, 'IGNORED_UNMATCHED');
+    assert.strictEqual(sentMessage, '');
+  });
+
+  it('ignores bot-generated system messages in self-chat to prevent echo loops', async () => {
+    const db = initDb(':memory:');
+    let sentMessage = '';
+    const client = {
+      myLid: '96950900789260@lid',
+      info: { wid: { _serialized: '8801340517587@c.us', user: '8801340517587' } },
+      sendMessage: async (to, text) => {
+        sentMessage = text;
+      }
+    };
+    const msgEcho = {
+      fromMe: true,
+      to: '96950900789260@lid',
+      id: { remote: '96950900789260@lid', _serialized: 'BOT_REPLY_123' },
+      body: 'ℹ️ কমান্ড বুঝতে পারিনি: "foo"\n\nউপলব্ধ কমান্ড তালিকা দেখতে *help* লিখুন'
+    };
+
+    const res = await handleMessageCreate({ msg: msgEcho, client, db });
+    assert.strictEqual(res.action, 'IGNORED_SELF_BOT_MESSAGE');
+    assert.strictEqual(sentMessage, '');
+  });
+
+  it('detects self-chat correctly when chat remote is an @lid JID matching client.myLid', async () => {
+    const db = initDb(':memory:');
+    let sentMessage = '';
+    let targetRecipient = '';
+    const client = {
+      myLid: '123456789012345@lid',
+      info: { wid: { _serialized: '8801999999999@c.us', user: '8801999999999' } },
+      sendMessage: async (to, text) => {
+        targetRecipient = to;
+        sentMessage = text;
+      }
+    };
+    const msg = {
+      fromMe: true,
+      body: 'due',
+      to: '123456789012345@lid',
+      id: { remote: '123456789012345@lid' }
+    };
+
+    const res = await handleMessageCreate({ msg, client, db });
+    assert.strictEqual(res.action, 'RESPONDED_DUE_LIST');
+    assert.ok(sentMessage.includes('বর্তমানে কোনো গ্রাহকের বকেয়া নেই'));
+    assert.strictEqual(targetRecipient, '123456789012345@lid');
   });
 
   it('strictly strips only trailing @c.us suffix from recipient JID', async () => {
@@ -956,6 +1118,98 @@ describe('Bot Message Router', () => {
       assert.strictEqual(summary.first_job_type, 'video');
       assert.ok(summary.first_contact_at);
       assert.ok(summary.first_job_delivered_at);
+    });
+
+    it('records customerScriptMsgId and va2ForwardMsgId in voice_job_orders when incoming customer voice script is processed', async () => {
+      const db = initDb(':memory:');
+      const sentMessages = [];
+      const mockClient = {
+        info: { wid: { user: '8801340517587' } },
+        getContactById: async () => ({ isMyContact: false, name: 'Customer Rahim' }),
+        sendMessage: async (jid, text) => {
+          sentMessages.push({ jid, text });
+          return { id: { _serialized: 'va2-auto-forward-msg-777' } };
+        }
+      };
+      const mockChat = {
+        id: { _serialized: '8801711223344@c.us' },
+        fetchMessages: async () => [
+          { fromMe: false, body: 'ভয়েস দেন: নতুন অফার চলছে দোকানে' }
+        ],
+        sendMessage: async (text) => {
+          sentMessages.push({ jid: 'customer', text });
+          return { id: { _serialized: 'ack-ok-id' } };
+        }
+      };
+      const mockMsg = {
+        id: { _serialized: 'cust-script-msg-456', id: 'cust-script-msg-456' },
+        fromMe: false,
+        from: '8801711223344@c.us',
+        to: '8801340517587@c.us',
+        body: 'ভয়েস দেন: নতুন অফার চলছে দোকানে',
+        getChat: async () => mockChat
+      };
+
+      const res = await handleMessageCreate({
+        msg: mockMsg,
+        client: mockClient,
+        db,
+        classifierFn: async () => ({
+          classification: 'VOICE_JOB',
+          extracted_script: 'নতুন অফার চলছে দোকানে'
+        })
+      });
+
+      assert.strictEqual(res?.action, 'VOICE_JOB_DISPATCHED');
+      assert.strictEqual(res?.details?.delivered, true);
+      assert.strictEqual(res?.details?.va2ForwardMsgId, 'va2-auto-forward-msg-777');
+
+      const orders = db.prepare('SELECT * FROM voice_job_orders WHERE customer_phone = ?').all('8801711223344');
+      assert.strictEqual(orders.length, 1);
+      const order = orders[0];
+      assert.strictEqual(order.customer_script_msg_id, 'cust-script-msg-456');
+      assert.strictEqual(order.va2_forward_msg_id, 'va2-auto-forward-msg-777');
+      assert.strictEqual(order.script_text, 'নতুন অফার চলছে দোকানে');
+      assert.strictEqual(order.status, 'PENDING_VA2');
+      db.close();
+    });
+
+    it('updates order va2_forward_msg_id when operator sends outgoing message to VA2 matching customer script', async () => {
+      const db = initDb(':memory:');
+      const order = createVoiceJobOrder(db, {
+        customerPhone: '8801799887766',
+        customerName: 'Pending Client',
+        customerScriptMsgId: 'inbound-cust-msg-001',
+        va2ForwardMsgId: null,
+        scriptText: 'স্পেশাল কাচ্চি বিরিয়ানি অফার মাত্র ৩৫০ টাকা'
+      });
+      assert.strictEqual(order.va2_forward_msg_id, null);
+
+      const mockClient = {
+        info: { wid: { user: '8801340517587' } },
+        getContactById: async () => ({ isMyContact: false, name: 'VA2 Staff' })
+      };
+
+      const operatorMsg = {
+        id: { _serialized: 'operator-manual-fwd-msg-888', id: 'operator-manual-fwd-msg-888' },
+        fromMe: true,
+        to: '8801307760509@c.us',
+        body: 'স্পেশাল কাচ্চি বিরিয়ানি অফার মাত্র ৩৫০ টাকা'
+      };
+
+      const res = await handleMessageCreate({
+        msg: operatorMsg,
+        client: mockClient,
+        db
+      });
+
+      assert.strictEqual(res?.action, 'LINKED_MANUAL_VA2_FORWARD');
+      assert.strictEqual(res?.details?.orderId, order.order_id);
+      assert.strictEqual(res?.details?.va2ForwardMsgId, 'operator-manual-fwd-msg-888');
+
+      const updatedOrder = db.prepare('SELECT * FROM voice_job_orders WHERE order_id = ?').get(order.order_id);
+      assert.strictEqual(updatedOrder.va2_forward_msg_id, 'operator-manual-fwd-msg-888');
+      db.close();
     });
   });
 });
