@@ -1280,5 +1280,281 @@ describe('Bot Message Router', () => {
       db.close();
     });
   });
+
+  describe('VA2 Audio Reply & Dual Delivery', () => {
+    function createWavBuffer(durationSeconds = 1) {
+      const sampleRate = 8000;
+      const numChannels = 1;
+      const bitsPerSample = 8;
+      const dataSize = Math.round(durationSeconds * sampleRate * numChannels * (bitsPerSample / 8));
+      const buffer = Buffer.alloc(44 + dataSize);
+
+      buffer.write('RIFF', 0);
+      buffer.writeUInt32LE(36 + dataSize, 4);
+      buffer.write('WAVE', 8);
+      buffer.write('fmt ', 12);
+      buffer.writeUInt32LE(16, 16);
+      buffer.writeUInt16LE(1, 20);
+      buffer.writeUInt16LE(numChannels, 22);
+      buffer.writeUInt32LE(sampleRate, 24);
+      buffer.writeUInt32LE(sampleRate * numChannels * (bitsPerSample / 8), 28);
+      buffer.writeUInt16LE(numChannels * (bitsPerSample / 8), 32);
+      buffer.writeUInt16LE(bitsPerSample, 34);
+      buffer.write('data', 36);
+      buffer.writeUInt32LE(dataSize, 40);
+
+      return buffer;
+    }
+
+    it('VA2 audio reply with Bengali filename forwards directly to customer quoting script message', async () => {
+      const db = initDb(':memory:');
+      const order = createVoiceJobOrder(db, {
+        customerPhone: '8801711223344',
+        customerName: 'Rahim',
+        customerScriptMsgId: 'cust-script-msg-101',
+        va2ForwardMsgId: 'va2-fwd-msg-202',
+        scriptText: 'নবাবপুর ফুড সিটির স্পেশাল কাচ্চি বিরিয়ানি',
+        headline: 'নবাবপুর ফুড সিটি'
+      });
+
+      const sentMessages = [];
+      const mockClient = {
+        info: { wid: { user: '8801340517587' } },
+        sendMessage: async (jid, content, options) => {
+          sentMessages.push({ jid, content, options });
+          return { id: { _serialized: 'sent-msg-bengali-direct-001' } };
+        }
+      };
+
+      const mediaPayload = {
+        data: Buffer.from('bengali-direct-audio-content').toString('base64'),
+        mimetype: 'audio/mp3',
+        filename: 'নবাবপুর ফুড সিটি.mp3'
+      };
+
+      const va2Msg = {
+        id: { _serialized: 'va2-audio-reply-303', id: 'va2-audio-reply-303' },
+        fromMe: false,
+        from: '8801307760509@c.us',
+        to: '8801340517587@c.us',
+        hasMedia: true,
+        type: 'document',
+        filename: 'নবাবপুর ফুড সিটি.mp3',
+        mimetype: 'audio/mp3',
+        hasQuotedMsg: true,
+        getQuotedMessage: async () => ({
+          id: { _serialized: 'va2-fwd-msg-202' }
+        }),
+        downloadMedia: async () => mediaPayload
+      };
+
+      const res = await handleMessageCreate({
+        msg: va2Msg,
+        client: mockClient,
+        db
+      });
+
+      assert.strictEqual(res.action, 'DELIVERED_VA2_AUDIO_DIRECT');
+      assert.strictEqual(res.details.orderId, order.order_id);
+      assert.strictEqual(res.details.customerPhone, '8801711223344');
+      assert.strictEqual(res.details.filename, 'নবাবপুর ফুড সিটি.mp3');
+
+      // Check forwarded directly to customer quoting customer_script_msg_id
+      assert.strictEqual(sentMessages.length, 1);
+      assert.strictEqual(sentMessages[0].jid, '8801711223344@c.us');
+      assert.strictEqual(sentMessages[0].options.quotedMessageId, 'cust-script-msg-101');
+      assert.strictEqual(sentMessages[0].options.sendMediaAsDocument, true);
+      assert.strictEqual(sentMessages[0].content.filename, 'নবাবপুর ফুড সিটি.mp3');
+
+      // Verify DB update
+      const updatedOrder = db.prepare('SELECT * FROM voice_job_orders WHERE order_id = ?').get(order.order_id);
+      assert.strictEqual(updatedOrder.status, 'DELIVERED');
+      assert.strictEqual(updatedOrder.va2_audio_msg_id, 'va2-audio-reply-303');
+      assert.strictEqual(updatedOrder.va2_audio_filename, 'নবাবপুর ফুড সিটি.mp3');
+      assert.strictEqual(updatedOrder.final_audio_filename, 'নবাবপুর ফুড সিটি.mp3');
+      assert.strictEqual(updatedOrder.aircheck_model_used, 'DIRECT_FORWARD');
+      assert.ok(updatedOrder.delivered_at);
+      db.close();
+    });
+
+    it('VA2 audio reply with English filename runs AirCheck, renames with headline + duration, and delivers quoted reply to both customer and VA2', async () => {
+      const db = initDb(':memory:');
+      const order = createVoiceJobOrder(db, {
+        customerPhone: '8801799887766',
+        customerName: 'Karim',
+        customerScriptMsgId: 'cust-script-msg-505',
+        va2ForwardMsgId: 'va2-fwd-msg-606',
+        scriptText: 'স্পেশাল কাচ্চি অফার',
+        headline: 'স্পেশাল কাচ্চি অফার'
+      });
+
+      const sentMessages = [];
+      const mockClient = {
+        info: { wid: { user: '8801340517587' } },
+        sendMessage: async (jid, content, options) => {
+          sentMessages.push({ jid, content, options });
+          return { id: { _serialized: `sent-${Date.now()}` } };
+        }
+      };
+
+      const wavBuffer = createWavBuffer(83); // 83 seconds -> 1m 23s
+      const va2Msg = {
+        id: { _serialized: 'va2-audio-reply-707', id: 'va2-audio-reply-707' },
+        fromMe: false,
+        from: '8801307760509@c.us',
+        to: '8801340517587@c.us',
+        hasMedia: true,
+        type: 'document',
+        filename: 'voice1.wav',
+        mimetype: 'audio/wav',
+        hasQuotedMsg: true,
+        getQuotedMessage: async () => ({
+          id: { _serialized: 'va2-fwd-msg-606' }
+        }),
+        downloadMedia: async () => ({
+          data: wavBuffer.toString('base64'),
+          mimetype: 'audio/wav',
+          filename: 'voice1.wav'
+        })
+      };
+
+      const res = await handleMessageCreate({
+        msg: va2Msg,
+        client: mockClient,
+        db,
+        cleanVoiceoverAudioFn: async ({ audioBuffer }) => ({
+          cleanBuffer: audioBuffer,
+          durationSeconds: 83,
+          cutsCount: 1,
+          modelUsed: 'gemini-3.8-flash',
+          cuts: [{ cutStartTime: 10, cutEndTime: 15 }]
+        })
+      });
+
+      assert.strictEqual(res.action, 'DELIVERED_VA2_AUDIO_AIRCHECK');
+      assert.strictEqual(res.details.orderId, order.order_id);
+      assert.strictEqual(res.details.customerPhone, '8801799887766');
+      assert.strictEqual(res.details.finalFilename, 'স্পেশাল কাচ্চি অফার (1m 23s).wav');
+      assert.strictEqual(res.details.durationSeconds, 83);
+      assert.strictEqual(res.details.cutsCount, 1);
+
+      // Check dual delivery
+      assert.strictEqual(sentMessages.length, 2);
+
+      // Delivery 1: To Customer quoting cust-script-msg-505
+      assert.strictEqual(sentMessages[0].jid, '8801799887766@c.us');
+      assert.strictEqual(sentMessages[0].options.quotedMessageId, 'cust-script-msg-505');
+      assert.strictEqual(sentMessages[0].options.sendMediaAsDocument, true);
+      assert.strictEqual(sentMessages[0].content.filename, 'স্পেশাল কাচ্চি অফার (1m 23s).wav');
+
+      // Delivery 2: To VA2 quoting va2-fwd-msg-606
+      assert.strictEqual(sentMessages[1].jid, '8801307760509@c.us');
+      assert.strictEqual(sentMessages[1].options.quotedMessageId, 'va2-fwd-msg-606');
+      assert.strictEqual(sentMessages[1].options.sendMediaAsDocument, true);
+      assert.strictEqual(sentMessages[1].content.filename, 'স্পেশাল কাচ্চি অফার (1m 23s).wav');
+
+      // Verify DB update
+      const updatedOrder = db.prepare('SELECT * FROM voice_job_orders WHERE order_id = ?').get(order.order_id);
+      assert.strictEqual(updatedOrder.status, 'DELIVERED');
+      assert.strictEqual(updatedOrder.va2_audio_msg_id, 'va2-audio-reply-707');
+      assert.strictEqual(updatedOrder.va2_audio_filename, 'voice1.wav');
+      assert.strictEqual(updatedOrder.final_audio_filename, 'স্পেশাল কাচ্চি অফার (1m 23s).wav');
+      assert.strictEqual(updatedOrder.clean_duration_seconds, 83);
+      assert.strictEqual(updatedOrder.cuts_applied_count, 1);
+      assert.strictEqual(updatedOrder.aircheck_model_used, 'gemini-3.8-flash');
+      assert.ok(updatedOrder.delivered_at);
+      db.close();
+    });
+
+    it('VA2 audio reply when no pending order exists is safely ignored', async () => {
+      const db = initDb(':memory:');
+      const sentMessages = [];
+      const mockClient = {
+        info: { wid: { user: '8801340517587' } },
+        sendMessage: async (jid, content, options) => {
+          sentMessages.push({ jid, content, options });
+          return { id: { _serialized: 'some-id' } };
+        }
+      };
+
+      const va2Msg = {
+        id: { _serialized: 'va2-audio-reply-unmatched', id: 'va2-audio-reply-unmatched' },
+        fromMe: false,
+        from: '8801307760509@c.us',
+        to: '8801340517587@c.us',
+        hasMedia: true,
+        type: 'audio',
+        mimetype: 'audio/mp3',
+        filename: 'unmatched.mp3',
+        downloadMedia: async () => ({
+          data: Buffer.from('unmatched-audio').toString('base64'),
+          mimetype: 'audio/mp3'
+        })
+      };
+
+      const res = await handleMessageCreate({
+        msg: va2Msg,
+        client: mockClient,
+        db
+      });
+
+      assert.strictEqual(res.action, 'IGNORED_VA2_AUDIO_NO_ORDER');
+      assert.strictEqual(sentMessages.length, 0);
+      db.close();
+    });
+
+    it('VA2 audio reply without quote falls back to latest pending voice job order', async () => {
+      const db = initDb(':memory:');
+      const order = createVoiceJobOrder(db, {
+        customerPhone: '8801811223344',
+        customerName: 'Pending Customer',
+        customerScriptMsgId: 'script-msg-888',
+        va2ForwardMsgId: 'va2-msg-999',
+        scriptText: 'নতুন মেগা সেল অফার',
+        headline: 'মেগা সেল অফার'
+      });
+
+      const sentMessages = [];
+      const mockClient = {
+        info: { wid: { user: '8801340517587' } },
+        sendMessage: async (jid, content, options) => {
+          sentMessages.push({ jid, content, options });
+          return { id: { _serialized: 'sent-fallback-fwd' } };
+        }
+      };
+
+      // Inbound audio from VA2 without any quoted message
+      const va2Msg = {
+        id: { _serialized: 'va2-unquoted-audio', id: 'va2-unquoted-audio' },
+        fromMe: false,
+        from: '8801307760509@c.us',
+        to: '8801340517587@c.us',
+        hasMedia: true,
+        type: 'document',
+        filename: 'মেগা সেল অফার.mp3',
+        mimetype: 'audio/mp3',
+        hasQuotedMsg: false,
+        downloadMedia: async () => ({
+          data: Buffer.from('audio-data').toString('base64'),
+          mimetype: 'audio/mp3',
+          filename: 'মেগা সেল অফার.mp3'
+        })
+      };
+
+      const res = await handleMessageCreate({
+        msg: va2Msg,
+        client: mockClient,
+        db
+      });
+
+      assert.strictEqual(res.action, 'DELIVERED_VA2_AUDIO_DIRECT');
+      assert.strictEqual(res.details.orderId, order.order_id);
+      assert.strictEqual(res.details.customerPhone, '8801811223344');
+      assert.strictEqual(sentMessages.length, 1);
+      assert.strictEqual(sentMessages[0].jid, '8801811223344@c.us');
+      assert.strictEqual(sentMessages[0].options.quotedMessageId, 'script-msg-888');
+      db.close();
+    });
+  });
 });
 

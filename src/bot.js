@@ -19,7 +19,9 @@ const {
   getDashboardStats,
   findVoiceJobOrderByScriptText,
   findLatestPendingVoiceJob,
-  updateVoiceJobVa2ForwardMsgId
+  findVoiceJobOrderByVa2MsgId,
+  updateVoiceJobVa2ForwardMsgId,
+  updateVoiceJobDelivered
 } = require('./db');
 const {
   isAudioDocumentMessage,
@@ -28,13 +30,32 @@ const {
   formatAudioDuration,
   calculateAudioBill,
   formatBillMessage,
-  resolveAudioDuration
+  resolveAudioDuration,
+  hasBengaliCharacters,
+  buildCleanVoiceFilename
 } = require('./audio');
+const { cleanVoiceoverAudio } = require('./aircheck');
 const { sendWelcomeDemo } = require('./welcome');
 const { syncExistingInboxContacts } = require('./sync');
 const { classifyChat, isAffirmativeConfirmation, isNegativeConfirmation } = require('./classifier');
 const { handleClassificationAction, cancelPendingConfirmation, getPendingConfirmation } = require('./dispatch');
 const qrcode = require('qrcode-terminal');
+
+let MessageMedia = null;
+try {
+  ({ MessageMedia } = require('whatsapp-web.js'));
+} catch {}
+
+function createMedia(mimetype, base64data, filename) {
+  if (MessageMedia) {
+    return new MessageMedia(mimetype, base64data, filename);
+  }
+  return {
+    mimetype,
+    data: base64data,
+    filename
+  };
+}
 
 // Track auto-sent bill messages to prevent duplicate ledger entries on message_create echo
 const sentAutoBillMsgIds = new Set();
@@ -94,6 +115,18 @@ function formatDueReport(dueList) {
 function extractUser(jid) {
   if (!jid || typeof jid !== 'string') return '';
   return jid.split('@')[0].split(':')[0].replace(/\D/g, '');
+}
+
+function isPhoneMatch(p1, p2) {
+  if (!p1 || !p2) return false;
+  const c1 = String(p1).replace(/\D/g, '');
+  const c2 = String(p2).replace(/\D/g, '');
+  if (c1 === c2) return true;
+  if (c1.startsWith('880') && c1.slice(2) === c2) return true;
+  if (c2.startsWith('880') && c2.slice(2) === c1) return true;
+  if (c1.length >= 10 && c2.endsWith(c1)) return true;
+  if (c2.length >= 10 && c1.endsWith(c2)) return true;
+  return false;
 }
 
 function getMyUser(client) {
@@ -335,7 +368,8 @@ async function handleMessageCreate({
   client,
   db,
   classifierFn = null,
-  dispatchFn = null
+  dispatchFn = null,
+  cleanVoiceoverAudioFn = null
 } = {}) {
   // Ignore echo of bot's own self-chat replies
   if (msg.id?._serialized && sentSelfBotMsgIds.has(msg.id._serialized)) {
@@ -551,6 +585,186 @@ async function handleMessageCreate({
     const rawSender = msg.from || msg.id?.remote || '';
     if (rawSender.endsWith('@g.us')) {
       return { action: 'IGNORED_GROUP' };
+    }
+
+    const cleanSender = String(msg.from || msg.id?.remote || '').split('@')[0].split(':')[0].replace(/\D/g, '');
+    const cleanVa2 = String(config.VA2_PHONE || '8801307760509').replace(/\D/g, '');
+    let isVa2 = isPhoneMatch(cleanSender, cleanVa2);
+
+    if (!isVa2 && (rawSender.endsWith('@lid') || msg.from?.endsWith?.('@lid') || msg.id?.remote?.endsWith?.('@lid'))) {
+      try {
+        const resolved = await resolveCustomerPhone({ client, recipient: rawSender, msg });
+        if (isPhoneMatch(resolved, cleanVa2)) {
+          isVa2 = true;
+        }
+      } catch {}
+    }
+
+    if (isVa2) {
+      const isAudio = isAudioDocumentMessage(msg) ||
+        msg.type === 'audio' ||
+        msg.mimetype?.startsWith('audio/') ||
+        (msg.hasMedia && msg.filename && /\.(wav|mp3|m4a|ogg|aac|flac)$/i.test(msg.filename));
+
+      if (isAudio) {
+        let quotedMsgId = null;
+        if (msg.hasQuotedMsg && typeof msg.getQuotedMessage === 'function') {
+          try {
+            const q = await msg.getQuotedMessage();
+            quotedMsgId = q?.id?._serialized || q?.id?.id || null;
+          } catch {}
+        }
+        if (!quotedMsgId && msg.quotedMsgId) {
+          quotedMsgId = msg.quotedMsgId;
+        }
+
+        const order = (quotedMsgId ? findVoiceJobOrderByVa2MsgId(db, quotedMsgId) : null)
+          || findLatestPendingVoiceJob(db);
+
+        if (!order) {
+          console.log('[VA2_AUDIO] Received audio from VA2 but no pending voice job order found.');
+          return { action: 'IGNORED_VA2_AUDIO_NO_ORDER' };
+        }
+
+        const rawFilename = msg.filename || msg.body || '';
+        const hasBengali = hasBengaliCharacters(rawFilename);
+
+        if (hasBengali) {
+          const media = typeof msg.downloadMedia === 'function' ? await msg.downloadMedia() : null;
+          if (media) {
+            const customerJid = `${order.customer_phone}@c.us`;
+            if (client && typeof client.sendMessage === 'function') {
+              try {
+                await client.sendMessage(customerJid, media, {
+                  quotedMessageId: order.customer_script_msg_id,
+                  sendMediaAsDocument: true
+                });
+              } catch (sendErr) {
+                console.warn('[VA2_AUDIO] Quoted send to customer failed, trying unquoted:', sendErr.message);
+                try {
+                  await client.sendMessage(customerJid, media, { sendMediaAsDocument: true });
+                } catch {}
+              }
+            }
+          }
+
+          const va2AudioMsgId = msg.id?._serialized || msg.id?.id || (typeof msg.id === 'string' ? msg.id : null);
+          updateVoiceJobDelivered(db, order.order_id, {
+            va2AudioMsgId,
+            va2AudioFilename: rawFilename,
+            finalAudioFilename: rawFilename,
+            cleanDuration: null,
+            cutsCount: 0,
+            modelUsed: 'DIRECT_FORWARD'
+          });
+
+          console.log(`[VA2_AUDIO] Directly forwarded Bengali-named audio ${rawFilename} to customer +${order.customer_phone}`);
+          return {
+            action: 'DELIVERED_VA2_AUDIO_DIRECT',
+            details: {
+              orderId: order.order_id,
+              customerPhone: order.customer_phone,
+              filename: rawFilename
+            }
+          };
+        } else {
+          const media = typeof msg.downloadMedia === 'function' ? await msg.downloadMedia() : null;
+          const audioBuffer = (media && media.data)
+            ? Buffer.from(media.data, 'base64')
+            : (Buffer.isBuffer(media) ? media : Buffer.alloc(0));
+
+          const activeCleanAudioFn = cleanVoiceoverAudioFn || cleanVoiceoverAudio;
+          const aircheckRes = await activeCleanAudioFn({
+            audioBuffer,
+            filename: rawFilename || 'recording.wav',
+            mimeType: media?.mimetype || 'audio/wav'
+          });
+
+          let ext = 'mp3';
+          if (rawFilename && rawFilename.includes('.')) {
+            ext = rawFilename.split('.').pop();
+          } else if (media?.mimetype?.includes('wav')) {
+            ext = 'wav';
+          } else if (media?.mimetype?.includes('mp3') || media?.mimetype?.includes('mpeg')) {
+            ext = 'mp3';
+          } else if (media?.mimetype?.includes('m4a')) {
+            ext = 'm4a';
+          } else if (media?.mimetype?.includes('ogg')) {
+            ext = 'ogg';
+          } else if (media?.mimetype?.includes('flac')) {
+            ext = 'flac';
+          } else if (media?.mimetype?.includes('aac')) {
+            ext = 'aac';
+          }
+
+          const finalFilename = buildCleanVoiceFilename({
+            headline: order.headline,
+            durationSeconds: aircheckRes.durationSeconds,
+            ext
+          });
+
+          const cleanBuf = aircheckRes.cleanBuffer || audioBuffer;
+          const cleanMedia = createMedia(
+            media?.mimetype || 'audio/mp3',
+            cleanBuf.toString('base64'),
+            finalFilename
+          );
+
+          const customerJid = `${order.customer_phone}@c.us`;
+          if (client && typeof client.sendMessage === 'function') {
+            try {
+              await client.sendMessage(customerJid, cleanMedia, {
+                quotedMessageId: order.customer_script_msg_id,
+                sendMediaAsDocument: true
+              });
+            } catch (custErr) {
+              console.warn('[VA2_AUDIO] Quoted send to customer failed, trying unquoted:', custErr.message);
+              try {
+                await client.sendMessage(customerJid, cleanMedia, { sendMediaAsDocument: true });
+              } catch {}
+            }
+          }
+
+          const va2Jid = `${cleanVa2}@c.us`;
+          if (client && typeof client.sendMessage === 'function') {
+            try {
+              await client.sendMessage(va2Jid, cleanMedia, {
+                quotedMessageId: order.va2_forward_msg_id,
+                sendMediaAsDocument: true
+              });
+            } catch (va2Err) {
+              console.warn('[VA2_AUDIO] Quoted send to VA2 failed, trying unquoted:', va2Err.message);
+              try {
+                await client.sendMessage(va2Jid, cleanMedia, { sendMediaAsDocument: true });
+              } catch {}
+            }
+          }
+
+          const va2AudioMsgId = msg.id?._serialized || msg.id?.id || (typeof msg.id === 'string' ? msg.id : null);
+          updateVoiceJobDelivered(db, order.order_id, {
+            va2AudioMsgId,
+            va2AudioFilename: rawFilename,
+            finalAudioFilename: finalFilename,
+            cleanDuration: aircheckRes.durationSeconds,
+            cutsCount: aircheckRes.cutsCount,
+            modelUsed: aircheckRes.modelUsed
+          });
+
+          console.log(`[VA2_AUDIO] AirCheck processed ${rawFilename} -> ${finalFilename} (${aircheckRes.durationSeconds}s, ${aircheckRes.cutsCount} cuts). Delivered to customer +${order.customer_phone} and VA2.`);
+          return {
+            action: 'DELIVERED_VA2_AUDIO_AIRCHECK',
+            details: {
+              orderId: order.order_id,
+              customerPhone: order.customer_phone,
+              finalFilename,
+              durationSeconds: aircheckRes.durationSeconds,
+              cutsCount: aircheckRes.cutsCount
+            }
+          };
+        }
+      }
+
+      return { action: 'IGNORED_VA2_NON_AUDIO' };
     }
 
     try {
@@ -1239,5 +1453,7 @@ module.exports = {
   syncExistingInboxContacts,
   sentAutoBillMsgIds,
   pendingAutoBills,
-  isTestEnv
+  isTestEnv,
+  createMedia,
+  isPhoneMatch
 };
