@@ -181,6 +181,12 @@ function initDb(dbPath) {
       delivered_at DATETIME
     );
 
+    CREATE TABLE IF NOT EXISTS bot_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE INDEX IF NOT EXISTS idx_transactions_phone ON transactions(phone_number);
     CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type);
     CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
@@ -1159,6 +1165,94 @@ function getVoiceJobOrder(db, orderId) {
   return db.prepare('SELECT * FROM voice_job_orders WHERE order_id = ?').get(orderId) || null;
 }
 
+const DEFAULT_BOT_SETTINGS = Object.freeze({
+  aircheck_enabled: true,
+  ai_classifier_enabled: true,
+  welcome_demo_enabled: true,
+  auto_audio_billing_enabled: true,
+  video_customer_escalation_enabled: true,
+  ve3_escalation_enabled: true
+});
+
+function parseSettingValue(rawVal) {
+  if (rawVal === 'true' || rawVal === '1') return true;
+  if (rawVal === 'false' || rawVal === '0') return false;
+  try {
+    return JSON.parse(rawVal);
+  } catch (_) {
+    return rawVal;
+  }
+}
+
+function getBotSetting(db, key, defaultValue = null) {
+  if (!key || typeof key !== 'string') {
+    return defaultValue;
+  }
+  const cleanKey = key.trim();
+  if (!cleanKey) {
+    return defaultValue;
+  }
+  if (!db || typeof db.prepare !== 'function') {
+    return (cleanKey in DEFAULT_BOT_SETTINGS) ? DEFAULT_BOT_SETTINGS[cleanKey] : defaultValue;
+  }
+  try {
+    const row = db.prepare('SELECT value FROM bot_settings WHERE key = ?').get(cleanKey);
+    if (row && row.value !== undefined && row.value !== null) {
+      return parseSettingValue(row.value);
+    }
+  } catch (err) {
+    return (cleanKey in DEFAULT_BOT_SETTINGS) ? DEFAULT_BOT_SETTINGS[cleanKey] : defaultValue;
+  }
+  return (cleanKey in DEFAULT_BOT_SETTINGS) ? DEFAULT_BOT_SETTINGS[cleanKey] : defaultValue;
+}
+
+function setBotSetting(db, key, value) {
+  if (!db || typeof db.prepare !== 'function') {
+    return null;
+  }
+  if (!key || typeof key !== 'string') {
+    return null;
+  }
+  const cleanKey = key.trim();
+  if (!cleanKey) {
+    return null;
+  }
+  const strVal = (typeof value === 'object' && value !== null) ? JSON.stringify(value) : String(value);
+  try {
+    const stmt = db.prepare(`
+      INSERT INTO bot_settings (key, value, updated_at)
+      VALUES (?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+    `);
+    stmt.run(cleanKey, strVal);
+    return {
+      key: cleanKey,
+      value: getBotSetting(db, cleanKey)
+    };
+  } catch (err) {
+    return null;
+  }
+}
+
+function getAllBotSettings(db, defaults = DEFAULT_BOT_SETTINGS) {
+  const baseDefaults = (defaults && typeof defaults === 'object') ? defaults : DEFAULT_BOT_SETTINGS;
+  const settings = { ...baseDefaults };
+  if (!db || typeof db.prepare !== 'function') {
+    return settings;
+  }
+  try {
+    const rows = db.prepare('SELECT key, value FROM bot_settings').all();
+    for (const row of rows) {
+      if (row && row.key) {
+        settings[row.key] = parseSettingValue(row.value);
+      }
+    }
+  } catch (err) {
+    return settings;
+  }
+  return settings;
+}
+
 module.exports = {
   initDb,
   recordTransaction,
@@ -1193,5 +1287,9 @@ module.exports = {
   findLatestPendingVoiceJob,
   updateVoiceJobVa2ForwardMsgId,
   updateVoiceJobDelivered,
-  getVoiceJobOrder
+  getVoiceJobOrder,
+  DEFAULT_BOT_SETTINGS,
+  getBotSetting,
+  setBotSetting,
+  getAllBotSettings
 };

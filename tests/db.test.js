@@ -29,7 +29,11 @@ const {
   findLatestPendingVoiceJob,
   updateVoiceJobVa2ForwardMsgId,
   updateVoiceJobDelivered,
-  getVoiceJobOrder
+  getVoiceJobOrder,
+  DEFAULT_BOT_SETTINGS,
+  getBotSetting,
+  setBotSetting,
+  getAllBotSettings
 } = require('../src/db');
 
 describe('Database Module', () => {
@@ -784,6 +788,117 @@ describe('Database Module', () => {
       // Non-existent order returns updated: false
       const failedRes = updateVoiceJobDelivered(db, 'NON_EXISTENT_ORDER_ID', { cleanDuration: 10 });
       assert.strictEqual(failedRes.updated, false);
+    });
+  });
+
+  describe('Bot Settings Module', () => {
+    it('returns default settings when database is freshly initialized', () => {
+      assert.strictEqual(getBotSetting(db, 'aircheck_enabled'), true);
+      assert.strictEqual(getBotSetting(db, 'ai_classifier_enabled'), true);
+      assert.strictEqual(getBotSetting(db, 'welcome_demo_enabled'), true);
+      assert.strictEqual(getBotSetting(db, 'auto_audio_billing_enabled'), true);
+      assert.strictEqual(getBotSetting(db, 'video_customer_escalation_enabled'), true);
+      assert.strictEqual(getBotSetting(db, 've3_escalation_enabled'), true);
+
+      const all = getAllBotSettings(db);
+      assert.deepStrictEqual(all, DEFAULT_BOT_SETTINGS);
+    });
+
+    it('sets and updates boolean settings (true -> false -> true)', () => {
+      // Initially true
+      assert.strictEqual(getBotSetting(db, 'aircheck_enabled'), true);
+
+      // Set to false
+      const resFalse = setBotSetting(db, 'aircheck_enabled', false);
+      assert.deepStrictEqual(resFalse, { key: 'aircheck_enabled', value: false });
+      assert.strictEqual(getBotSetting(db, 'aircheck_enabled'), false);
+
+      // Set back to true
+      const resTrue = setBotSetting(db, 'aircheck_enabled', true);
+      assert.deepStrictEqual(resTrue, { key: 'aircheck_enabled', value: true });
+      assert.strictEqual(getBotSetting(db, 'aircheck_enabled'), true);
+
+      // Also verify setting with '0' and '1' string/number or 'false'/'true' strings
+      setBotSetting(db, 'aircheck_enabled', '0');
+      assert.strictEqual(getBotSetting(db, 'aircheck_enabled'), false);
+
+      setBotSetting(db, 'aircheck_enabled', '1');
+      assert.strictEqual(getBotSetting(db, 'aircheck_enabled'), true);
+    });
+
+    it('supports custom string/numeric settings', () => {
+      const resStr = setBotSetting(db, 'custom_voice_model', 'gemini-2.5-pro');
+      assert.deepStrictEqual(resStr, { key: 'custom_voice_model', value: 'gemini-2.5-pro' });
+      assert.strictEqual(getBotSetting(db, 'custom_voice_model'), 'gemini-2.5-pro');
+
+      const resNum = setBotSetting(db, 'max_daily_budget', 5000);
+      assert.deepStrictEqual(resNum, { key: 'max_daily_budget', value: 5000 });
+      assert.strictEqual(getBotSetting(db, 'max_daily_budget'), 5000);
+
+      const resObj = setBotSetting(db, 'feature_flags', { experimental_mode: true, timeout_ms: 1500 });
+      assert.deepStrictEqual(resObj.value, { experimental_mode: true, timeout_ms: 1500 });
+      assert.deepStrictEqual(getBotSetting(db, 'feature_flags'), { experimental_mode: true, timeout_ms: 1500 });
+    });
+
+    it('getAllBotSettings returns merged object with all default keys and overridden values', () => {
+      setBotSetting(db, 'aircheck_enabled', false);
+      setBotSetting(db, 'auto_audio_billing_enabled', false);
+      setBotSetting(db, 'custom_extra_param', 'custom_value');
+
+      const all = getAllBotSettings(db);
+      assert.strictEqual(all.aircheck_enabled, false);
+      assert.strictEqual(all.auto_audio_billing_enabled, false);
+      assert.strictEqual(all.ai_classifier_enabled, true); // untouched default
+      assert.strictEqual(all.welcome_demo_enabled, true); // untouched default
+      assert.strictEqual(all.video_customer_escalation_enabled, true); // untouched default
+      assert.strictEqual(all.ve3_escalation_enabled, true); // untouched default
+      assert.strictEqual(all.custom_extra_param, 'custom_value');
+
+      // Test with custom defaults override
+      const customMerged = getAllBotSettings(db, { default_alpha: 99, aircheck_enabled: true });
+      assert.strictEqual(customMerged.aircheck_enabled, false); // overridden by db
+      assert.strictEqual(customMerged.default_alpha, 99);
+      assert.strictEqual(customMerged.custom_extra_param, 'custom_value');
+    });
+
+    it('handles nonexistent keys with provided default fallback', () => {
+      assert.strictEqual(getBotSetting(db, 'non_existent_key'), null);
+      assert.strictEqual(getBotSetting(db, 'non_existent_key', 'my_fallback'), 'my_fallback');
+      assert.strictEqual(getBotSetting(db, 'non_existent_key', false), false);
+      assert.strictEqual(getBotSetting(db, 'non_existent_key', 42), 42);
+    });
+
+    it('safe against invalid input or null db gracefully', () => {
+      // Null / invalid db in getBotSetting
+      assert.strictEqual(getBotSetting(null, 'aircheck_enabled'), true);
+      assert.strictEqual(getBotSetting(null, 'non_existent_key', 'fallback'), 'fallback');
+      assert.strictEqual(getBotSetting(undefined, 'aircheck_enabled'), true);
+
+      // Invalid keys in getBotSetting
+      assert.strictEqual(getBotSetting(db, null), null);
+      assert.strictEqual(getBotSetting(db, null, 'def'), 'def');
+      assert.strictEqual(getBotSetting(db, ''), null);
+      assert.strictEqual(getBotSetting(db, '   '), null);
+      assert.strictEqual(getBotSetting(db, 12345), null);
+
+      // Null / invalid db in setBotSetting
+      assert.strictEqual(setBotSetting(null, 'aircheck_enabled', false), null);
+      assert.strictEqual(setBotSetting(undefined, 'aircheck_enabled', false), null);
+
+      // Invalid keys in setBotSetting
+      assert.strictEqual(setBotSetting(db, null, true), null);
+      assert.strictEqual(setBotSetting(db, '', true), null);
+      assert.strictEqual(setBotSetting(db, '   ', true), null);
+      assert.strictEqual(setBotSetting(db, 12345, true), null);
+
+      // Null / invalid db in getAllBotSettings
+      const nullDbSettings = getAllBotSettings(null);
+      assert.deepStrictEqual(nullDbSettings, DEFAULT_BOT_SETTINGS);
+
+      // Key trimming works
+      setBotSetting(db, '  aircheck_enabled  ', false);
+      assert.strictEqual(getBotSetting(db, 'aircheck_enabled'), false);
+      assert.strictEqual(getBotSetting(db, '  aircheck_enabled  '), false);
     });
   });
 });
