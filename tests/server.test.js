@@ -353,5 +353,39 @@ describe('Web Server & Frontend Endpoints', () => {
       assert.strictEqual(initialData.botSettings.aircheck_enabled, false);
       assert.strictEqual(initialData.botSettings.auto_audio_billing_enabled, false);
     });
+
+    it('GET / serves HTML with bot feature controls tab, toggles panel, and all 6 switches & badges', async () => {
+      const res = await makeRequest(`${baseUrl}/`);
+      assert.strictEqual(res.statusCode, 200);
+
+      // Verify Tab Button
+      assert.ok(res.body.includes('data-tab="toggles"'), 'Missing toggles tab button');
+      assert.ok(res.body.includes('⚙️ ফিচার কন্ট্রোল'), 'Missing toggles tab label');
+
+      // Verify Toggles Panel & Toast
+      assert.ok(res.body.includes('id="toggles-panel"'), 'Missing toggles panel');
+      assert.ok(res.body.includes('id="toggle-toast"'), 'Missing toggle toast');
+
+      // Verify 6 Feature Toggles & Badges
+      const keys = [
+        'aircheck_enabled',
+        'ai_classifier_enabled',
+        'welcome_demo_enabled',
+        'auto_audio_billing_enabled',
+        'video_customer_escalation_enabled',
+        've3_escalation_enabled'
+      ];
+
+      for (const k of keys) {
+        assert.ok(res.body.includes(`id="toggle-${k}"`), `Missing toggle input for ${k}`);
+        assert.ok(res.body.includes(`id="badge-${k}"`), `Missing badge for ${k}`);
+        assert.ok(res.body.includes(`data-key="${k}"`), `Missing data-key for ${k}`);
+        assert.ok(res.body.includes(`onToggleChange('${k}', this.checked)`), `Missing onchange handler for ${k}`);
+      }
+
+      // Verify JS functions present
+      assert.ok(res.body.includes('function renderBotToggles'), 'Missing renderBotToggles function');
+      assert.ok(res.body.includes('async function onToggleChange'), 'Missing onToggleChange function');
+    });
   });
 });

@@ -780,6 +780,294 @@
       }
     }
 
+    /* Bot Uptime & Status Box */
+    .bot-uptime-box {
+      border: 1.5px solid var(--border);
+      padding: 8px 10px;
+      margin-bottom: 12px;
+      background: #FAFAFA;
+      font-size: 12px;
+    }
+    .bot-uptime-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .bot-uptime-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 700;
+    }
+    .status-indicator-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+      background-color: #999;
+      flex-shrink: 0;
+    }
+    .status-indicator-dot.online {
+      background-color: #10B981;
+      box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+      animation: pulse-green 2s infinite;
+    }
+    .status-indicator-dot.offline {
+      background-color: #EF4444;
+      box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+    }
+    @keyframes pulse-green {
+      0% { transform: scale(0.95); opacity: 0.8; }
+      50% { transform: scale(1.15); opacity: 1; }
+      100% { transform: scale(0.95); opacity: 0.8; }
+    }
+    .bot-uptime-since {
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: normal;
+    }
+    .bot-uptime-kpis {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .uptime-badge {
+      font-size: 11px;
+      padding: 2px 6px;
+      background: #E5E7EB;
+      border-radius: 3px;
+      font-weight: 600;
+    }
+    .uptime-toggle-btn {
+      background: #FFFFFF;
+      border: 1px solid var(--border);
+      padding: 2px 8px;
+      font-family: inherit;
+      font-size: 11px;
+      cursor: pointer;
+      font-weight: 600;
+      border-radius: 3px;
+    }
+    .uptime-toggle-btn:hover {
+      background: #F3F4F6;
+    }
+    .bot-uptime-details {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px dashed var(--border);
+    }
+    .uptime-summary-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      font-size: 11.5px;
+      color: #374151;
+      background: #F3F4F6;
+      padding: 4px 8px;
+      border-radius: 3px;
+    }
+    .uptime-table-wrapper {
+      max-height: 220px;
+      overflow-y: auto;
+    }
+    .uptime-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+      text-align: left;
+    }
+    .uptime-table th {
+      background: #E5E7EB;
+      padding: 4px 6px;
+      border: 1px solid #D1D5DB;
+      font-weight: 700;
+    }
+    .uptime-table td {
+      padding: 4px 6px;
+      border: 1px solid #E5E7EB;
+    }
+    .uptime-status-tag {
+      display: inline-block;
+      padding: 1px 5px;
+      border-radius: 2px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+    .uptime-status-tag.online {
+      background: #D1FAE5;
+      color: #065F46;
+      border: 1px solid #A7F3D0;
+    }
+    .uptime-status-tag.offline {
+      background: #FEE2E2;
+      color: #991B1B;
+      border: 1px solid #FECACA;
+    }
+
+    /* -------------------------------------------------------------
+       BOT FEATURE CONTROLS & TOGGLES PANEL
+       ------------------------------------------------------------- */
+    .toggles-panel {
+      border: 1px solid var(--border);
+      padding: 12px;
+      margin-bottom: 14px;
+      background: #FFFFFF;
+    }
+
+    .toggles-header {
+      border-bottom: 2px solid var(--border);
+      padding-bottom: 8px;
+      margin-bottom: 12px;
+    }
+
+    .toggles-header h2 {
+      font-size: 13px;
+      font-weight: 900;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      line-height: 1.4;
+    }
+
+    .toggles-header .sub {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 4px;
+      line-height: 1.4;
+    }
+
+    .toggle-toast {
+      padding: 7px 12px;
+      margin-bottom: 12px;
+      border: 1px solid var(--border);
+      background: var(--paper-gray);
+      font-size: 12px;
+      font-weight: bold;
+      text-align: center;
+      transition: opacity 0.2s ease;
+    }
+
+    .toggles-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .toggle-card {
+      border: 1px solid var(--border);
+      padding: 12px;
+      background: #FFFFFF;
+    }
+
+    .toggle-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 6px;
+    }
+
+    .toggle-card-title-group {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .toggle-card-title {
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--fg);
+    }
+
+    .toggle-badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: bold;
+      padding: 2px 6px;
+      border-radius: 2px;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+    }
+
+    .toggle-badge.badge-active {
+      background: #000000;
+      color: #FFFFFF;
+      border: 1px solid #000000;
+    }
+
+    .toggle-badge.badge-disabled {
+      background: #F3F4F6;
+      color: #4B5563;
+      border: 1px solid #D1D5DB;
+    }
+
+    .toggle-card-desc {
+      font-size: 11.5px;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    /* Pure CSS Switch (Paper / iOS hybrid, ~46px x 24px) */
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 46px;
+      height: 24px;
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+
+    .toggle-switch input.toggle-checkbox {
+      opacity: 0;
+      width: 0;
+      height: 0;
+      position: absolute;
+      margin: 0;
+    }
+
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #E5E7EB;
+      border: 1px solid var(--border);
+      transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 12px;
+    }
+
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 16px;
+      width: 16px;
+      left: 3px;
+      bottom: 3px;
+      background-color: #6B7280;
+      transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 50%;
+    }
+
+    .toggle-switch input.toggle-checkbox:checked + .toggle-slider {
+      background-color: #000000;
+    }
+
+    .toggle-switch input.toggle-checkbox:checked + .toggle-slider:before {
+      transform: translateX(22px);
+      background-color: #FFFFFF;
+    }
+
+    .toggle-switch input.toggle-checkbox:focus-visible + .toggle-slider {
+      outline: 2px solid #000000;
+      outline-offset: 2px;
+    }
+
     /* Print Styles: Exact physical official paper format */
     @media print {
       body {
@@ -787,7 +1075,7 @@
         background: #FFF !important;
         color: #000 !important;
       }
-      .controls, .btn, .modal-actions, .actions-grid {
+      .controls, .btn, .modal-actions, .actions-grid, .toggles-panel {
         display: none !important;
       }
       .modal-overlay {
@@ -818,6 +1106,44 @@
       <h1>NEWS VOICE &bull; লেজার খাতা</h1>
       <div class="sub">VOICE &amp; AUDIO DISPATCH LEDGER &bull; AUDIT SYSTEM</div>
       <div class="sub" id="clock-display" style="font-size: 11px; margin-top: 4px;">DATE: --</div>
+    </div>
+
+    <!-- Bot Online/Offline Status & Uptime Monitor -->
+    <div class="bot-uptime-box">
+      <div class="bot-uptime-header">
+        <div class="bot-uptime-status">
+          <span class="status-indicator-dot" id="bot-status-dot"></span>
+          <span class="bot-status-text" id="bot-status-text">বট স্ট্যাটাস: লোড হচ্ছে...</span>
+          <span class="bot-uptime-since" id="bot-uptime-since">(--)</span>
+        </div>
+        <div class="bot-uptime-kpis">
+          <span class="uptime-badge" id="bot-today-uptime">আজকের আপটাইম: --%</span>
+          <button class="uptime-toggle-btn" id="uptime-toggle-btn" onclick="toggleUptimeLogs()">📋 হিস্ট্রি লগ</button>
+        </div>
+      </div>
+
+      <div id="bot-uptime-details" class="bot-uptime-details" style="display: none;">
+        <div class="uptime-summary-row">
+          <div><small>আজ মোট অনলাইন:</small> <strong id="bot-today-online">--</strong></div>
+          <div><small>আজ মোট অফলাইন:</small> <strong id="bot-today-offline">--</strong></div>
+        </div>
+        <div class="uptime-table-wrapper">
+          <table class="uptime-table">
+            <thead>
+              <tr>
+                <th>অবস্থা</th>
+                <th>শুরু</th>
+                <th>শেষ</th>
+                <th>স্থায়িত্ব</th>
+                <th>কারণ</th>
+              </tr>
+            </thead>
+            <tbody id="uptime-logs-tbody">
+              <tr><td colspan="5" style="text-align:center;">লগ লোড হচ্ছে...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <!-- Business Performance KPI Matrix (Daily / Weekly / Monthly) -->
@@ -1153,12 +1479,127 @@
         <button class="tab-btn active" data-tab="due" onclick="setTab('due')">বকেয়া তালিকা (<span id="count-due">০</span>)</button>
         <button class="tab-btn" data-tab="all" onclick="setTab('all')">সকল ক্লায়েন্ট (<span id="count-all">০</span>)</button>
         <button class="tab-btn" data-tab="paid" onclick="setTab('paid')">পরিশোধিত</button>
+        <button class="tab-btn" data-tab="toggles" onclick="setTab('toggles')">⚙️ ফিচার কন্ট্রোল</button>
       </div>
     </div>
 
     <!-- Customer Ledger List -->
     <div id="customer-container" class="customer-list">
       <div class="empty-state">Loading ledger records...</div>
+    </div>
+
+    <!-- Bot Feature Controls Panel -->
+    <div id="toggles-panel" class="toggles-panel" style="display: none;">
+      <div class="toggles-header">
+        <h2>⚙️ বট অটোমেশন ও ফিচার কন্ট্রোল (BOT CAPABILITIES &amp; FEATURE TOGGLES)</h2>
+        <div class="sub">প্রতিটি ফিচারের সুইচ পরিবর্তন করার সাথে সাথে তা ডেটাবেজে সংরক্ষিত হয় এবং বট তৎক্ষণাৎ নতুন নিয়ম অনুযায়ী কাজ শুরু করে।</div>
+      </div>
+
+      <div id="toggle-toast" class="toggle-toast" style="display: none;"></div>
+
+      <div class="toggles-list">
+        <!-- 1. aircheck_enabled -->
+        <div class="toggle-card">
+          <div class="toggle-card-header">
+            <div class="toggle-card-title-group">
+              <span class="toggle-card-title">১. AirCheck অডিও রিটেক এডিটিং (AirCheck Voiceover Splicing)</span>
+              <span id="badge-aircheck_enabled" class="toggle-badge badge-active">সক্রিয় (ACTIVE)</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggle-aircheck_enabled" data-key="aircheck_enabled" class="toggle-checkbox" onchange="onToggleChange('aircheck_enabled', this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="toggle-card-desc">
+            VA2 থেকে আসা অডিও ফাইলে কোনো বাংলা শব্দ না থাকলে Gemini AI দিয়ে ভুল ও রিটেক শনাক্ত করে ffmpeg দিয়ে স্বয়ংক্রিয়ভাবে কাট-ছাঁট করে ক্লিন অডিও তৈরি করে। বন্ধ রাখলে কোনো কাট-ছাঁট ছাড়া অরিজিনাল ফাইল সরাসরি যাবে।
+          </div>
+        </div>
+
+        <!-- 2. ai_classifier_enabled -->
+        <div class="toggle-card">
+          <div class="toggle-card-header">
+            <div class="toggle-card-title-group">
+              <span class="toggle-card-title">২. AI স্ক্রিপ্ট ক্লাসিফায়ার ও অটো-ফরওয়ার্ড (AI Script Classifier)</span>
+              <span id="badge-ai_classifier_enabled" class="toggle-badge badge-active">সক্রিয় (ACTIVE)</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggle-ai_classifier_enabled" data-key="ai_classifier_enabled" class="toggle-checkbox" onchange="onToggleChange('ai_classifier_enabled', this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="toggle-card-desc">
+            ইনবাউন্ড কাস্টমার মেসেজ থেকে স্বয়ংক্রিয়ভাবে ভয়েসওভার স্ক্রিপ্ট শনাক্ত করে 'শুধু ভয়েস?' নিশ্চিতকরণ মেসেজ পাঠায় অথবা নিশ্চিত হলে স্বয়ংক্রিয়ভাবে VA2-কে পাঠায়। বন্ধ রাখলে কাস্টমার মেসেজ কোনো স্ক্রিপ্ট হিসেবে ফরওয়ার্ড হবে না।
+          </div>
+        </div>
+
+        <!-- 3. welcome_demo_enabled -->
+        <div class="toggle-card">
+          <div class="toggle-card-header">
+            <div class="toggle-card-title-group">
+              <span class="toggle-card-title">৩. স্বয়ংক্রিয় ওয়েলকাম ডেমো (Welcome Demo 7-Part Sequence)</span>
+              <span id="badge-welcome_demo_enabled" class="toggle-badge badge-active">সক্রিয় (ACTIVE)</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggle-welcome_demo_enabled" data-key="welcome_demo_enabled" class="toggle-checkbox" onchange="onToggleChange('welcome_demo_enabled', this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="toggle-card-desc">
+            নতুন কোনো নম্বর প্রথমবার ইনবক্সে মেসেজ পাঠালে স্বয়ংক্রিয়ভাবে ৭-ধাপের নিউজ ভয়েস ডেমো ও স্যাম্পল অডিও পাঠায়। বন্ধ রাখলে নতুন ক্লায়েন্ট রেকর্ড হবে কিন্তু কোনো ডেমো পাঠানো হবে না।
+          </div>
+        </div>
+
+        <!-- 4. auto_audio_billing_enabled -->
+        <div class="toggle-card">
+          <div class="toggle-card-header">
+            <div class="toggle-card-title-group">
+              <span class="toggle-card-title">৪. অডিও সেকেন্ড অনুযায়ী অটো-বিলিং (Auto Audio Duration Billing)</span>
+              <span id="badge-auto_audio_billing_enabled" class="toggle-badge badge-active">সক্রিয় (ACTIVE)</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggle-auto_audio_billing_enabled" data-key="auto_audio_billing_enabled" class="toggle-checkbox" onchange="onToggleChange('auto_audio_billing_enabled', this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="toggle-card-desc">
+            ক্লায়েন্টকে ভয়েস ফাইল পাঠানো হলে অডিওর সেকেন্ড মেপে অফিসিয়াল রেট অনুযায়ী স্বয়ংক্রিয়ভাবে বিল যোগ করে খতিয়ানে জমা করে। বন্ধ রাখলে কোনো অটো বিল যোগ হবে না।
+          </div>
+        </div>
+
+        <!-- 5. video_customer_escalation_enabled -->
+        <div class="toggle-card">
+          <div class="toggle-card-header">
+            <div class="toggle-card-title-group">
+              <span class="toggle-card-title">৫. ভিডিও গ্রাহক সরাসরি VE3 এসকেলেশন (Video Customer Direct Escalation)</span>
+              <span id="badge-video_customer_escalation_enabled" class="toggle-badge badge-active">সক্রিয় (ACTIVE)</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggle-video_customer_escalation_enabled" data-key="video_customer_escalation_enabled" class="toggle-checkbox" onchange="onToggleChange('video_customer_escalation_enabled', this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="toggle-card-desc">
+            ভিডিও গ্রাহক হিসেবে তালিকাভুক্ত ক্লায়েন্টদের কোনো প্রশ্ন না করে বা অপেক্ষা না করিয়ে সরাসরি VE3 এডিটরকে হোয়াটসঅ্যাপে অ্যালার্ট পাঠায়। বন্ধ রাখলে সাধারণ মেসেজ হিসেবে গণ্য হবে।
+          </div>
+        </div>
+
+        <!-- 6. ve3_escalation_enabled -->
+        <div class="toggle-card">
+          <div class="toggle-card-header">
+            <div class="toggle-card-title-group">
+              <span class="toggle-card-title">৬. VE3 সাধারণ অনুসন্ধান অ্যালার্ট (VE3 Inbound &amp; Inquiry Alerts)</span>
+              <span id="badge-ve3_escalation_enabled" class="toggle-badge badge-active">সক্রিয় (ACTIVE)</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggle-ve3_escalation_enabled" data-key="ve3_escalation_enabled" class="toggle-checkbox" onchange="onToggleChange('ve3_escalation_enabled', this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="toggle-card-desc">
+            স্ক্রিপ্ট বাদে অন্য যেকোনো সাধারণ প্রশ্ন, অনুসন্ধান বা আন-আনসার্ড স্ক্রিপ্ট থাকলে VE3 এডিটরকে হোয়াটসঅ্যাপে অ্যালার্ট পাঠায়। বন্ধ রাখলে VE3-কে কোনো অটো অ্যালার্ট পাঠানো হবে না।
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="divider-double"></div>
@@ -1308,6 +1749,16 @@
     let simBaselines = (window.__INITIAL_DATA__ && window.__INITIAL_DATA__.simBaselines) || null;
     let adSpendSummary = (window.__INITIAL_DATA__ && window.__INITIAL_DATA__.adSpendSummary) || null;
     let adSpendList = (window.__INITIAL_DATA__ && window.__INITIAL_DATA__.adSpendList) || [];
+    let botUptime = (window.__INITIAL_DATA__ && window.__INITIAL_DATA__.botUptime) || null;
+    let botSettings = Object.assign({
+      aircheck_enabled: true,
+      ai_classifier_enabled: true,
+      welcome_demo_enabled: true,
+      auto_audio_billing_enabled: true,
+      video_customer_escalation_enabled: true,
+      ve3_escalation_enabled: true
+    }, window.__INITIAL_DATA__?.botSettings || {});
+    let isUptimeLogsOpen = false;
     let currentTab = 'due';
     let currentPerfPeriod = 'daily';
     let currentFilterText = '';
@@ -1476,7 +1927,161 @@
       document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.tab === tab);
       });
-      renderCustomerList();
+
+      const searchBox = document.getElementById('search-box');
+      const custContainer = document.getElementById('customer-container');
+      const togglesPanel = document.getElementById('toggles-panel');
+
+      if (tab === 'toggles') {
+        if (searchBox) searchBox.style.display = 'none';
+        if (custContainer) custContainer.style.display = 'none';
+        if (togglesPanel) togglesPanel.style.display = 'block';
+        renderBotToggles();
+      } else {
+        if (searchBox) searchBox.style.display = 'block';
+        if (custContainer) custContainer.style.display = 'block';
+        if (togglesPanel) togglesPanel.style.display = 'none';
+        renderCustomerList();
+      }
+    }
+
+    /* -------------------------------------------------------------
+       BOT FEATURE CONTROLS & TOGGLES LOGIC
+       ------------------------------------------------------------- */
+    const BOT_FEATURE_KEYS = [
+      'aircheck_enabled',
+      'ai_classifier_enabled',
+      'welcome_demo_enabled',
+      'auto_audio_billing_enabled',
+      'video_customer_escalation_enabled',
+      've3_escalation_enabled'
+    ];
+
+    let toggleToastTimer = null;
+    function showToggleToast(text, isError = false) {
+      const toast = document.getElementById('toggle-toast');
+      if (!toast) return;
+      if (toggleToastTimer) {
+        clearTimeout(toggleToastTimer);
+        toggleToastTimer = null;
+      }
+      toast.innerText = text;
+      toast.style.display = 'block';
+      toast.style.opacity = '1';
+      if (isError) {
+        toast.style.borderColor = '#B91C1C';
+        toast.style.color = '#B91C1C';
+      } else {
+        toast.style.borderColor = 'var(--border)';
+        toast.style.color = 'var(--fg)';
+      }
+    }
+
+    function hideToggleToastAfter(delay = 2500) {
+      const toast = document.getElementById('toggle-toast');
+      if (!toast) return;
+      if (toggleToastTimer) clearTimeout(toggleToastTimer);
+      toggleToastTimer = setTimeout(() => {
+        toast.style.display = 'none';
+      }, delay);
+    }
+
+    function renderBotToggles() {
+      BOT_FEATURE_KEYS.forEach(key => {
+        const checkbox = document.getElementById('toggle-' + key);
+        if (checkbox) {
+          checkbox.checked = !!botSettings[key];
+        }
+        const badge = document.getElementById('badge-' + key);
+        if (badge) {
+          badge.classList.remove('badge-active', 'badge-disabled');
+          if (botSettings[key]) {
+            badge.classList.add('badge-active');
+            badge.innerText = 'সক্রিয় (ACTIVE)';
+          } else {
+            badge.classList.add('badge-disabled');
+            badge.innerText = 'নিষ্ক্রিয় (OFF)';
+          }
+        }
+      });
+    }
+
+    async function onToggleChange(key, isChecked) {
+      const prev = botSettings[key];
+      botSettings[key] = isChecked;
+
+      // Optimistically update badge
+      const badge = document.getElementById('badge-' + key);
+      if (badge) {
+        badge.classList.remove('badge-active', 'badge-disabled');
+        if (isChecked) {
+          badge.classList.add('badge-active');
+          badge.innerText = 'সক্রিয় (ACTIVE)';
+        } else {
+          badge.classList.add('badge-disabled');
+          badge.innerText = 'নিষ্ক্রিয় (OFF)';
+        }
+      }
+
+      showToggleToast('[ সেভ হচ্ছে... ]');
+
+      try {
+        const res = await fetch('/api/bot-settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key, value: isChecked })
+        });
+
+        if (!res.ok) {
+          throw new Error('HTTP ' + res.status);
+        }
+
+        const data = await res.json();
+        if (data.status !== 'ok' && !data.success) {
+          throw new Error(data.error || 'সংরক্ষণ ব্যর্থ হয়েছে');
+        }
+
+        if (data.settings && typeof data.settings[key] !== 'undefined') {
+          botSettings[key] = data.settings[key];
+        }
+
+        showToggleToast('[ পরিবর্তন সংরক্ষিত হয়েছে ]');
+        hideToggleToastAfter(2500);
+      } catch (err) {
+        console.error('Failed to update bot setting:', err);
+        // Rollback on failure
+        botSettings[key] = prev;
+        const checkbox = document.getElementById('toggle-' + key);
+        if (checkbox) checkbox.checked = !!prev;
+        if (badge) {
+          badge.classList.remove('badge-active', 'badge-disabled');
+          if (prev) {
+            badge.classList.add('badge-active');
+            badge.innerText = 'সক্রিয় (ACTIVE)';
+          } else {
+            badge.classList.add('badge-disabled');
+            badge.innerText = 'নিষ্ক্রিয় (OFF)';
+          }
+        }
+        showToggleToast('[ পরিবর্তন ব্যর্থ হয়েছে! পূর্বাবস্থায় ফিরিয়ে নেওয়া হলো ]', true);
+        hideToggleToastAfter(4000);
+        alert('ফিচার পরিবর্তন সংরক্ষণ করা যায়নি: ' + (err.message || 'Error'));
+      }
+    }
+
+    async function loadBotSettings() {
+      try {
+        const res = await fetch('/api/bot-settings');
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.settings) {
+            botSettings = Object.assign({}, botSettings, data.settings);
+            renderBotToggles();
+          }
+        }
+      } catch (e) {
+        // Non-fatal
+      }
     }
 
     function renderCustomerList() {
@@ -2122,6 +2727,119 @@
       }
     }
 
+    function formatDurationBangla(seconds) {
+      if (seconds === null || seconds === undefined || isNaN(seconds) || seconds < 0) return '০ সেকেন্ড';
+      const s = Math.floor(seconds);
+      const hrs = Math.floor(s / 3600);
+      const mins = Math.floor((s % 3600) / 60);
+      const secs = s % 60;
+
+      const parts = [];
+      if (hrs > 0) parts.push(toBengaliDigits(hrs) + ' ঘণ্টা');
+      if (mins > 0) parts.push(toBengaliDigits(mins) + ' মিনিট');
+      if (parts.length === 0 || (hrs === 0 && mins < 5)) parts.push(toBengaliDigits(secs) + ' সেকেন্ড');
+      return parts.join(' ');
+    }
+
+    function formatTimeAmPmBangla(dateStr) {
+      if (!dateStr) return '--';
+      try {
+        const d = new Date(dateStr.endsWith('Z') ? dateStr : dateStr + 'Z');
+        if (isNaN(d.getTime())) return dateStr;
+        const timeStr = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+        const datePart = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+        return toBengaliDigits(datePart + ', ' + timeStr);
+      } catch {
+        return dateStr;
+      }
+    }
+
+    function toggleUptimeLogs() {
+      isUptimeLogsOpen = !isUptimeLogsOpen;
+      const details = document.getElementById('bot-uptime-details');
+      const btn = document.getElementById('uptime-toggle-btn');
+      if (details) {
+        details.style.display = isUptimeLogsOpen ? 'block' : 'none';
+      }
+      if (btn) {
+        btn.innerText = isUptimeLogsOpen ? '▲ লুকান (HIDE)' : '📋 হিস্ট্রি লগ';
+      }
+    }
+
+    function renderBotUptime(data) {
+      if (!data) return;
+      botUptime = data;
+
+      const dot = document.getElementById('bot-status-dot');
+      const statusText = document.getElementById('bot-status-text');
+      const uptimeSince = document.getElementById('bot-uptime-since');
+      const todayUptime = document.getElementById('bot-today-uptime');
+      const todayOnline = document.getElementById('bot-today-online');
+      const todayOffline = document.getElementById('bot-today-offline');
+      const tbody = document.getElementById('uptime-logs-tbody');
+
+      const isOnline = data.currentStatus === 'ONLINE';
+
+      if (dot) {
+        dot.className = 'status-indicator-dot ' + (isOnline ? 'online' : 'offline');
+      }
+      if (statusText) {
+        statusText.innerHTML = isOnline
+          ? '<span style="color:#059669;">🟢 বট অনলাইন (ONLINE)</span>'
+          : '<span style="color:#DC2626;">🔴 বট অফলাইন (OFFLINE)</span>';
+      }
+      if (uptimeSince) {
+        uptimeSince.innerText = isOnline
+          ? '(চলমান: ' + formatDurationBangla(data.currentDurationSeconds || 0) + ')'
+          : '(বন্ধ আছে: ' + formatDurationBangla(data.currentDurationSeconds || 0) + ')';
+      }
+      if (todayUptime) {
+        todayUptime.innerText = 'আজকের আপটাইম: ' + toBengaliDigits(data.todayUptimePercent || 0) + '%';
+      }
+      if (todayOnline) {
+        todayOnline.innerText = formatDurationBangla(data.todayOnlineSeconds || 0);
+      }
+      if (todayOffline) {
+        todayOffline.innerText = formatDurationBangla(data.todayOfflineSeconds || 0);
+      }
+
+      if (tbody && Array.isArray(data.recentLogs)) {
+        if (data.recentLogs.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#888;">কোনো লগ পাওয়া যায়নি</td></tr>';
+        } else {
+          tbody.innerHTML = data.recentLogs.map((log) => {
+            const isLogOnline = log.status === 'ONLINE';
+            const tagClass = isLogOnline ? 'online' : 'offline';
+            const tagText = isLogOnline ? 'ONLINE' : 'OFFLINE';
+            const startFmt = formatTimeAmPmBangla(log.started_at);
+            const endFmt = log.ended_at ? formatTimeAmPmBangla(log.ended_at) : '<em style="color:#059669;font-weight:700;">চলছে (Now)</em>';
+            const durFmt = formatDurationBangla(log.duration_seconds || 0);
+            const reasonFmt = log.reason || '--';
+
+            return '<tr>' +
+              '<td><span class="uptime-status-tag ' + tagClass + '">' + tagText + '</span></td>' +
+              '<td>' + startFmt + '</td>' +
+              '<td>' + endFmt + '</td>' +
+              '<td><strong>' + durFmt + '</strong></td>' +
+              '<td style="color:#6B7280;"><small>' + reasonFmt + '</small></td>' +
+            '</tr>';
+          }).join('');
+        }
+      }
+    }
+
+    async function loadBotUptime() {
+      try {
+        const res = await fetch('/api/bot-status');
+        if (res.ok) {
+          const data = await res.json();
+          renderBotUptime(data);
+        }
+      } catch (err) {
+        // Non-fatal
+      }
+    }
+
     // Hydrate initial data if pre-rendered
     if (window.__INITIAL_DATA__) {
       if (window.__INITIAL_DATA__.stats) {
@@ -2136,7 +2854,15 @@
       if (window.__INITIAL_DATA__.adSpendSummary || window.__INITIAL_DATA__.adSpendList) {
         renderAdSpend(window.__INITIAL_DATA__.adSpendSummary, window.__INITIAL_DATA__.adSpendList);
       }
+      if (window.__INITIAL_DATA__.botUptime) {
+        renderBotUptime(window.__INITIAL_DATA__.botUptime);
+      }
+      if (window.__INITIAL_DATA__.botSettings) {
+        botSettings = Object.assign({}, botSettings, window.__INITIAL_DATA__.botSettings);
+      }
     }
+
+    renderBotToggles();
 
     initDateInputs();
     runTargetSimulation();
@@ -2147,10 +2873,32 @@
     loadCustomers();
     loadSimulationBaselines();
     loadAdSpend();
+    loadBotUptime();
+    loadBotSettings();
     setInterval(loadStats, 15000);
     setInterval(loadCustomers, 25000);
     setInterval(loadSimulationBaselines, 30000);
     setInterval(loadAdSpend, 30000);
+    setInterval(loadBotUptime, 10000);
+    setInterval(loadBotSettings, 30000);
+
+    // 1-second live ticker to keep current running uptime up-to-date
+    setInterval(() => {
+      if (botUptime && botUptime.currentDurationSeconds !== undefined) {
+        botUptime.currentDurationSeconds += 1;
+        if (botUptime.currentStatus === 'ONLINE') {
+          botUptime.todayOnlineSeconds = (botUptime.todayOnlineSeconds || 0) + 1;
+        } else {
+          botUptime.todayOfflineSeconds = (botUptime.todayOfflineSeconds || 0) + 1;
+        }
+        const uptimeSince = document.getElementById('bot-uptime-since');
+        if (uptimeSince) {
+          uptimeSince.innerText = botUptime.currentStatus === 'ONLINE'
+            ? '(চলমান: ' + formatDurationBangla(botUptime.currentDurationSeconds) + ')'
+            : '(বন্ধ আছে: ' + formatDurationBangla(botUptime.currentDurationSeconds) + ')';
+        }
+      }
+    }, 1000);
   </script>
 </body>
 </html>
