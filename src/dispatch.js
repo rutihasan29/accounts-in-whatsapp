@@ -1,5 +1,5 @@
 const config = require('./config');
-const { createVoiceJobOrder } = require('./db');
+const { createVoiceJobOrder, getBotSetting } = require('./db');
 const { extractHeadline } = require('./audio');
 
 const pendingConfirmations = new Map();
@@ -22,7 +22,8 @@ function schedulePendingConfirmation({
   customerName = '',
   script = '',
   customerScriptMsgId = null,
-  timeoutMs = config.SCRIPT_TIMEOUT_MS || 5 * 60 * 1000
+  timeoutMs = config.SCRIPT_TIMEOUT_MS || 5 * 60 * 1000,
+  db = null
 }) {
   const cleanPhone = String(customerPhone || '').replace(/\D/g, '');
   if (!cleanPhone) return null;
@@ -37,6 +38,12 @@ function schedulePendingConfirmation({
   const timer = setTimeout(async () => {
     if (!pendingConfirmations.has(cleanPhone)) return;
     pendingConfirmations.delete(cleanPhone);
+
+    const ve3Enabled = getBotSetting(db, 've3_escalation_enabled', true);
+    if (!ve3Enabled) {
+      console.log(`[DISPATCH] VE3 escalation alerts disabled via bot settings. Skipping timeout alert for +${cleanPhone}.`);
+      return;
+    }
 
     const alertMsg = `[অপেক্ষমান স্ক্রিপ্ট - উত্তর নেই / Unanswered Script Alert]\nগ্রাহক: +${cleanPhone}${namePart}\nস্ক্রিপ্ট:\n${script}\n\nঅবস্থা: গ্রাহককে 'শুধু ভয়েস?' জিজ্ঞেস করার ${timeoutMinutes} মিনিট পার হলেও কোনো উত্তর আসেনি।`;
 
@@ -191,7 +198,8 @@ async function handleClassificationAction({
       customerName,
       script: scriptBody,
       customerScriptMsgId,
-      timeoutMs
+      timeoutMs,
+      db
     });
 
     return {
@@ -239,6 +247,12 @@ async function handleClassificationAction({
   // Any message other than VOICE_JOB, SCRIPT_PENDING_CONFIRMATION, or VIDEO_CUSTOMER
   // is escalated to VE3 (voice affirmation is the only non-escalated path besides new script).
   cancelPendingConfirmation(cleanCustomerPhone);
+
+  const ve3Enabled = getBotSetting(db, 've3_escalation_enabled', true);
+  if (!ve3Enabled) {
+    console.log(`[DISPATCH] VE3 escalation alerts disabled via bot settings. Skipping alert for +${cleanCustomerPhone}.`);
+    return { action: 'ESCALATION_DISABLED' };
+  }
 
   const cleanVe3 = String(config.VE3_PHONE || '8801831366604').replace(/\D/g, '');
   const ve3Jid = `${cleanVe3}@c.us`;

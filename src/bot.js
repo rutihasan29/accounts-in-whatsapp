@@ -21,7 +21,8 @@ const {
   findLatestPendingVoiceJob,
   findVoiceJobOrderByVa2MsgId,
   updateVoiceJobVa2ForwardMsgId,
-  updateVoiceJobDelivered
+  updateVoiceJobDelivered,
+  getBotSetting
 } = require('./db');
 const {
   isAudioDocumentMessage,
@@ -673,12 +674,28 @@ async function handleMessageCreate({
             ? Buffer.from(media.data, 'base64')
             : (Buffer.isBuffer(media) ? media : Buffer.alloc(0));
 
-          const activeCleanAudioFn = cleanVoiceoverAudioFn || cleanVoiceoverAudio;
-          const aircheckRes = await activeCleanAudioFn({
-            audioBuffer,
-            filename: rawFilename || 'recording.wav',
-            mimeType: media?.mimetype || 'audio/wav'
-          });
+          const aircheckEnabled = getBotSetting(db, 'aircheck_enabled', true);
+          let aircheckRes;
+          if (!aircheckEnabled) {
+            console.log(`[AIRCHECK] AirCheck editing disabled via bot settings. Forwarding original audio directly to client.`);
+            let originalDuration = 0;
+            try {
+              originalDuration = (await getAudioDurationFromBuffer(audioBuffer, media?.mimetype, rawFilename)) || 0;
+            } catch {}
+            aircheckRes = {
+              cleanBuffer: audioBuffer,
+              durationSeconds: Math.round(originalDuration),
+              cutsCount: 0,
+              modelUsed: 'AIRCHECK_DISABLED'
+            };
+          } else {
+            const activeCleanAudioFn = cleanVoiceoverAudioFn || cleanVoiceoverAudio;
+            aircheckRes = await activeCleanAudioFn({
+              audioBuffer,
+              filename: rawFilename || 'recording.wav',
+              mimeType: media?.mimetype || 'audio/wav'
+            });
+          }
 
           let ext = 'mp3';
           if (rawFilename && rawFilename.includes('.')) {
@@ -782,7 +799,8 @@ async function handleMessageCreate({
         // Video customer check: If customer belongs to video category,
         // NEVER ask them anything (no "শুধু ভয়েস?", no LLM classifier),
         // and escalate directly to VE3 as Video Customer Message.
-        if (isVideoCustomer(db, phone)) {
+        const videoEscalationEnabled = getBotSetting(db, 'video_customer_escalation_enabled', true);
+        if (isVideoCustomer(db, phone) && videoEscalationEnabled) {
           cancelPendingConfirmation(phone);
           recordExistingContact(db, { phone, name: contactName });
           console.log(`[VIDEO_CUSTOMER] Inbound message from video customer +${phone}. Escalating directly to VE3.`);
@@ -798,7 +816,8 @@ async function handleMessageCreate({
             },
             customerPhone: phone,
             customerName: contactName,
-            latestMessageText: msg.body || ''
+            latestMessageText: msg.body || '',
+            db
           });
           return dispatchRes;
         }
@@ -836,7 +855,10 @@ async function handleMessageCreate({
           console.log(`[LEAD] New lead recorded: +${phone}${contactName ? ` (${contactName})` : ''}`);
           const targetChat = (phone ? `${phone}@c.us` : null) || msg.id?.remote || msg.from;
           let welcomeResult = null;
-          if (targetChat) {
+          const welcomeDemoEnabled = getBotSetting(db, 'welcome_demo_enabled', true);
+          if (!welcomeDemoEnabled) {
+            console.log(`[WELCOME_DEMO] Welcome demo disabled via bot settings. Skipping demo for +${phone}.`);
+          } else if (targetChat) {
             welcomeResult = await sendWelcomeDemo({
               client,
               targetChat,
@@ -911,6 +933,12 @@ async function handleMessageCreate({
                   ...history.filter(m => m.id?._serialized === msg.id?._serialized || m === msg)
                 ];
               }
+            }
+
+            const aiClassifierEnabled = getBotSetting(db, 'ai_classifier_enabled', true);
+            if (!aiClassifierEnabled) {
+              console.log(`[CLASSIFIER] AI classifier disabled via bot settings. Skipping classification for +${phone}.`);
+              return { action: 'CLASSIFIER_DISABLED' };
             }
 
             console.log(`[CLASSIFIER] Classifying ${history.length} messages for +${phone}. Latest: "${rawText.slice(0, 100)}"`);
@@ -1008,6 +1036,12 @@ async function handleMessageCreate({
   // Handle audio document sent from our side
   if (msg.fromMe && !isSelf && isAudioDocumentMessage(msg)) {
     try {
+      const autoBillingEnabled = getBotSetting(db, 'auto_audio_billing_enabled', true);
+      if (!autoBillingEnabled) {
+        console.log('[AUDIO_BILLING] Auto audio billing disabled via bot settings. Skipping billing.');
+        return { action: 'AUDIO_BILLING_DISABLED' };
+      }
+
       const duration = await resolveAudioDuration({ msg, client });
 
       if (duration !== null && duration !== undefined && duration >= 0) {
