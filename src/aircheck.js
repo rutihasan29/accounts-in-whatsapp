@@ -437,6 +437,8 @@ async function cleanVoiceoverAudio({
       durationSeconds: originalDuration,
       cutsCount: 0,
       modelUsed: 'fallback',
+      failed: true,
+      error: err.message,
       cuts: []
     };
   }
@@ -519,7 +521,9 @@ async function cleanVoiceoverAudio({
       cleanBuffer: buf,
       durationSeconds: originalDuration,
       cutsCount: 0,
-      modelUsed: analysis.modelUsed,
+      modelUsed: analysis.modelUsed || 'splice_fallback',
+      failed: true,
+      error: spliceErr.message,
       cuts: []
     };
   } finally {

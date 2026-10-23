@@ -45,7 +45,7 @@ function schedulePendingConfirmation({
       return;
     }
 
-    const alertMsg = `[অপেক্ষমান স্ক্রিপ্ট - উত্তর নেই / Unanswered Script Alert]\nগ্রাহক: +${cleanPhone}${namePart}\nস্ক্রিপ্ট:\n${script}\n\nঅবস্থা: গ্রাহককে 'শুধু ভয়েস?' জিজ্ঞেস করার ${timeoutMinutes} মিনিট পার হলেও কোনো উত্তর আসেনি।`;
+    const alertMsg = `[অপেক্ষমান স্ক্রিপ্ট - উত্তর নেই / Unanswered Script Alert]\nগ্রাহক: +${cleanPhone}${namePart}\nস্ক্রিপ্ট:\n${script}\n\nঅবস্থা: গ্রাহককে 'ভয়েস?' জিজ্ঞেস করার ${timeoutMinutes} মিনিট পার হলেও কোনো উত্তর আসেনি।`;
 
     if (client && typeof client.sendMessage === 'function') {
       try {
@@ -174,17 +174,17 @@ async function handleClassificationAction({
     let delivered = false;
     if (chat && typeof chat.sendMessage === 'function') {
       try {
-        await chat.sendMessage('শুধু ভয়েস? ');
+        await chat.sendMessage('ভয়েস?');
         delivered = true;
-        console.log(`[DISPATCH] Sent "শুধু ভয়েস? " to customer +${cleanCustomerPhone}`);
+        console.log(`[DISPATCH] Sent "ভয়েস?" to customer +${cleanCustomerPhone}`);
       } catch (err) {
         console.warn('[DISPATCH] Error sending confirmation question:', err.message);
       }
     } else if (customerJid && client && typeof client.sendMessage === 'function') {
       try {
-        await client.sendMessage(customerJid, 'শুধু ভয়েস? ');
+        await client.sendMessage(customerJid, 'ভয়েস?');
         delivered = true;
-        console.log(`[DISPATCH] Sent fallback "শুধু ভয়েস? " to customer +${cleanCustomerPhone}`);
+        console.log(`[DISPATCH] Sent fallback "ভয়েস?" to customer +${cleanCustomerPhone}`);
       } catch (err) {
         console.warn('[DISPATCH] Error sending confirmation question fallback:', err.message);
       }

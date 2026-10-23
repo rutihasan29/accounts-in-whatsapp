@@ -675,26 +675,61 @@ async function handleMessageCreate({
             : (Buffer.isBuffer(media) ? media : Buffer.alloc(0));
 
           const aircheckEnabled = getBotSetting(db, 'aircheck_enabled', true);
-          let aircheckRes;
+          let aircheckRes = null;
+          let aircheckFailed = false;
+
           if (!aircheckEnabled) {
-            console.log(`[AIRCHECK] AirCheck editing disabled via bot settings. Forwarding original audio directly to client.`);
-            let originalDuration = 0;
-            try {
-              originalDuration = (await getAudioDurationFromBuffer(audioBuffer, media?.mimetype, rawFilename)) || 0;
-            } catch {}
-            aircheckRes = {
-              cleanBuffer: audioBuffer,
-              durationSeconds: Math.round(originalDuration),
-              cutsCount: 0,
-              modelUsed: 'AIRCHECK_DISABLED'
-            };
+            console.log(`[AIRCHECK] AirCheck editing disabled via bot settings.`);
+            aircheckFailed = true;
           } else {
             const activeCleanAudioFn = cleanVoiceoverAudioFn || cleanVoiceoverAudio;
-            aircheckRes = await activeCleanAudioFn({
-              audioBuffer,
-              filename: rawFilename || 'recording.wav',
-              mimeType: media?.mimetype || 'audio/wav'
-            });
+            try {
+              aircheckRes = await activeCleanAudioFn({
+                audioBuffer,
+                filename: rawFilename || 'recording.wav',
+                mimeType: media?.mimetype || 'audio/wav'
+              });
+              if (!aircheckRes || aircheckRes.failed || aircheckRes.modelUsed === 'fallback' || !aircheckRes.cleanBuffer) {
+                aircheckFailed = true;
+              }
+            } catch (err) {
+              console.warn('[AIRCHECK] AirCheck clean error:', err.message);
+              aircheckFailed = true;
+            }
+          }
+
+          // If AirCheck does not work (failed/quota/disabled), reply to VA2 script asking them to edit manually
+          if (aircheckFailed) {
+            console.log(`[AIRCHECK] AirCheck did not work for order ${order.order_id}. Notifying VA2 to edit manually.`);
+            const va2ReplyText = 'এটা এডিট করে, স্ক্রিপ্টে রিপ্লাই দিয়ে পাঠান';
+            const va2Jid = `${cleanVa2}@c.us`;
+            const replyMsgId = order.va2_forward_msg_id || msg.id?._serialized || msg.id?.id;
+            if (client && typeof client.sendMessage === 'function') {
+              try {
+                if (replyMsgId) {
+                  await client.sendMessage(va2Jid, va2ReplyText, {
+                    quotedMessageId: replyMsgId
+                  });
+                } else {
+                  await client.sendMessage(va2Jid, va2ReplyText);
+                }
+              } catch (sendErr) {
+                console.warn('[VA2_AUDIO] Quoted edit request to VA2 failed, sending unquoted:', sendErr.message);
+                try {
+                  await client.sendMessage(va2Jid, va2ReplyText);
+                } catch {}
+              }
+            }
+
+            return {
+              action: 'AIRCHECK_FAILED_NOTIFIED_VA2',
+              details: {
+                orderId: order.order_id,
+                customerPhone: order.customer_phone,
+                va2ForwardMsgId: order.va2_forward_msg_id,
+                message: va2ReplyText
+              }
+            };
           }
 
           let ext = 'mp3';
@@ -903,33 +938,33 @@ async function handleMessageCreate({
 
           let classificationResult = null;
 
-          // FAST-PATH A: If bot previously asked "শুধু ভয়েস?" and customer replies affirmatively ("জি", "জী", "হ্যাঁ", etc.)
+          // FAST-PATH A: If bot previously asked "ভয়েস?" and customer replies affirmatively ("জি", "জী", "হ্যাঁ", etc.)
           if (pending && pending.script && isAffirmativeConfirmation(rawText)) {
             console.log(`[CLASSIFIER] Fast-path affirmative confirmation for +${phone} ("${rawText}") confirming pending script`);
             classificationResult = {
               classification: 'VOICE_JOB',
               confidence: 'HIGH',
               extracted_script: pending.script,
-              reason: `Customer affirmatively confirmed "${rawText}" to "শুধু ভয়েস?"`
+              reason: `Customer affirmatively confirmed "${rawText}" to "ভয়েস?"`
             };
           } else if (pending && pending.script && isNegativeConfirmation(rawText)) {
-            // FAST-PATH B: If bot previously asked "শুধু ভয়েস?" and customer declines ("না", "no", etc.)
+            // FAST-PATH B: If bot previously asked "ভয়েস?" and customer declines ("না", "no", etc.)
             console.log(`[CLASSIFIER] Fast-path negative response for +${phone} ("${rawText}") declining voice`);
             classificationResult = {
               classification: 'ESCALATE',
               confidence: 'HIGH',
               extracted_script: pending.script,
-              reason: `Customer declined voice ("${rawText}") in response to "শুধু ভয়েস?"`
+              reason: `Customer declined voice ("${rawText}") in response to "ভয়েস?"`
             };
           } else {
             // Context injection: If pending script exists but fetched history is missing the prior question, inject it
             if (pending && pending.script) {
-              const hasBotQuestion = history.some(m => (m.body || '').includes('শুধু ভয়েস'));
+              const hasBotQuestion = history.some(m => (m.body || '').includes('ভয়েস?') || (m.body || '').includes('শুধু ভয়েস'));
               if (!hasBotQuestion) {
-                console.log(`[CLASSIFIER] Injecting pending script and "শুধু ভয়েস?" into history for +${phone}`);
+                console.log(`[CLASSIFIER] Injecting pending script and "ভয়েস?" into history for +${phone}`);
                 history = [
                   { fromMe: false, body: pending.script },
-                  { fromMe: true, body: 'শুধু ভয়েস? ' },
+                  { fromMe: true, body: 'ভয়েস?' },
                   ...history.filter(m => m.id?._serialized === msg.id?._serialized || m === msg)
                 ];
               }

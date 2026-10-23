@@ -2,21 +2,31 @@ const config = require('./config');
 
 const SYSTEM_INSTRUCTION = `You are an expert message classifier for a WhatsApp audio/voice production service.
 Analyze the provided conversation history between Customer and Bot.
+Focus especially on the Customer's LATEST message, using the prior conversation context.
+
+Language note: Messages may be in Bengali (বাংলা), Banglish (Bengali written in English letters), or English. Understand all three fluently.
 
 Classify into exactly ONE of the following categories:
+
 1. VOICE_JOB:
-   - The Customer submits an ad script / voiceover text and explicitly requests voice or audio (e.g., "voice", "audio", "ভয়েস", "রেকর্ড", "voice lagbe").
-   - OR, the Bot previously asked "শুধু ভয়েস?", and the Customer's latest message confirms affirmatively (e.g., "হ্যাঁ", "জি", "yes", "shudu voice", "hmm", "thik ache", "ok").
-   Extract the clean script into extracted_script.
+   - Case A (Explicit voice request): The Customer's latest message contains a script/ad copy AND explicitly asks for voiceover / audio recording (e.g., "ভয়েস লাগবে", "ভয়েস দেন", "রেকর্ড", "voice", "audio", "voiceover", "voice recording", "recording lagbe").
+   - Case B (Confirmation to Bot's question): The Bot's previous question was "ভয়েস?" (or "শুধু ভয়েস?"), and the Customer's latest message answers affirmatively (e.g., "হ্যাঁ", "জি", "জী", "জি ভাই", "ji", "jee", "yes", "shudu voice", "hmm", "thik ache", "ok", "ha", "হুম", "voice", "voice e", "শুধু ভয়েস", "ভয়েস").
+   In both cases, extract the full script text into extracted_script (if confirming, retrieve the script from the customer's prior message in history).
 
 2. SCRIPT_PENDING_CONFIRMATION:
-   - The Customer provides a commercial, narration, or ad script without specifying whether they need voiceover, video editing, or both, and the Bot has NOT yet asked "শুধু ভয়েস?".
+   - The Customer's latest message provides a commercial, narration, ad copy, promo announcement, or script text, BUT does not explicitly specify whether they want voiceover, video editing, or both.
+   - NOTE: Even if the Bot asked "ভয়েস?" in earlier turns of the conversation for an earlier script, if the Customer is now submitting a new script without specifying voice/video, ALWAYS classify as SCRIPT_PENDING_CONFIRMATION so the Bot can ask "ভয়েস?".
 
 3. ESCALATE:
-   - Questions about pricing, video editing, graphics, revisions, complaints, or ambiguous/complex queries where intent is uncertain.
+   - Questions about pricing/rates ("কত টাকা", "রেট কত", "দাম কত", "price", "cost", "charge", "koto taka").
+   - Video editing, animation, graphics, reels, or video production ("ভিডিও", "video", "reels", "graphics", "edit").
+   - Revision requests, complaints, or negative replies to "ভয়েস?" (e.g., "না", "no", declining voice).
+   - Any customer message that does not explicitly affirm voice or submit a new script.
 
 4. OTHER:
-   - Casual greetings (hi, hello, salam), payment receipts, or unrelated chatter requiring no script dispatch.
+   - Casual greetings ("hi", "hello", "assalamu alaikum", "kemon achen", "kire").
+   - Payment notifications ("paid", "টাকা পাঠিয়েছি", "taka disi").
+   - Media attachments without text, or any general chatter.
 
 Return strictly a JSON object:
 {
@@ -56,7 +66,7 @@ function buildHistoryTranscript(messages, myUser) {
 async function classifyWithOpenRouter({
   transcript,
   apiKey = config.OPENROUTER_API_KEY,
-  model = config.OPENROUTER_MODEL || 'nvidia/nemotron-3.5-lightning:free',
+  model = config.OPENROUTER_MODEL || 'minimax/minimax-m3.1-flash:free',
   fetchFn = globalThis.fetch,
   timeoutMs = 15000
 }) {
@@ -78,7 +88,7 @@ async function classifyWithOpenRouter({
         models: [
           model,
           'minimax/minimax-m3.1-flash:free',
-          'nvidia/nemotron-3-super-120b-a12b:free'
+          'nvidia/nemotron-3.5-lightning:free'
         ],
         messages: [
           { role: 'system', content: SYSTEM_INSTRUCTION },
@@ -264,9 +274,27 @@ async function classifyChat({
   }
 }
 
+const AFFIRMATIVE_REGEX = /^(হ্যাঁ|হা|হ|জি|জী|হুম|হুঁ|yes|yeah|yep|ok|okay|thik\s*ache|ঠিক\s*আছে|শুধু\s*ভয়েস|shudu\s*voice|voice|voice\s*e)(\s+(ভাই|ভাইয়া|bhai|bhaiya|admin))?[\s.!,]*$/i;
+
+function isAffirmativeConfirmation(text) {
+  if (!text || typeof text !== 'string') return false;
+  return AFFIRMATIVE_REGEX.test(text.trim());
+}
+
+const NEGATIVE_REGEX = /^(না|নাহ|না\s*ভাই|না\s*ভাইয়া|না\s*ভিডিও|no|nope|nah|not\s*voice)[\s.!,]*$/i;
+
+function isNegativeConfirmation(text) {
+  if (!text || typeof text !== 'string') return false;
+  return NEGATIVE_REGEX.test(text.trim());
+}
+
 module.exports = {
   SYSTEM_INSTRUCTION,
   VALID_CLASSIFICATIONS,
+  AFFIRMATIVE_REGEX,
+  NEGATIVE_REGEX,
+  isAffirmativeConfirmation,
+  isNegativeConfirmation,
   buildHistoryTranscript,
   classifyWithOpenRouter,
   classifyChat

@@ -97,7 +97,7 @@ test('handleClassificationAction routes SCRIPT_PENDING_CONFIRMATION to customer'
 
   assert.equal(res.action, 'SCRIPT_CONFIRMATION_ASKED');
   assert.equal(res.details.delivered, true);
-  assert.ok(sentMessages.some(m => m.text === 'শুধু ভয়েস? '));
+  assert.ok(sentMessages.some(m => m.text === 'ভয়েস?'));
 });
 
 test('handleClassificationAction routes ESCALATE to VE3', async () => {

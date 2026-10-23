@@ -461,21 +461,94 @@ describe('Bot Feature Toggles Runtime Integration', () => {
       });
 
       assert.strictEqual(aircheckCleanCalled, false, 'AirCheck cleanVoiceoverAudio must NOT be called');
-      assert.strictEqual(res.action, 'DELIVERED_VA2_AUDIO_AIRCHECK');
+      assert.strictEqual(res.action, 'AIRCHECK_FAILED_NOTIFIED_VA2');
       assert.strictEqual(res.details.orderId, order.order_id);
       assert.strictEqual(res.details.customerPhone, '8801799887766');
-      assert.strictEqual(res.details.cutsCount, 0);
+      assert.strictEqual(res.details.message, 'এটা এডিট করে, স্ক্রিপ্টে রিপ্লাই দিয়ে পাঠান');
 
-      // Verify delivered media content matches original buffer
-      assert.strictEqual(sentMessages.length, 2);
-      const deliveredBase64 = sentMessages[0].content?.data;
-      assert.strictEqual(deliveredBase64, wavBuffer.toString('base64'), 'Original buffer delivered directly');
+      // Verify customer was NOT sent any audio, and VA2 was asked to edit quoting the script
+      assert.strictEqual(sentMessages.length, 1);
+      assert.strictEqual(sentMessages[0].jid, '8801307760509@c.us');
+      assert.strictEqual(sentMessages[0].content, 'এটা এডিট করে, স্ক্রিপ্টে রিপ্লাই দিয়ে পাঠান');
+      assert.strictEqual(sentMessages[0].options.quotedMessageId, 'va2-fwd-msg-102');
 
-      // Verify database recorded AIRCHECK_DISABLED model
-      const updatedOrder = db.prepare('SELECT * FROM voice_job_orders WHERE order_id = ?').get(order.order_id);
-      assert.strictEqual(updatedOrder.status, 'DELIVERED');
-      assert.strictEqual(updatedOrder.aircheck_model_used, 'AIRCHECK_DISABLED');
-      assert.strictEqual(updatedOrder.cuts_applied_count, 0);
+      // Verify order remains pending so VA2 can re-deliver after editing
+      const currentOrder = db.prepare('SELECT * FROM voice_job_orders WHERE order_id = ?').get(order.order_id);
+      assert.strictEqual(currentOrder.status, 'PENDING_VA2');
+      db.close();
+    });
+
+    it('when AirCheck fails (models fail or rate-limited), notifies VA2 quoting script and does not send raw audio to customer', async () => {
+      const db = initDb(':memory:');
+
+      const order = createVoiceJobOrder(db, {
+        customerPhone: '8801799887766',
+        customerName: 'Karim',
+        customerScriptMsgId: 'cust-script-msg-301',
+        va2ForwardMsgId: 'va2-fwd-msg-302',
+        scriptText: 'স্পেশাল কাচ্চি অফার',
+        headline: 'স্পেশাল কাচ্চি অফার'
+      });
+
+      const sentMessages = [];
+      const mockClient = {
+        info: { wid: { user: '8801340517587' } },
+        sendMessage: async (jid, content, options) => {
+          sentMessages.push({ jid, content, options });
+          return { id: { _serialized: `sent-${Date.now()}` } };
+        }
+      };
+
+      const wavBuffer = createWavBuffer(83);
+      const va2Msg = {
+        id: { _serialized: 'va2-audio-reply-303', id: 'va2-audio-reply-303' },
+        fromMe: false,
+        from: '8801307760509@c.us',
+        to: '8801340517587@c.us',
+        hasMedia: true,
+        type: 'document',
+        filename: 'recording_with_errors.wav',
+        mimetype: 'audio/wav',
+        hasQuotedMsg: true,
+        getQuotedMessage: async () => ({
+          id: { _serialized: 'va2-fwd-msg-302' }
+        }),
+        downloadMedia: async () => ({
+          data: wavBuffer.toString('base64'),
+          mimetype: 'audio/wav',
+          filename: 'recording_with_errors.wav'
+        })
+      };
+
+      // Mock cleanVoiceoverAudioFn returning failure (e.g. Gemini 429 quota exhaustion)
+      const res = await handleMessageCreate({
+        msg: va2Msg,
+        client: mockClient,
+        db,
+        cleanVoiceoverAudioFn: async () => ({
+          cleanBuffer: wavBuffer,
+          durationSeconds: 83,
+          cutsCount: 0,
+          modelUsed: 'fallback',
+          failed: true,
+          error: 'HTTP 429 Quota Exceeded'
+        })
+      });
+
+      assert.strictEqual(res.action, 'AIRCHECK_FAILED_NOTIFIED_VA2');
+      assert.strictEqual(res.details.orderId, order.order_id);
+      assert.strictEqual(res.details.customerPhone, '8801799887766');
+      assert.strictEqual(res.details.message, 'এটা এডিট করে, স্ক্রিপ্টে রিপ্লাই দিয়ে পাঠান');
+
+      // VA2 receives quoted instruction on the job's script message
+      assert.strictEqual(sentMessages.length, 1);
+      assert.strictEqual(sentMessages[0].jid, '8801307760509@c.us');
+      assert.strictEqual(sentMessages[0].content, 'এটা এডিট করে, স্ক্রিপ্টে রিপ্লাই দিয়ে পাঠান');
+      assert.strictEqual(sentMessages[0].options.quotedMessageId, 'va2-fwd-msg-302');
+
+      // Order remains pending for VA2's edited replacement
+      const currentOrder = db.prepare('SELECT * FROM voice_job_orders WHERE order_id = ?').get(order.order_id);
+      assert.strictEqual(currentOrder.status, 'PENDING_VA2');
       db.close();
     });
 
