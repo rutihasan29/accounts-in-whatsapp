@@ -12,9 +12,18 @@ const {
   recordAdSpend,
   getAdSpendList,
   getAdSpendSummary,
-  getSimulationBaselines
+  getSimulationBaselines,
+  getBotUptimeStats,
+  addVideoCustomer,
+  removeVideoCustomer,
+  getVideoCustomers,
+  getAllBotSettings,
+  setBotSetting,
+  DEFAULT_BOT_SETTINGS
 } = require('./db');
 const { PORT } = require('./config');
+const { syncExistingInboxContacts } = require('./sync');
+const { resolveCustomerPhone } = require('./bot');
 
 const DASHBOARD_HTML_PATH = path.join(__dirname, 'dashboard.html');
 
@@ -76,7 +85,17 @@ function renderHtmlPage(options = {}) {
       const simBaselines = getSimulationBaselines(db);
       const adSpendSummary = getAdSpendSummary(db);
       const adSpendList = getAdSpendList(db, { limit: 60 });
-      const initialJson = JSON.stringify({ stats, customers, simBaselines, adSpendSummary, adSpendList });
+      const botUptime = getBotUptimeStats(db);
+      const botSettings = getAllBotSettings(db);
+      const initialJson = JSON.stringify({
+        stats,
+        customers,
+        simBaselines,
+        adSpendSummary,
+        adSpendList,
+        botUptime,
+        botSettings
+      });
       html = html.replace('/*__INITIAL_DATA__*/', `window.__INITIAL_DATA__ = ${initialJson};`);
     } catch (e) {
       console.error('Error pre-rendering initial data in dashboard:', e.message);
@@ -240,7 +259,7 @@ function renderPrintableStatement({ summary, transactions }) {
 </html>`;
 }
 
-function startWebServer({ db, port = PORT }) {
+function startWebServer({ db, client = null, port = PORT }) {
   const server = http.createServer(async (req, res) => {
     const parsedUrl = url.parse(req.url, true);
     const pathname = parsedUrl.pathname;
@@ -264,6 +283,57 @@ function startWebServer({ db, port = PORT }) {
       return;
     }
 
+    // API: Inbox Sync - POST trigger scan & sync
+    if (pathname === '/api/sync-inbox' && method === 'POST') {
+      try {
+        if (!client) {
+          res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ status: 'error', message: 'WhatsApp client is not connected' }));
+          return;
+        }
+        const syncResult = await syncExistingInboxContacts({ client, db, resolveCustomerPhone });
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'ok', ...syncResult }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', error: err.message }));
+      }
+      return;
+    }
+
+    // API: Inbox Sync - GET stats
+    if (pathname === '/api/sync-inbox' && method === 'GET') {
+      try {
+        const totalLeads = db.prepare('SELECT COUNT(*) AS c FROM leads').get().c;
+        const protectedContacts = db.prepare('SELECT COUNT(*) AS c FROM leads WHERE welcome_sent = 1').get().c;
+        const totalCustomers = db.prepare('SELECT COUNT(*) AS c FROM customers').get().c;
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({
+          status: 'ok',
+          totalLeads,
+          protectedContacts,
+          totalCustomers
+        }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', error: err.message }));
+      }
+      return;
+    }
+
+    // API: Bot Status & Uptime - GET
+    if (pathname === '/api/bot-status' && method === 'GET') {
+      try {
+        const status = getBotUptimeStats(db);
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify(status));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+      return;
+    }
+
     // API: Summary Stats
     if (pathname === '/api/stats' && method === 'GET') {
       try {
@@ -283,6 +353,63 @@ function startWebServer({ db, port = PORT }) {
         const customers = getAllCustomersSummary(db);
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify(customers));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+      return;
+    }
+
+    // API: Video Customers - GET list
+    if (pathname === '/api/video-customers' && method === 'GET') {
+      try {
+        const list = getVideoCustomers(db);
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify(list));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+      return;
+    }
+
+    // API: Video Customers - POST add
+    if (pathname === '/api/video-customers' && method === 'POST') {
+      try {
+        const body = await readJsonBody(req);
+        if (!body.phone) {
+          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: 'phone is required' }));
+          return;
+        }
+        const record = addVideoCustomer(db, body.phone, body.note);
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'ok', record }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+      return;
+    }
+
+    // API: Video Customers - DELETE remove
+    if ((pathname.startsWith('/api/video-customers/') || pathname === '/api/video-customers') && method === 'DELETE') {
+      try {
+        let phone = '';
+        if (pathname.startsWith('/api/video-customers/')) {
+          phone = decodeURIComponent(pathname.replace('/api/video-customers/', '')).trim();
+        }
+        if (!phone && parsedUrl.query?.phone) {
+          phone = String(parsedUrl.query.phone).trim();
+        }
+        if (!phone) {
+          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: 'phone is required' }));
+          return;
+        }
+        const result = removeVideoCustomer(db, phone);
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'ok', ...result }));
       } catch (err) {
         res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: err.message }));
@@ -342,6 +469,49 @@ function startWebServer({ db, port = PORT }) {
       } catch (err) {
         res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: err.message }));
+      }
+      return;
+    }
+
+    // API: Bot Settings - GET current settings
+    if (pathname === '/api/bot-settings' && method === 'GET') {
+      try {
+        const settings = getAllBotSettings(db);
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'ok', success: true, settings }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', error: err.message }));
+      }
+      return;
+    }
+
+    // API: Bot Settings - POST update settings
+    if (pathname === '/api/bot-settings' && method === 'POST') {
+      try {
+        const body = await readJsonBody(req);
+        if (!body || (typeof body.key === 'undefined' && (!body.settings || typeof body.settings !== 'object'))) {
+          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ status: 'error', error: 'key or settings is required' }));
+          return;
+        }
+
+        if (typeof body.key === 'string' && body.key.trim()) {
+          setBotSetting(db, body.key.trim(), body.value);
+        } else if (body.settings && typeof body.settings === 'object') {
+          for (const [k, v] of Object.entries(body.settings)) {
+            if (typeof k === 'string' && k.trim()) {
+              setBotSetting(db, k.trim(), v);
+            }
+          }
+        }
+
+        const updatedSettings = getAllBotSettings(db);
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'ok', success: true, settings: updatedSettings }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', error: err.message }));
       }
       return;
     }
