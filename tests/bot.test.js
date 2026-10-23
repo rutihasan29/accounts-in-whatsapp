@@ -1211,6 +1211,74 @@ describe('Bot Message Router', () => {
       assert.strictEqual(updatedOrder.va2_forward_msg_id, 'operator-manual-fwd-msg-888');
       db.close();
     });
+
+    it('preserves original customerScriptMsgId when order is confirmed affirmatively after SCRIPT_PENDING_CONFIRMATION', async () => {
+      const db = initDb(':memory:');
+      const { schedulePendingConfirmation, clearAllPendingConfirmations } = require('../src/dispatch');
+      clearAllPendingConfirmations();
+      const sentMessages = [];
+      const mockClient = {
+        info: { wid: { user: '8801340517587' } },
+        getContactById: async () => ({ isMyContact: false, name: 'Affirmative Customer' }),
+        sendMessage: async (jid, text) => {
+          sentMessages.push({ jid, text });
+          return { id: { _serialized: 'va2-affirmative-forward-999' } };
+        }
+      };
+      const mockChat = {
+        id: { _serialized: '8801755555555@c.us' },
+        fetchMessages: async () => [
+          { fromMe: false, body: 'জি' }
+        ],
+        sendMessage: async (text) => {
+          sentMessages.push({ jid: 'customer', text });
+          return { id: { _serialized: 'ack-ok-id' } };
+        }
+      };
+
+      // Step 1: Pre-populate pending confirmation with original script message ID
+      schedulePendingConfirmation({
+        client: mockClient,
+        customerPhone: '8801755555555',
+        customerName: 'Affirmative Customer',
+        script: 'ধানমন্ডি লেক ভিউ রেস্টুরেন্টের গ্রিল চিকেন অফার',
+        customerScriptMsgId: 'original-script-msg-001',
+        timeoutMs: 60000
+      });
+
+      // Step 2: Customer replies "জি"
+      const confirmMsg = {
+        id: { _serialized: 'confirm-reply-msg-002', id: 'confirm-reply-msg-002' },
+        fromMe: false,
+        from: '8801755555555@c.us',
+        to: '8801340517587@c.us',
+        body: 'জি',
+        getChat: async () => mockChat
+      };
+
+      const res = await handleMessageCreate({
+        msg: confirmMsg,
+        client: mockClient,
+        db,
+        classifierFn: async () => ({ classification: 'OTHER' })
+      });
+
+      assert.strictEqual(res?.action, 'VOICE_JOB_DISPATCHED');
+      assert.strictEqual(res?.details?.delivered, true);
+      assert.strictEqual(res?.details?.va2ForwardMsgId, 'va2-affirmative-forward-999');
+
+      const orders = db.prepare('SELECT * FROM voice_job_orders WHERE customer_phone = ?').all('8801755555555');
+      assert.strictEqual(orders.length, 1);
+      const order = orders[0];
+      // Crucial: customer_script_msg_id MUST be original-script-msg-001, NOT confirm-reply-msg-002!
+      assert.strictEqual(order.customer_script_msg_id, 'original-script-msg-001');
+      assert.strictEqual(order.va2_forward_msg_id, 'va2-affirmative-forward-999');
+      assert.strictEqual(order.script_text, 'ধানমন্ডি লেক ভিউ রেস্টুরেন্টের গ্রিল চিকেন অফার');
+      assert.strictEqual(order.status, 'PENDING_VA2');
+
+      clearAllPendingConfirmations();
+      db.close();
+    });
   });
 });
 
