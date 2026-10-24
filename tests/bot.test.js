@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
-const { initDb, getDueList, createVoiceJobOrder } = require('../src/db');
+const { initDb, getDueList, createVoiceJobOrder, getVoiceJobOrder } = require('../src/db');
 const {
   formatDueReport,
   handleMessageCreate,
@@ -1705,6 +1705,152 @@ describe('Bot Message Router', () => {
 
       assert.strictEqual(res.action, 'IGNORED_VA2_PTT');
       assert.strictEqual(sentMessages.length, 0);
+      db.close();
+    });
+
+    it('VA2 audio reply with quote in _data.quotedStanzaId when hasQuotedMsg is false is recognized and delivered', async () => {
+      const db = initDb(':memory:');
+      const order = createVoiceJobOrder(db, {
+        customerPhone: '8801711223344',
+        customerName: 'Audio Customer',
+        customerScriptMsgId: 'cust-script-1',
+        va2ForwardMsgId: 'script-stanza-999',
+        scriptText: 'টেস্ট স্ক্রিপ্ট টেক্সট',
+        headline: 'টেস্ট স্ক্রিপ্ট'
+      });
+
+      const sentMessages = [];
+      const mockClient = {
+        info: { wid: { user: '8801340517587' } },
+        sendMessage: async (jid, content, options) => {
+          sentMessages.push({ jid, content, options });
+          return { id: { _serialized: 'ack-999' } };
+        }
+      };
+
+      const va2Msg = {
+        id: { _serialized: 'va2-audio-reply-1', id: 'va2-audio-reply-1' },
+        fromMe: false,
+        from: '8801307760509@c.us',
+        to: '8801340517587@c.us',
+        hasMedia: true,
+        type: 'document',
+        filename: 'ভয়েস ফাইনাল.mp3',
+        mimetype: 'audio/mp3',
+        hasQuotedMsg: false, // WhatsApp Web had not set hasQuotedMsg
+        _data: {
+          quotedStanzaId: 'script-stanza-999'
+        },
+        downloadMedia: async () => ({
+          data: Buffer.from('mock-audio').toString('base64'),
+          mimetype: 'audio/mp3',
+          filename: 'ভয়েস ফাইনাল.mp3'
+        })
+      };
+
+      const res = await handleMessageCreate({
+        msg: va2Msg,
+        client: mockClient,
+        db
+      });
+
+      assert.strictEqual(res.action, 'DELIVERED_VA2_AUDIO_DIRECT');
+      assert.strictEqual(sentMessages.length, 1);
+      assert.strictEqual(sentMessages[0].jid, '8801711223344@c.us');
+      db.close();
+    });
+
+    it('VA2 audio reply matches order by quoted script text when va2_forward_msg_id was null in DB', async () => {
+      const db = initDb(':memory:');
+      const order = createVoiceJobOrder(db, {
+        customerPhone: '8801534323811',
+        customerName: 'Preenan',
+        customerScriptMsgId: 'cust-script-2',
+        va2ForwardMsgId: null, // null in database!
+        scriptText: 'পবা উপজেলার ৪ নং হরিপুর ইউনিয়ন চেয়ারম্যান',
+        headline: 'হরিপুর ইউনিয়ন'
+      });
+
+      const sentMessages = [];
+      const mockClient = {
+        info: { wid: { user: '8801340517587' } },
+        sendMessage: async (jid, content, options) => {
+          sentMessages.push({ jid, content, options });
+          return { id: { _serialized: 'ack-preenan' } };
+        }
+      };
+
+      const va2Msg = {
+        id: { _serialized: 'va2-audio-reply-preenan', id: 'va2-audio-reply-preenan' },
+        fromMe: false,
+        from: '8801307760509@c.us',
+        to: '8801340517587@c.us',
+        hasMedia: true,
+        type: 'document',
+        filename: 'হরিপুর ভয়েস ফাইনাল.mp3',
+        mimetype: 'audio/mp3',
+        hasQuotedMsg: true,
+        _data: {
+          quotedStanzaId: 'some-new-quoted-id',
+          quotedMsg: {
+            body: '[নতুন ভয়েস অর্ডার]\n\nস্ক্রিপ্ট:\nপবা উপজেলার ৪ নং হরিপুর ইউনিয়ন চেয়ারম্যান'
+          }
+        },
+        getQuotedMessage: async () => {
+          throw new Error('Puppeteer execution context was destroyed');
+        },
+        downloadMedia: async () => ({
+          data: Buffer.from('mock-audio').toString('base64'),
+          mimetype: 'audio/mp3',
+          filename: 'হরিপুর ভয়েস ফাইনাল.mp3'
+        })
+      };
+
+      const res = await handleMessageCreate({
+        msg: va2Msg,
+        client: mockClient,
+        db
+      });
+
+      assert.strictEqual(res.action, 'DELIVERED_VA2_AUDIO_DIRECT');
+      assert.strictEqual(sentMessages.length, 1);
+      assert.strictEqual(sentMessages[0].jid, '8801534323811@c.us');
+
+      // Verify that the null va2_forward_msg_id in order was updated!
+      const updatedOrder = getVoiceJobOrder(db, order.order_id);
+      assert.strictEqual(updatedOrder.va2_forward_msg_id, 'some-new-quoted-id');
+      assert.strictEqual(updatedOrder.status, 'DELIVERED');
+      db.close();
+    });
+
+    it('outgoing forward message with [নতুন ভয়েস অর্ডার] links msgId to order', async () => {
+      const db = initDb(':memory:');
+      const order = createVoiceJobOrder(db, {
+        customerPhone: '8801534323811',
+        customerName: 'Preenan',
+        customerScriptMsgId: 'cust-script-3',
+        va2ForwardMsgId: null,
+        scriptText: 'হরিপুর ইউনিয়ন নির্বাচন সংক্রান্ত স্ক্রিপ্ট',
+        headline: 'হরিপুর ইউনিয়ন'
+      });
+
+      const forwardMsg = {
+        id: { _serialized: 'true_8801307760509@c.us_FORW12345', id: 'FORW12345' },
+        fromMe: true,
+        from: '8801340517587@c.us',
+        to: '8801307760509@c.us',
+        body: '[নতুন ভয়েস অর্ডার]\n\nস্ক্রিপ্ট:\nহরিপুর ইউনিয়ন নির্বাচন সংক্রান্ত স্ক্রিপ্ট'
+      };
+
+      const res = await handleMessageCreate({
+        msg: forwardMsg,
+        client: { info: { wid: { user: '8801340517587' } } },
+        db
+      });
+
+      assert.strictEqual(res.action, 'LINKED_MANUAL_VA2_FORWARD');
+      const updatedOrder = getVoiceJobOrder(db, order.order_id);
+      assert.strictEqual(updatedOrder.va2_forward_msg_id, 'true_8801307760509@c.us_FORW12345');
       db.close();
     });
   });

@@ -120,6 +120,78 @@ function formatDueReport(dueList) {
   return summary.join('\n');
 }
 
+async function extractQuotedMessageInfo(msg) {
+  if (!msg) return { quotedMsgId: null, quotedBody: null, quotedFromMe: null, quotedParticipant: null, hasQuote: false };
+
+  let quotedMsgId = null;
+  let quotedBody = null;
+  let quotedFromMe = null;
+  let quotedParticipant = null;
+
+  // 1. Direct properties on msg
+  if (msg.quotedMsgId) {
+    quotedMsgId = typeof msg.quotedMsgId === 'string' ? msg.quotedMsgId : (msg.quotedMsgId._serialized || msg.quotedMsgId.id);
+  }
+  if (msg.quotedStanzaId) {
+    quotedMsgId = quotedMsgId || msg.quotedStanzaId;
+  }
+
+  // 2. _data properties from WhatsApp Web internal model
+  const d = msg._data || {};
+  if (!quotedMsgId && d.quotedStanzaId) {
+    quotedMsgId = d.quotedStanzaId;
+  }
+  if (!quotedMsgId && d.quotedMsg) {
+    quotedMsgId = d.quotedMsg.id?._serialized || d.quotedMsg.id?.id || (typeof d.quotedMsg.id === 'string' ? d.quotedMsg.id : null) || d.quotedMsg.stanzaId;
+  }
+  if (!quotedMsgId && d.contextInfo?.stanzaId) {
+    quotedMsgId = d.contextInfo.stanzaId;
+  }
+
+  if (d.quotedMsg?.body) {
+    quotedBody = d.quotedMsg.body;
+  }
+  if (d.quotedMsg?.fromMe !== undefined) {
+    quotedFromMe = d.quotedMsg.fromMe;
+  }
+  if (d.quotedParticipant || d.contextInfo?.participant) {
+    quotedParticipant = d.quotedParticipant || d.contextInfo?.participant;
+  }
+
+  // 3. msg.getQuotedMessage()
+  if (typeof msg.getQuotedMessage === 'function') {
+    try {
+      const q = await msg.getQuotedMessage();
+      if (q) {
+        if (!quotedMsgId) {
+          quotedMsgId = q.id?._serialized || q.id?.id || (typeof q.id === 'string' ? q.id : null);
+        }
+        if (!quotedBody && q.body) {
+          quotedBody = q.body;
+        }
+        if (quotedFromMe === null && q.fromMe !== undefined) {
+          quotedFromMe = q.fromMe;
+        }
+        if (!quotedParticipant && (q.author || q.from)) {
+          quotedParticipant = q.author || q.from;
+        }
+      }
+    } catch (err) {
+      console.warn('[VA2_AUDIO] getQuotedMessage error (non-fatal, checking _data):', err.message);
+    }
+  }
+
+  const hasQuote = Boolean(quotedMsgId || quotedBody || msg.hasQuotedMsg || d.quotedMsg || d.quotedStanzaId || d.contextInfo?.stanzaId);
+
+  return {
+    quotedMsgId,
+    quotedBody,
+    quotedFromMe,
+    quotedParticipant,
+    hasQuote
+  };
+}
+
 function extractUser(jid) {
   if (!jid || typeof jid !== 'string') return '';
   return jid.split('@')[0].split(':')[0].replace(/\D/g, '');
@@ -691,26 +763,39 @@ async function handleMessageCreate({
         (msg.hasMedia && (msg.filename || msg.body) && /\.(wav|mp3|m4a|ogg|aac|flac)$/i.test(msg.filename || msg.body));
 
       if (isAudio) {
-        let quotedMsgId = null;
-        if (msg.hasQuotedMsg && typeof msg.getQuotedMessage === 'function') {
-          try {
-            const q = await msg.getQuotedMessage();
-            quotedMsgId = q?.id?._serialized || q?.id?.id || null;
-          } catch {}
-        }
-        if (!quotedMsgId && msg.quotedMsgId) {
-          quotedMsgId = msg.quotedMsgId;
-        }
+        const quoteInfo = await extractQuotedMessageInfo(msg);
 
-        if (!quotedMsgId) {
+        if (!quoteInfo.hasQuote && !quoteInfo.quotedMsgId && !quoteInfo.quotedBody) {
           console.log('[VA2_AUDIO] Audio file from VA2 ignored because it was not sent as a reply to a script.');
           return { action: 'IGNORED_VA2_UNQUOTED_AUDIO' };
         }
 
-        const order = findVoiceJobOrderByVa2MsgId(db, quotedMsgId);
+        let order = quoteInfo.quotedMsgId ? findVoiceJobOrderByVa2MsgId(db, quoteInfo.quotedMsgId) : null;
+
+        // Resilient order match: if order wasn't found by quotedMsgId (e.g. forward msg id was null or mismatch),
+        // try matching by quoted message body (script text)
+        if (!order && quoteInfo.quotedBody) {
+          const cleanScript = quoteInfo.quotedBody
+            .replace(/^\[নতুন ভয়েস অর্ডার\]\s*/i, '')
+            .replace(/^স্ক্রিপ্ট:\s*/i, '')
+            .trim();
+          order = findVoiceJobOrderByScriptText(db, cleanScript) ||
+                  findVoiceJobOrderByScriptText(db, quoteInfo.quotedBody);
+        }
+
+        // If still not matched, but the quote was a voice order or from us, check latest pending voice job
+        if (!order && (quoteInfo.quotedFromMe === true || (quoteInfo.quotedBody && quoteInfo.quotedBody.includes('[নতুন ভয়েস অর্ডার]')))) {
+          order = findLatestPendingVoiceJob(db);
+        }
+
+        // If order matched and order had null or different va2_forward_msg_id, link it now!
+        if (order && quoteInfo.quotedMsgId && (!order.va2_forward_msg_id || order.va2_forward_msg_id !== quoteInfo.quotedMsgId)) {
+          updateVoiceJobVa2ForwardMsgId(db, order.order_id, quoteInfo.quotedMsgId);
+          console.log(`[VA2_AUDIO] Linked order ${order.order_id} to VA2 quoted msg ID ${quoteInfo.quotedMsgId}`);
+        }
 
         if (!order) {
-          console.log(`[VA2_AUDIO] Received audio from VA2 replying to ${quotedMsgId}, but no matching voice job order found.`);
+          console.log(`[VA2_AUDIO] Received audio from VA2 replying to ${quoteInfo.quotedMsgId || 'quote'}, but no matching voice job order found.`);
           return { action: 'IGNORED_VA2_AUDIO_NO_ORDER' };
         }
 
@@ -1120,18 +1205,21 @@ async function handleMessageCreate({
     } catch {}
   }
 
-  // Manual Outgoing Forward Tracking for VA2
+  // Outgoing Forward Tracking for VA2 (automatic or manual)
   if (msg.fromMe === true && isVa2) {
-    const isEchoOrSystem = isBotSystemMessage(msg.body) ||
-      (msg.id?._serialized && (sentAutoBillMsgIds.has(msg.id._serialized) || sentSelfBotMsgIds.has(msg.id._serialized))) ||
-      (msg.id?.id && (sentAutoBillMsgIds.has(msg.id.id) || sentSelfBotMsgIds.has(msg.id.id)));
+    if (msg.body && db) {
+      const isVoiceOrderForward = msg.body.includes('[নতুন ভয়েস অর্ডার]');
+      const isAutoBill = (msg.id?._serialized && (sentAutoBillMsgIds.has(msg.id._serialized) || sentSelfBotMsgIds.has(msg.id._serialized))) ||
+                         (msg.id?.id && (sentAutoBillMsgIds.has(msg.id.id) || sentSelfBotMsgIds.has(msg.id.id)));
 
-    if (msg.body && !isEchoOrSystem && db) {
-      const order = findVoiceJobOrderByScriptText(db, msg.body) || findLatestPendingVoiceJob(db);
-      if (order) {
-        const msgId = msg.id?._serialized || msg.id?.id || (typeof msg.id === 'string' ? msg.id : null);
-        if (!order.va2_forward_msg_id || order.va2_forward_msg_id === msgId) {
-          if (msgId) {
+      if (!isAutoBill && (isVoiceOrderForward || !isBotSystemMessage(msg.body))) {
+        let cleanBody = msg.body.replace(/^\[নতুন ভয়েস অর্ডার\]\s*/i, '').replace(/^স্ক্রিপ্ট:\s*/i, '').trim();
+        const order = findVoiceJobOrderByScriptText(db, cleanBody) ||
+                      findVoiceJobOrderByScriptText(db, msg.body) ||
+                      findLatestPendingVoiceJob(db);
+        if (order) {
+          const msgId = msg.id?._serialized || msg.id?.id || (typeof msg.id === 'string' ? msg.id : null);
+          if (msgId && (!order.va2_forward_msg_id || order.va2_forward_msg_id !== msgId)) {
             updateVoiceJobVa2ForwardMsgId(db, order.order_id, msgId);
             console.log(`[VA2_FORWARD] Linked manual script message to order ${order.order_id}`);
           }
@@ -1533,22 +1621,29 @@ async function recoverPendingWorkflows({ client, db, handleMessageCreateFn = han
 
         if (!isAudio) continue;
 
-        let quotedMsgId = null;
-        if (m.hasQuotedMsg && typeof m.getQuotedMessage === 'function') {
-          try {
-            const q = await m.getQuotedMessage();
-            quotedMsgId = q?.id?._serialized || q?.id?.id || null;
-          } catch {}
-        }
-        if (!quotedMsgId && m.quotedMsgId) {
-          quotedMsgId = m.quotedMsgId;
+        const quoteInfo = await extractQuotedMessageInfo(m);
+        if (!quoteInfo.hasQuote && !quoteInfo.quotedMsgId && !quoteInfo.quotedBody) continue;
+
+        let isMatch = false;
+        if (quoteInfo.quotedMsgId && order.va2_forward_msg_id && (
+          quoteInfo.quotedMsgId === order.va2_forward_msg_id ||
+          quoteInfo.quotedMsgId.includes(order.va2_forward_msg_id) ||
+          order.va2_forward_msg_id.includes(quoteInfo.quotedMsgId)
+        )) {
+          isMatch = true;
+        } else if (quoteInfo.quotedBody && order.script_text) {
+          const cleanScript = quoteInfo.quotedBody
+            .replace(/^\[নতুন ভয়েস অর্ডার\]\s*/i, '')
+            .replace(/^স্ক্রিপ্ট:\s*/i, '')
+            .trim();
+          if (cleanScript.includes(order.script_text.slice(0, 30)) || order.script_text.includes(cleanScript.slice(0, 30))) {
+            isMatch = true;
+          }
+        } else if (!order.va2_forward_msg_id && (quoteInfo.quotedFromMe || (quoteInfo.quotedBody && quoteInfo.quotedBody.includes('[নতুন ভয়েস অর্ডার]')))) {
+          isMatch = true;
         }
 
-        if (quotedMsgId && order.va2_forward_msg_id && (
-          quotedMsgId === order.va2_forward_msg_id ||
-          quotedMsgId.includes(order.va2_forward_msg_id) ||
-          order.va2_forward_msg_id.includes(quotedMsgId)
-        )) {
+        if (isMatch) {
           matchedMsg = m;
           break;
         }
@@ -1831,6 +1926,7 @@ module.exports = {
   isTestEnv,
   createMedia,
   isPhoneMatch,
+  extractQuotedMessageInfo,
   recoverPendingWorkflows,
   catchupUnreadCustomerMessages
 };

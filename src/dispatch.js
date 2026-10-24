@@ -199,7 +199,7 @@ async function handleClassificationAction({
     let sentMsg = null;
     if (client && typeof client.sendMessage === 'function') {
       try {
-        sentMsg = await client.sendMessage(va2Jid, forwardMsg);
+        sentMsg = await client.sendMessage(va2Jid, forwardMsg, { waitUntilMsgSent: true });
         delivered = true;
         console.log(`[DISPATCH] Voice job forwarded to VA2 (+${cleanVa2}) for customer +${cleanCustomerPhone}`);
       } catch (err) {
