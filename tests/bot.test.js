@@ -51,6 +51,64 @@ describe('Bot Message Router', () => {
     assert.strictEqual(res.action, 'IGNORED_GROUP');
   });
 
+  it('strictly ignores inbound group messages and never calls classifier or escalates', async () => {
+    const db = initDb(':memory:');
+    let classifierCalled = false;
+    const classifierFn = async () => {
+      classifierCalled = true;
+      return { classification: 'OTHER', confidence: 'HIGH' };
+    };
+
+    // Case 1: WhatsApp Multi-device group message with author and 120363 JID
+    const groupMsg1 = {
+      fromMe: false,
+      from: '120363229586789471@g.us',
+      author: '8801700000001@c.us',
+      id: { remote: '120363229586789471@g.us:1', participant: '8801700000001@c.us' },
+      body: 'https://somewebsite.com/news-story',
+      isGroup: true
+    };
+    const res1 = await handleMessageCreate({
+      msg: groupMsg1,
+      client: { info: { wid: { _serialized: '8801999999999@c.us' } } },
+      db,
+      classifierFn
+    });
+    assert.strictEqual(res1.action, 'IGNORED_GROUP');
+    assert.strictEqual(classifierCalled, false, 'AI classifier must NOT be invoked for group messages');
+
+    // Case 2: Inbound group message without isGroup flag but with @g.us in id.remote
+    const groupMsg2 = {
+      fromMe: false,
+      from: '8801700000002@c.us',
+      id: { remote: '120363000000000000@g.us' },
+      body: 'Important group alert'
+    };
+    const res2 = await handleMessageCreate({
+      msg: groupMsg2,
+      client: { info: { wid: { _serialized: '8801999999999@c.us' } } },
+      db,
+      classifierFn
+    });
+    assert.strictEqual(res2.action, 'IGNORED_GROUP');
+    assert.strictEqual(classifierCalled, false);
+
+    // Case 3: Broadcast or newsletter message
+    const broadcastMsg = {
+      fromMe: false,
+      from: 'status@broadcast',
+      body: 'Status update'
+    };
+    const res3 = await handleMessageCreate({
+      msg: broadcastMsg,
+      client: { info: { wid: { _serialized: '8801999999999@c.us' } } },
+      db,
+      classifierFn
+    });
+    assert.strictEqual(res3.action, 'IGNORED_GROUP');
+    assert.strictEqual(classifierCalled, false);
+  });
+
   it('silently records bill in customer chat without replying', async () => {
     const db = initDb(':memory:');
     let replyCalled = false;

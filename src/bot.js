@@ -215,8 +215,60 @@ function isSelfChat(msg, client) {
   return false;
 }
 
+function isGroupMessage(msg, chat = null) {
+  if (!msg) return false;
+
+  const rawRemote = String(msg.id?.remote || '');
+  const rawFrom = String(msg.from || '');
+  const rawTo = String(msg.to || '');
+  const rawAuthor = String(msg.author || msg.id?.participant || '');
+
+  // 1. Any domain indicating group, broadcast, or newsletter
+  if (
+    rawRemote.includes('@g.us') ||
+    rawFrom.includes('@g.us') ||
+    rawTo.includes('@g.us') ||
+    rawRemote.includes('@broadcast') ||
+    rawFrom.includes('@broadcast') ||
+    rawRemote.includes('@newsletter') ||
+    rawFrom.includes('@newsletter')
+  ) {
+    return true;
+  }
+
+  // 2. Author / participant is ONLY present in WhatsApp group messages
+  if (rawAuthor && rawAuthor !== rawFrom && (rawAuthor.includes('@c.us') || rawAuthor.includes('@lid') || rawAuthor.includes('@s.whatsapp.net'))) {
+    return true;
+  }
+
+  // 3. Flags from wwebjs message or chat
+  if (msg.isGroup === true || chat?.isGroup === true || msg.broadcast === true) {
+    return true;
+  }
+
+  // 4. Meta's modern group ID prefix is 120363
+  const fromDigits = rawFrom.split('@')[0].split(':')[0].replace(/\D/g, '');
+  const remoteDigits = rawRemote.split('@')[0].split(':')[0].replace(/\D/g, '');
+  const toDigits = rawTo.split('@')[0].split(':')[0].replace(/\D/g, '');
+  if (fromDigits.startsWith('120363') || remoteDigits.startsWith('120363') || toDigits.startsWith('120363')) {
+    return true;
+  }
+
+  return false;
+}
+
 async function resolveCustomerPhone({ client, recipient, msg }) {
   if (!recipient || typeof recipient !== 'string') return '';
+
+  // Reject any group, broadcast, or newsletter immediately
+  if (
+    recipient.includes('@g.us') ||
+    recipient.includes('@broadcast') ||
+    recipient.includes('@newsletter') ||
+    recipient.replace(/\D/g, '').startsWith('120363')
+  ) {
+    return '';
+  }
 
   // 1. If it's a standard @c.us or @s.whatsapp.net JID, extract phone digits directly
   if (recipient.endsWith('@c.us') || recipient.endsWith('@s.whatsapp.net')) {
@@ -381,6 +433,12 @@ async function handleMessageCreate({
   if (msg.id?.id && sentSelfBotMsgIds.has(msg.id.id)) {
     sentSelfBotMsgIds.delete(msg.id.id);
     return { action: 'IGNORED_SELF_BOT_ECHO' };
+  }
+
+  // 0. Completely ignore any messages from WhatsApp groups, broadcast lists, or newsletters.
+  // Group messages must NEVER be considered by AI, nor escalated to VE3, nor recorded as customer leads.
+  if (isGroupMessage(msg)) {
+    return { action: 'IGNORED_GROUP' };
   }
 
   let isSelf = isSelfChat(msg, client);

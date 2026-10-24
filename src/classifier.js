@@ -151,6 +151,31 @@ async function classifyChat({
     };
   }
 
+  // Never consider or classify WhatsApp group messages with AI
+  const hasGroup = (messages || []).some(m => {
+    const rawFrom = String(m?.from || '');
+    const rawRemote = String(m?.id?.remote || '');
+    return rawFrom.includes('@g.us') ||
+      rawRemote.includes('@g.us') ||
+      rawFrom.includes('@broadcast') ||
+      rawRemote.includes('@broadcast') ||
+      rawFrom.includes('@newsletter') ||
+      rawRemote.includes('@newsletter') ||
+      Boolean(m?.author) ||
+      rawFrom.replace(/\D/g, '').startsWith('120363') ||
+      rawRemote.replace(/\D/g, '').startsWith('120363');
+  });
+
+  if (hasGroup) {
+    console.log('[CLASSIFIER] Group message detected; skipping AI classification completely.');
+    return {
+      classification: 'OTHER',
+      confidence: 'HIGH',
+      extracted_script: '',
+      reason: 'Group message ignored'
+    };
+  }
+
   const effectiveKey = apiKey !== undefined ? apiKey : (provider === 'openrouter' ? config.OPENROUTER_API_KEY : config.GEMINI_API_KEY);
 
   if (!effectiveKey) {

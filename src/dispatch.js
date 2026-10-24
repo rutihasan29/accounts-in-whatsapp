@@ -102,6 +102,17 @@ async function handleClassificationAction({
   const customerJid = cleanCustomerPhone ? `${cleanCustomerPhone}@c.us` : '';
   const namePart = customerName ? ` (${customerName})` : '';
 
+  // Never process, escalate, or reply to WhatsApp groups or broadcast lists
+  if (
+    !cleanCustomerPhone ||
+    cleanCustomerPhone.startsWith('120363') ||
+    String(customerPhone || '').includes('@g.us') ||
+    chat?.isGroup === true
+  ) {
+    console.log(`[DISPATCH] Group detected (${customerPhone || cleanCustomerPhone}). Ignoring dispatch and suppressing escalation.`);
+    return { action: 'IGNORED_GROUP' };
+  }
+
   if (classification === 'VOICE_JOB') {
     cancelPendingConfirmation(cleanCustomerPhone);
 
