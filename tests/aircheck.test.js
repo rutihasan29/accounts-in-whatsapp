@@ -349,6 +349,92 @@ describe('AirCheck Engine Module', () => {
       }
     });
 
+    it('rotates across multiple GEMINI_AUDIO_API_KEYS on consecutive calls', async () => {
+      const keysUsed = [];
+      const mockFetch = async (url) => {
+        const u = new URL(url);
+        keysUsed.push(u.searchParams.get('key'));
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            candidates: [{ content: { parts: [{ text: '{"cuts": []}' }] } }]
+          })
+        };
+      };
+
+      const originalKeys = config.GEMINI_AUDIO_API_KEYS;
+      const originalKey = config.GEMINI_AUDIO_API_KEY;
+      config.GEMINI_AUDIO_API_KEYS = ['account-key-1', 'account-key-2'];
+      delete config.GEMINI_AUDIO_API_KEY;
+
+      try {
+        await analyzeVoiceoverWithGemini({
+          audioBuffer: Buffer.from('audio'),
+          fetchFn: mockFetch
+        });
+        await analyzeVoiceoverWithGemini({
+          audioBuffer: Buffer.from('audio'),
+          fetchFn: mockFetch
+        });
+        await analyzeVoiceoverWithGemini({
+          audioBuffer: Buffer.from('audio'),
+          fetchFn: mockFetch
+        });
+
+        assert.deepStrictEqual(keysUsed, ['account-key-1', 'account-key-2', 'account-key-1']);
+      } finally {
+        config.GEMINI_AUDIO_API_KEYS = originalKeys;
+        config.GEMINI_AUDIO_API_KEY = originalKey;
+      }
+    });
+
+    it('fails over to next key when encountering HTTP 429 quota exhausted', async () => {
+      const attemptedKeys = [];
+      const mockFetch = async (url) => {
+        const u = new URL(url);
+        const k = u.searchParams.get('key');
+        attemptedKeys.push(k);
+
+        if (k === 'exhausted-key') {
+          return {
+            ok: false,
+            status: 429,
+            text: async () => 'RESOURCE_EXHAUSTED: Quota exceeded for account'
+          };
+        }
+
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            candidates: [{ content: { parts: [{ text: '{"cuts": []}' }] } }]
+          })
+        };
+      };
+
+      const originalKeys = config.GEMINI_AUDIO_API_KEYS;
+      const originalKey = config.GEMINI_AUDIO_API_KEY;
+      config.GEMINI_AUDIO_API_KEYS = ['exhausted-key', 'healthy-key'];
+      delete config.GEMINI_AUDIO_API_KEY;
+
+      try {
+        const res = await analyzeVoiceoverWithGemini({
+          audioBuffer: Buffer.from('audio'),
+          fetchFn: mockFetch,
+          backoffMs: 1
+        });
+
+        assert.ok(res);
+        assert.ok(attemptedKeys.includes('exhausted-key'), 'Attempted exhausted key');
+        assert.ok(attemptedKeys.includes('healthy-key'), 'Rotated to healthy key');
+        assert.strictEqual(attemptedKeys[attemptedKeys.length - 1], 'healthy-key');
+      } finally {
+        config.GEMINI_AUDIO_API_KEYS = originalKeys;
+        config.GEMINI_AUDIO_API_KEY = originalKey;
+      }
+    });
+
     it('throws error when all models fail', async () => {
       const mockFetch = async () => ({
         ok: false,

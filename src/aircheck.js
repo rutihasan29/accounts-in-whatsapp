@@ -263,6 +263,65 @@ async function spliceAudioCuts({ inputPath, outputPath, cuts = [], totalDuration
   };
 }
 
+let lastPoolSignature = '';
+let currentAudioKeyIndex = 0;
+
+function resetAudioKeyRotation(index = 0) {
+  currentAudioKeyIndex = index;
+  lastPoolSignature = '';
+}
+
+function getAudioApiKeysPool(customKey = undefined) {
+  if (customKey !== undefined) {
+    if (Array.isArray(customKey)) {
+      return customKey.map(k => String(k).trim()).filter(Boolean);
+    }
+    if (typeof customKey === 'string') {
+      return customKey.split(/[,;\n]/).map(k => k.trim()).filter(Boolean);
+    }
+  }
+
+  if (Array.isArray(config.GEMINI_AUDIO_API_KEYS) && config.GEMINI_AUDIO_API_KEYS.length > 0) {
+    if (config.GEMINI_AUDIO_API_KEY && !config.GEMINI_AUDIO_API_KEYS.includes(config.GEMINI_AUDIO_API_KEY)) {
+      return [config.GEMINI_AUDIO_API_KEY];
+    }
+    return [...config.GEMINI_AUDIO_API_KEYS];
+  }
+
+  if (config.GEMINI_AUDIO_API_KEY) {
+    return typeof config.GEMINI_AUDIO_API_KEY === 'string'
+      ? config.GEMINI_AUDIO_API_KEY.split(/[,;\n]/).map(k => k.trim()).filter(Boolean)
+      : [config.GEMINI_AUDIO_API_KEY];
+  }
+
+  if (config.GEMINI_API_KEY) {
+    return [config.GEMINI_API_KEY];
+  }
+
+  return [];
+}
+
+function getRotatedAudioKeys(customKey = undefined) {
+  const pool = getAudioApiKeysPool(customKey);
+  if (pool.length === 0) return [];
+  if (pool.length === 1) return pool;
+
+  const poolSig = pool.join('||');
+  if (poolSig !== lastPoolSignature) {
+    lastPoolSignature = poolSig;
+    currentAudioKeyIndex = 0;
+  }
+
+  const startIdx = currentAudioKeyIndex % pool.length;
+  currentAudioKeyIndex = (currentAudioKeyIndex + 1) % pool.length;
+
+  const rotated = [];
+  for (let i = 0; i < pool.length; i++) {
+    rotated.push(pool[(startIdx + i) % pool.length]);
+  }
+  return rotated;
+}
+
 /**
  * Analyzes audio for voiceover retakes using multi-model cascade with exponential backoff
  */
@@ -276,8 +335,8 @@ async function analyzeVoiceoverWithGemini({
   timeoutMs = 60000,
   backoffMs = undefined
 } = {}) {
-  const effectiveKey = apiKey !== undefined ? apiKey : (config.GEMINI_AUDIO_API_KEY || config.GEMINI_API_KEY);
-  if (!effectiveKey) {
+  const keys = getRotatedAudioKeys(apiKey);
+  if (keys.length === 0) {
     throw new Error('GEMINI_API_KEY is not configured');
   }
 
@@ -300,80 +359,96 @@ async function analyzeVoiceoverWithGemini({
 
   for (const candidate of candidates) {
     for (let attempt = 1; attempt <= 2; attempt++) {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      let candidateCompleted = false;
 
-      try {
-        const generationConfig = {
-          responseMimeType: 'application/json',
-          responseSchema: VOICEOVER_RESPONSE_SCHEMA,
-          temperature: 0.1
-        };
+      for (let kIdx = 0; kIdx < keys.length; kIdx++) {
+        const effectiveKey = keys[kIdx];
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-        if (candidate.thinkingConfig) {
-          generationConfig.thinkingConfig = candidate.thinkingConfig;
-        }
+        try {
+          const generationConfig = {
+            responseMimeType: 'application/json',
+            responseSchema: VOICEOVER_RESPONSE_SCHEMA,
+            temperature: 0.1
+          };
 
-        const payload = {
-          contents: [
-            {
-              parts: [
-                {
-                  inlineData: {
-                    mimeType: cleanMime,
-                    data: audioBase64
+          if (candidate.thinkingConfig) {
+            generationConfig.thinkingConfig = candidate.thinkingConfig;
+          }
+
+          const payload = {
+            contents: [
+              {
+                parts: [
+                  {
+                    inlineData: {
+                      mimeType: cleanMime,
+                      data: audioBase64
+                    }
+                  },
+                  {
+                    text: prompt
                   }
-                },
-                {
-                  text: prompt
-                }
-              ]
+                ]
+              }
+            ],
+            generationConfig
+          };
+
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${candidate.model}:generateContent?key=${effectiveKey}`;
+          const res = await fetchFn(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: controller.signal
+          });
+
+          if (!res.ok) {
+            const errBody = await res.text().catch(() => '');
+            const err = new Error(`HTTP ${res.status}: ${errBody.slice(0, 200)}`);
+
+            // If 429 quota exhaustion or 403, and additional keys exist, rotate immediately!
+            if ((res.status === 429 || res.status === 403) && kIdx < keys.length - 1) {
+              console.warn(`[AirCheck AI] Key (...${effectiveKey.slice(-6)}) hit HTTP ${res.status} quota limit. Rotating to next key in pool...`);
+              lastError = err;
+              continue;
             }
-          ],
-          generationConfig
-        };
+            throw err;
+          }
 
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${candidate.model}:generateContent?key=${effectiveKey}`;
-        const res = await fetchFn(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-          signal: controller.signal
-        });
+          const data = await res.json();
+          const rawText = data?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
+          if (!rawText) {
+            throw new Error(`Empty response from ${candidate.model}`);
+          }
 
-        if (!res.ok) {
-          const errBody = await res.text().catch(() => '');
-          throw new Error(`HTTP ${res.status}: ${errBody.slice(0, 200)}`);
+          const cleanedJson = cleanJsonString(rawText);
+          const parsedData = JSON.parse(cleanedJson);
+
+          const mistakesAndRetakes = Array.isArray(parsedData.mistakesAndRetakes)
+            ? parsedData.mistakesAndRetakes
+            : [];
+
+          return {
+            overallTranscript: parsedData.overallTranscript || '',
+            mistakesAndRetakes,
+            cuts: mistakesAndRetakes,
+            modelUsed: candidate.model,
+            keyUsed: effectiveKey,
+            data: parsedData
+          };
+        } catch (err) {
+          lastError = err;
+          break; // For non-429 errors (500, 503, etc), break key loop to proceed with retry/backoff
+        } finally {
+          clearTimeout(timeout);
         }
+      }
 
-        const data = await res.json();
-        const rawText = data?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
-        if (!rawText) {
-          throw new Error(`Empty response from ${candidate.model}`);
-        }
-
-        const cleanedJson = cleanJsonString(rawText);
-        const parsedData = JSON.parse(cleanedJson);
-
-        const mistakesAndRetakes = Array.isArray(parsedData.mistakesAndRetakes)
-          ? parsedData.mistakesAndRetakes
-          : [];
-
-        return {
-          overallTranscript: parsedData.overallTranscript || '',
-          mistakesAndRetakes,
-          cuts: mistakesAndRetakes,
-          modelUsed: candidate.model,
-          data: parsedData
-        };
-      } catch (err) {
-        lastError = err;
-        console.warn(`[AirCheck AI] ${candidate.model} (attempt ${attempt}) error: ${err.message}`);
-        if (attempt < 2 && effectiveBackoff > 0) {
-          await new Promise(r => setTimeout(r, effectiveBackoff * attempt));
-        }
-      } finally {
-        clearTimeout(timeout);
+      console.warn(`[AirCheck AI] ${candidate.model} (attempt ${attempt}) error: ${lastError?.message}`);
+      if (attempt < 2 && effectiveBackoff > 0) {
+        await new Promise(r => setTimeout(r, effectiveBackoff * attempt));
       }
     }
   }
@@ -541,5 +616,8 @@ module.exports = {
   spliceAudioWithFFmpeg,
   spliceAudioCuts,
   analyzeVoiceoverWithGemini,
-  cleanVoiceoverAudio
+  cleanVoiceoverAudio,
+  getRotatedAudioKeys,
+  getAudioApiKeysPool,
+  resetAudioKeyRotation
 };
