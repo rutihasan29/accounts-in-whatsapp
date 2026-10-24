@@ -22,7 +22,9 @@ const {
   findVoiceJobOrderByVa2MsgId,
   updateVoiceJobVa2ForwardMsgId,
   updateVoiceJobDelivered,
-  getBotSetting
+  getBotSetting,
+  cacheStaffLid,
+  getCachedStaffLid
 } = require('./db');
 const {
   isAudioDocumentMessage,
@@ -650,11 +652,24 @@ async function handleMessageCreate({
     const cleanVa2 = String(config.VA2_PHONE || '8801307760509').replace(/\D/g, '');
     let isVa2 = isPhoneMatch(cleanSender, cleanVa2);
 
+    const cachedVa2Lid = getCachedStaffLid(db, 'VA2');
+    if (!isVa2 && cachedVa2Lid) {
+      if (
+        rawSender.includes(cachedVa2Lid) ||
+        String(msg.from || '').includes(cachedVa2Lid) ||
+        String(msg.id?.remote || '').includes(cachedVa2Lid) ||
+        String(msg.author || '').includes(cachedVa2Lid)
+      ) {
+        isVa2 = true;
+      }
+    }
+
     if (!isVa2 && (rawSender.endsWith('@lid') || msg.from?.endsWith?.('@lid') || msg.id?.remote?.endsWith?.('@lid'))) {
       try {
         const resolved = await resolveCustomerPhone({ client, recipient: rawSender, msg });
         if (isPhoneMatch(resolved, cleanVa2)) {
           isVa2 = true;
+          cacheStaffLid(db, 'VA2', cleanVa2, rawSender);
         }
       } catch {}
     }
@@ -662,8 +677,10 @@ async function handleMessageCreate({
     if (isVa2) {
       const isAudio = isAudioDocumentMessage(msg) ||
         msg.type === 'audio' ||
+        msg.type === 'ptt' ||
+        msg.isVoice === true ||
         msg.mimetype?.startsWith('audio/') ||
-        (msg.hasMedia && msg.filename && /\.(wav|mp3|m4a|ogg|aac|flac)$/i.test(msg.filename));
+        (msg.hasMedia && (msg.filename || msg.body) && /\.(wav|mp3|m4a|ogg|aac|flac|opus)$/i.test(msg.filename || msg.body));
 
       if (isAudio) {
         let quotedMsgId = null;
@@ -685,11 +702,19 @@ async function handleMessageCreate({
           return { action: 'IGNORED_VA2_AUDIO_NO_ORDER' };
         }
 
-        const rawFilename = msg.filename || msg.body || '';
+        let media = null;
+        if (typeof msg.downloadMedia === 'function') {
+          try {
+            media = await msg.downloadMedia();
+          } catch (e) {
+            console.warn('[VA2_AUDIO] Error downloading media from VA2:', e.message);
+          }
+        }
+
+        const rawFilename = msg.filename || msg.body || media?.filename || '';
         const hasBengali = hasBengaliCharacters(rawFilename);
 
         if (hasBengali) {
-          const media = typeof msg.downloadMedia === 'function' ? await msg.downloadMedia() : null;
           if (media) {
             const customerJid = `${order.customer_phone}@c.us`;
             if (client && typeof client.sendMessage === 'function') {
@@ -727,7 +752,6 @@ async function handleMessageCreate({
             }
           };
         } else {
-          const media = typeof msg.downloadMedia === 'function' ? await msg.downloadMedia() : null;
           const audioBuffer = (media && media.data)
             ? Buffer.from(media.data, 'base64')
             : (Buffer.isBuffer(media) ? media : Buffer.alloc(0));
@@ -1511,6 +1535,21 @@ function setupBotHandlers({ client, db }) {
       await syncExistingInboxContacts({ client, db, resolveCustomerPhone });
     } catch (e) {
       console.warn('[SYNC] Error syncing existing contacts on ready:', e.message);
+    }
+
+    // Proactively resolve and cache VA2's LID
+    try {
+      const cleanVa2 = String(config.VA2_PHONE || '8801307760509').replace(/\D/g, '');
+      if (client && typeof client.getContactById === 'function') {
+        const va2Contact = await client.getContactById(`${cleanVa2}@c.us`);
+        const va2Lid = va2Contact?.lid?._serialized || va2Contact?.lid || (typeof va2Contact?.id?._serialized === 'string' && va2Contact.id._serialized.endsWith('@lid') ? va2Contact.id._serialized : null);
+        if (va2Lid && String(va2Lid).includes('@lid')) {
+          console.log(`[VA2_SYNC] Discovered VA2 LID on ready: ${va2Lid}`);
+          cacheStaffLid(db, 'VA2', cleanVa2, va2Lid);
+        }
+      }
+    } catch (e) {
+      // Non-fatal
     }
   });
 

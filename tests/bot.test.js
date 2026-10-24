@@ -1613,6 +1613,109 @@ describe('Bot Message Router', () => {
       assert.strictEqual(sentMessages[0].options.quotedMessageId, 'script-msg-888');
       db.close();
     });
+
+    it('VA2 audio reply from multi-device LID matching cached staff_lids is recognized and delivered', async () => {
+      const { cacheStaffLid } = require('../src/db');
+      const db = initDb(':memory:');
+      cacheStaffLid(db, 'VA2', '8801307760509', '123456789012345@lid');
+
+      const order = createVoiceJobOrder(db, {
+        customerPhone: '8801700112233',
+        customerName: 'LID Customer',
+        customerScriptMsgId: 'script-msg-lid',
+        va2ForwardMsgId: 'va2-msg-lid',
+        scriptText: 'স্পেশাল টেস্ট স্ক্রিপ্ট',
+        headline: 'স্পেশাল টেস্ট'
+      });
+
+      const sentMessages = [];
+      const mockClient = {
+        info: { wid: { user: '8801340517587' } },
+        sendMessage: async (jid, content, options) => {
+          sentMessages.push({ jid, content, options });
+          return { id: { _serialized: 'lid-delivery-ack' } };
+        }
+      };
+
+      // Message from VA2 with LID as sender
+      const va2Msg = {
+        id: { _serialized: 'va2-lid-msg-id', id: 'va2-lid-msg-id', remote: '123456789012345@lid' },
+        fromMe: false,
+        from: '123456789012345@lid',
+        to: '8801340517587@c.us',
+        hasMedia: true,
+        type: 'document',
+        filename: 'স্পেশাল টেস্ট.mp3',
+        mimetype: 'audio/mp3',
+        hasQuotedMsg: false,
+        downloadMedia: async () => ({
+          data: Buffer.from('audio-data-lid').toString('base64'),
+          mimetype: 'audio/mp3',
+          filename: 'স্পেশাল টেস্ট.mp3'
+        })
+      };
+
+      const res = await handleMessageCreate({
+        msg: va2Msg,
+        client: mockClient,
+        db
+      });
+
+      assert.strictEqual(res.action, 'DELIVERED_VA2_AUDIO_DIRECT');
+      assert.strictEqual(res.details.orderId, order.order_id);
+      assert.strictEqual(sentMessages[0].jid, '8801700112233@c.us');
+      db.close();
+    });
+
+    it('VA2 voice note (type === ptt, isVoice === true) is recognized as audio and processed', async () => {
+      const db = initDb(':memory:');
+      const order = createVoiceJobOrder(db, {
+        customerPhone: '8801799001122',
+        customerName: 'Voice Note Customer',
+        customerScriptMsgId: 'script-msg-ptt',
+        va2ForwardMsgId: 'va2-msg-ptt',
+        scriptText: 'ভয়েস নোট টেস্ট স্ক্রিপ্ট',
+        headline: 'ভয়েস নোট টেস্ট'
+      });
+
+      const sentMessages = [];
+      const mockClient = {
+        info: { wid: { user: '8801340517587' } },
+        sendMessage: async (jid, content, options) => {
+          sentMessages.push({ jid, content, options });
+          return { id: { _serialized: 'ptt-delivery-ack' } };
+        }
+      };
+
+      // Voice note message (Push To Talk / PTT)
+      const va2Msg = {
+        id: { _serialized: 'va2-ptt-msg-id', id: 'va2-ptt-msg-id' },
+        fromMe: false,
+        from: '8801307760509@c.us',
+        to: '8801340517587@c.us',
+        hasMedia: true,
+        type: 'ptt',
+        isVoice: true,
+        mimetype: 'audio/ogg; codecs=opus',
+        hasQuotedMsg: false,
+        downloadMedia: async () => ({
+          data: Buffer.from('audio-data-ptt').toString('base64'),
+          mimetype: 'audio/ogg; codecs=opus',
+          filename: 'ভয়েস নোট টেস্ট.ogg'
+        })
+      };
+
+      const res = await handleMessageCreate({
+        msg: va2Msg,
+        client: mockClient,
+        db
+      });
+
+      assert.strictEqual(res.action, 'DELIVERED_VA2_AUDIO_DIRECT');
+      assert.strictEqual(res.details.orderId, order.order_id);
+      assert.strictEqual(sentMessages[0].jid, '8801799001122@c.us');
+      db.close();
+    });
   });
 });
 
