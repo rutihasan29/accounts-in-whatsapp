@@ -1,19 +1,31 @@
 const config = require('./config');
-const { createVoiceJobOrder, getBotSetting } = require('./db');
+const {
+  createVoiceJobOrder,
+  getBotSetting,
+  savePendingConfirmation,
+  getPendingConfirmationFromDb,
+  removePendingConfirmationFromDb,
+  getAllPendingConfirmationsFromDb
+} = require('./db');
 const { extractHeadline } = require('./audio');
 
 const pendingConfirmations = new Map();
 
-function cancelPendingConfirmation(customerPhone) {
+function cancelPendingConfirmation(customerPhone, db = null) {
   const cleanPhone = String(customerPhone || '').replace(/\D/g, '');
   if (!cleanPhone) return false;
+  let deleted = false;
   const existing = pendingConfirmations.get(cleanPhone);
   if (existing) {
     if (existing.timer) clearTimeout(existing.timer);
     pendingConfirmations.delete(cleanPhone);
-    return true;
+    deleted = true;
   }
-  return false;
+  if (db) {
+    const dbDeleted = removePendingConfirmationFromDb(db, cleanPhone);
+    if (dbDeleted) deleted = true;
+  }
+  return deleted;
 }
 
 function schedulePendingConfirmation({
@@ -28,7 +40,19 @@ function schedulePendingConfirmation({
   const cleanPhone = String(customerPhone || '').replace(/\D/g, '');
   if (!cleanPhone) return null;
 
-  cancelPendingConfirmation(cleanPhone);
+  cancelPendingConfirmation(cleanPhone, db);
+
+  const askedAt = Date.now();
+  if (db) {
+    savePendingConfirmation(db, {
+      customerPhone: cleanPhone,
+      script,
+      customerName,
+      customerScriptMsgId,
+      timeoutMs,
+      askedAt
+    });
+  }
 
   const cleanVe3 = String(config.VE3_PHONE || '8801831366604').replace(/\D/g, '');
   const ve3Jid = `${cleanVe3}@c.us`;
@@ -38,6 +62,9 @@ function schedulePendingConfirmation({
   const timer = setTimeout(async () => {
     if (!pendingConfirmations.has(cleanPhone)) return;
     pendingConfirmations.delete(cleanPhone);
+    if (db) {
+      removePendingConfirmationFromDb(db, cleanPhone);
+    }
 
     const ve3Enabled = getBotSetting(db, 've3_escalation_enabled', true);
     if (!ve3Enabled) {
@@ -68,15 +95,46 @@ function schedulePendingConfirmation({
     customerPhone: cleanPhone,
     customerScriptMsgId,
     timeoutMs,
-    askedAt: Date.now()
+    askedAt
   };
   pendingConfirmations.set(cleanPhone, record);
   return record;
 }
 
-function getPendingConfirmation(customerPhone) {
+function getPendingConfirmation(customerPhone, db = null) {
   const cleanPhone = String(customerPhone || '').replace(/\D/g, '');
-  return pendingConfirmations.get(cleanPhone) || null;
+  if (!cleanPhone) return null;
+  let record = pendingConfirmations.get(cleanPhone) || null;
+  if (!record && db) {
+    const dbRecord = getPendingConfirmationFromDb(db, cleanPhone);
+    if (dbRecord) {
+      record = dbRecord;
+      pendingConfirmations.set(cleanPhone, record);
+    }
+  }
+  return record;
+}
+
+function restorePendingConfirmations({ client, db }) {
+  if (!db) return 0;
+  const activeRecords = getAllPendingConfirmationsFromDb(db);
+  const now = Date.now();
+  let count = 0;
+  for (const item of activeRecords) {
+    const elapsed = now - item.askedAt;
+    const remainingMs = Math.max(1000, item.timeoutMs - elapsed);
+    schedulePendingConfirmation({
+      client,
+      customerPhone: item.customerPhone,
+      customerName: item.customerName,
+      script: item.script,
+      customerScriptMsgId: item.customerScriptMsgId,
+      timeoutMs: remainingMs,
+      db
+    });
+    count++;
+  }
+  return count;
 }
 
 function clearAllPendingConfirmations() {
@@ -301,5 +359,6 @@ module.exports = {
   cancelPendingConfirmation,
   schedulePendingConfirmation,
   getPendingConfirmation,
+  restorePendingConfirmations,
   clearAllPendingConfirmations
 };

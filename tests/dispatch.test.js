@@ -469,3 +469,42 @@ test('VOICE_JOB dispatch without db succeeds gracefully without throwing', async
   assert.equal(res.details.va2ForwardMsgId, 'va2-forward-msg-888');
   assert.ok(res.details.headline);
 });
+
+test('schedulePendingConfirmation persists to db and restores across memory loss', async () => {
+  const db = initDb(':memory:');
+  clearAllPendingConfirmations();
+
+  schedulePendingConfirmation({
+    customerPhone: '8801711223344',
+    customerName: 'Test Persistent Customer',
+    script: 'খবরের স্ক্রিপ্ট টেক্সট',
+    customerScriptMsgId: 'script-msg-123',
+    timeoutMs: 60000,
+    db
+  });
+
+  // Verify it exists in memory and DB
+  let mem = getPendingConfirmation('8801711223344', db);
+  assert.ok(mem);
+  assert.equal(mem.script, 'খবরের স্ক্রিপ্ট টেক্সট');
+
+  // Simulate process restart by clearing memory map
+  clearAllPendingConfirmations();
+
+  // getPendingConfirmation with db should restore it from DB
+  let restored = getPendingConfirmation('8801711223344', db);
+  assert.ok(restored, 'Pending confirmation should be restored from database');
+  assert.equal(restored.script, 'খবরের স্ক্রিপ্ট টেক্সট');
+  assert.equal(restored.customerName, 'Test Persistent Customer');
+  assert.equal(restored.customerScriptMsgId, 'script-msg-123');
+
+  // Cancel it
+  const cancelled = cancelPendingConfirmation('8801711223344', db);
+  assert.equal(cancelled, true);
+
+  // Should no longer exist in memory or DB
+  const afterCancel = getPendingConfirmation('8801711223344', db);
+  assert.equal(afterCancel, null);
+  db.close();
+});
+

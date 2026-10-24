@@ -187,6 +187,23 @@ function initDb(dbPath) {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS pending_confirmations (
+      customer_phone TEXT PRIMARY KEY,
+      script TEXT NOT NULL,
+      customer_name TEXT,
+      customer_script_msg_id TEXT,
+      timeout_ms INTEGER NOT NULL,
+      asked_at INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS staff_lids (
+      staff_role TEXT PRIMARY KEY,
+      phone_number TEXT NOT NULL,
+      lid TEXT NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE INDEX IF NOT EXISTS idx_transactions_phone ON transactions(phone_number);
     CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type);
     CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
@@ -1253,6 +1270,144 @@ function getAllBotSettings(db, defaults = DEFAULT_BOT_SETTINGS) {
   return settings;
 }
 
+function savePendingConfirmation(db, {
+  customerPhone,
+  script,
+  customerName = null,
+  customerScriptMsgId = null,
+  timeoutMs = 300000,
+  askedAt = Date.now()
+}) {
+  if (!db || !customerPhone) return null;
+  const cleanPhone = String(customerPhone).replace(/\D/g, '');
+  if (!cleanPhone) return null;
+
+  try {
+    const stmt = db.prepare(`
+      INSERT INTO pending_confirmations (
+        customer_phone, script, customer_name, customer_script_msg_id, timeout_ms, asked_at
+      ) VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(customer_phone) DO UPDATE SET
+        script = excluded.script,
+        customer_name = excluded.customer_name,
+        customer_script_msg_id = excluded.customer_script_msg_id,
+        timeout_ms = excluded.timeout_ms,
+        asked_at = excluded.asked_at,
+        created_at = CURRENT_TIMESTAMP
+    `);
+    stmt.run(cleanPhone, script, customerName, customerScriptMsgId, timeoutMs, askedAt);
+    return {
+      customerPhone: cleanPhone,
+      script,
+      customerName,
+      customerScriptMsgId,
+      timeoutMs,
+      askedAt
+    };
+  } catch (err) {
+    console.warn('[DB] Error saving pending confirmation:', err.message);
+    return null;
+  }
+}
+
+function getPendingConfirmationFromDb(db, customerPhone) {
+  if (!db || !customerPhone) return null;
+  const cleanPhone = String(customerPhone).replace(/\D/g, '');
+  if (!cleanPhone) return null;
+
+  try {
+    const row = db.prepare(`
+      SELECT customer_phone, script, customer_name, customer_script_msg_id, timeout_ms, asked_at
+      FROM pending_confirmations
+      WHERE customer_phone = ?
+    `).get(cleanPhone);
+    if (!row) return null;
+
+    // Check expiration
+    const now = Date.now();
+    if (now - row.asked_at > row.timeout_ms) {
+      removePendingConfirmationFromDb(db, cleanPhone);
+      return null;
+    }
+
+    return {
+      customerPhone: row.customer_phone,
+      script: row.script,
+      customerName: row.customer_name,
+      customerScriptMsgId: row.customer_script_msg_id,
+      timeoutMs: row.timeout_ms,
+      askedAt: row.asked_at
+    };
+  } catch (err) {
+    return null;
+  }
+}
+
+function removePendingConfirmationFromDb(db, customerPhone) {
+  if (!db || !customerPhone) return false;
+  const cleanPhone = String(customerPhone).replace(/\D/g, '');
+  if (!cleanPhone) return false;
+
+  try {
+    const res = db.prepare('DELETE FROM pending_confirmations WHERE customer_phone = ?').run(cleanPhone);
+    return res.changes > 0;
+  } catch (err) {
+    return false;
+  }
+}
+
+function getAllPendingConfirmationsFromDb(db) {
+  if (!db) return [];
+  try {
+    const rows = db.prepare(`
+      SELECT customer_phone, script, customer_name, customer_script_msg_id, timeout_ms, asked_at
+      FROM pending_confirmations
+    `).all();
+    const now = Date.now();
+    return rows.filter(r => (now - r.asked_at) <= r.timeout_ms).map(r => ({
+      customerPhone: r.customer_phone,
+      script: r.script,
+      customerName: r.customer_name,
+      customerScriptMsgId: r.customer_script_msg_id,
+      timeoutMs: r.timeout_ms,
+      askedAt: r.asked_at
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function cacheStaffLid(db, staffRole, phone, lid) {
+  if (!db || !staffRole || !lid) return false;
+  const cleanPhone = String(phone || '').replace(/\D/g, '');
+  const cleanLid = String(lid).trim();
+  try {
+    const stmt = db.prepare(`
+      INSERT INTO staff_lids (staff_role, phone_number, lid, updated_at)
+      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(staff_role) DO UPDATE SET
+        phone_number = excluded.phone_number,
+        lid = excluded.lid,
+        updated_at = CURRENT_TIMESTAMP
+    `);
+    stmt.run(staffRole.toUpperCase(), cleanPhone, cleanLid);
+    return true;
+  } catch (err) {
+    console.warn('[DB] Error caching staff LID:', err.message);
+    return false;
+  }
+}
+
+function getCachedStaffLid(db, staffRole) {
+  if (!db || !staffRole) return null;
+  try {
+    const row = db.prepare('SELECT phone_number, lid FROM staff_lids WHERE staff_role = ?').get(staffRole.toUpperCase());
+    return row ? row.lid : null;
+  } catch {
+    return null;
+  }
+}
+
 module.exports = {
   initDb,
   recordTransaction,
@@ -1291,5 +1446,11 @@ module.exports = {
   DEFAULT_BOT_SETTINGS,
   getBotSetting,
   setBotSetting,
-  getAllBotSettings
+  getAllBotSettings,
+  savePendingConfirmation,
+  getPendingConfirmationFromDb,
+  removePendingConfirmationFromDb,
+  getAllPendingConfirmationsFromDb,
+  cacheStaffLid,
+  getCachedStaffLid
 };
