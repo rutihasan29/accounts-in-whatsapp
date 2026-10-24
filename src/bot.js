@@ -120,8 +120,44 @@ function formatDueReport(dueList) {
   return summary.join('\n');
 }
 
+function normalizeMessageId(msg) {
+  if (!msg) return;
+  if (typeof msg.id === 'string') {
+    msg.id = { _serialized: msg.id, id: msg.id };
+  } else if (msg.id && typeof msg.id === 'object') {
+    if (!msg.id._serialized) {
+      const fromMe = msg.id.fromMe ?? msg.fromMe ?? false;
+      const remote = msg.id.remote ?? msg.from ?? msg._data?.from ?? '';
+      const idStr = msg.id.id ?? msg._data?.id?.id ?? '';
+      if (remote && idStr) {
+        msg.id._serialized = `${fromMe}_${remote}_${idStr}`;
+      } else if (idStr) {
+        msg.id._serialized = idStr;
+      }
+    }
+  } else if (!msg.id && msg._data?.id) {
+    if (typeof msg._data.id === 'string') {
+      msg.id = { _serialized: msg._data.id, id: msg._data.id };
+    } else if (typeof msg._data.id === 'object') {
+      msg.id = { ...msg._data.id };
+      if (!msg.id._serialized) {
+        const fromMe = msg.id.fromMe ?? msg.fromMe ?? false;
+        const remote = msg.id.remote ?? msg.from ?? '';
+        const idStr = msg.id.id ?? '';
+        if (remote && idStr) {
+          msg.id._serialized = `${fromMe}_${remote}_${idStr}`;
+        } else if (idStr) {
+          msg.id._serialized = idStr;
+        }
+      }
+    }
+  }
+}
+
 async function extractQuotedMessageInfo(msg) {
   if (!msg) return { quotedMsgId: null, quotedBody: null, quotedFromMe: null, quotedParticipant: null, hasQuote: false };
+
+  normalizeMessageId(msg);
 
   let quotedMsgId = null;
   let quotedBody = null;
@@ -156,6 +192,10 @@ async function extractQuotedMessageInfo(msg) {
   }
   if (d.quotedParticipant || d.contextInfo?.participant) {
     quotedParticipant = d.quotedParticipant || d.contextInfo?.participant;
+  }
+  if (!quotedBody && d.contextInfo?.quotedMessage) {
+    const qm = d.contextInfo.quotedMessage;
+    quotedBody = qm.conversation || qm.extendedTextMessage?.text || qm.documentMessage?.caption || qm.imageMessage?.caption || null;
   }
 
   // 3. msg.getQuotedMessage()
@@ -192,17 +232,277 @@ async function extractQuotedMessageInfo(msg) {
   };
 }
 
-async function downloadMediaWithRetry(msg, maxAttempts = 3, baseDelayMs = 1500) {
-  if (!msg || typeof msg.downloadMedia !== 'function') return null;
+async function downloadMediaInPage(pupPage, { targetId, stanzaId, filename, targetChat, directMediaParams }) {
+  if (!pupPage || typeof pupPage.evaluate !== 'function') return null;
+
+  try {
+    const res = await pupPage.evaluate(async ({ targetId, stanzaId, filename, targetChat, directMediaParams }) => {
+      try {
+        const getBase64FromArrayBuffer = async (ab) => {
+          if (!ab) return null;
+          if (window.WWebJS && typeof window.WWebJS.arrayBufferToBase64Async === 'function') {
+            return await window.WWebJS.arrayBufferToBase64Async(ab);
+          }
+          let binary = '';
+          const bytes = new Uint8Array(ab);
+          const len = bytes.byteLength;
+          for (let i = 0; i < len; i += 32768) {
+            const chunk = bytes.subarray(i, Math.min(i + 32768, len));
+            binary += String.fromCharCode.apply(null, chunk);
+          }
+          return window.btoa(binary);
+        };
+
+        const dm = window.require('WAWebDownloadManager')?.downloadManager || window.require('WAWebDownloadManager');
+
+        // Strategy 1: Direct decrypt if directPath and mediaKey exist
+        if (dm && directMediaParams?.directPath && directMediaParams?.mediaKey) {
+          try {
+            const mockQpl = { addAnnotations: () => {}, addPoint: () => {} };
+            const decrypted = await dm.downloadAndMaybeDecrypt({
+              directPath: directMediaParams.directPath,
+              encFilehash: directMediaParams.encFilehash,
+              filehash: directMediaParams.filehash,
+              mediaKey: directMediaParams.mediaKey,
+              mediaKeyTimestamp: directMediaParams.mediaKeyTimestamp,
+              type: directMediaParams.type || 'document',
+              signal: new AbortController().signal,
+              downloadQpl: mockQpl
+            });
+            if (decrypted) {
+              const base64 = await getBase64FromArrayBuffer(decrypted);
+              if (base64) {
+                return {
+                  data: base64,
+                  mimetype: directMediaParams.mimetype || 'audio/mpeg',
+                  filename: directMediaParams.filename || 'audio.mp3',
+                  filesize: directMediaParams.size
+                };
+              }
+            }
+          } catch (e) {}
+        }
+
+        // Strategy 2: Pre-load chat into memory if targetChat specified
+        if (targetChat && window.WWebJS && typeof window.WWebJS.getChat === 'function') {
+          try {
+            await window.WWebJS.getChat(targetChat, { getAsModel: false });
+          } catch {}
+        }
+
+        const collections = window.require('WAWebCollections');
+        const msgCollection = collections?.Msg;
+
+        // Strategy 3: Find message model safely WITHOUT calling Msg.getMessagesById (which throws `r`!)
+        let m = null;
+        if (targetId && msgCollection) {
+          try {
+            m = msgCollection.get(targetId);
+          } catch {}
+        }
+        if (!m && stanzaId && Array.isArray(msgCollection?.models)) {
+          m = msgCollection.models.find(x => x.id?.id === stanzaId || x.id?._serialized === targetId);
+        }
+        if (!m && collections?.Chat?.models) {
+          for (const c of collections.Chat.models) {
+            if (c.msgs?.models) {
+              const found = c.msgs.models.find(x => x.id?.id === stanzaId || x.id?._serialized === targetId);
+              if (found) {
+                m = found;
+                break;
+              }
+            }
+          }
+        }
+        if (!m && filename && Array.isArray(msgCollection?.models)) {
+          m = msgCollection.models.slice(-30).reverse().find(
+            x => (x.filename && x.filename.toLowerCase() === filename.toLowerCase()) ||
+                 (x.body && x.body.toLowerCase() === filename.toLowerCase())
+          );
+        }
+
+        if (!m) {
+          return { error: 'Msg model not found in WhatsApp Web' };
+        }
+
+        const effectiveMimetype = m.mimetype || m.mediaData?.mimetype || directMediaParams?.mimetype || 'audio/mpeg';
+        const effectiveFilename = m.filename || m.body || directMediaParams?.filename || 'audio.mp3';
+
+        // Strategy 4: Check if renderableUrl is available directly in memory
+        if (m.mediaData?.renderableUrl) {
+          try {
+            const resp = await fetch(m.mediaData.renderableUrl);
+            const blob = await resp.blob();
+            const buffer = await blob.arrayBuffer();
+            const base64 = await getBase64FromArrayBuffer(buffer);
+            if (base64) {
+              return { data: base64, mimetype: effectiveMimetype, filename: effectiveFilename };
+            }
+          } catch {}
+        }
+
+        // Strategy 5: Check if blob is available in memory
+        if (m.mediaData?.blob) {
+          try {
+            const buffer = await m.mediaData.blob.arrayBuffer();
+            const base64 = await getBase64FromArrayBuffer(buffer);
+            if (base64) {
+              return { data: base64, mimetype: effectiveMimetype, filename: effectiveFilename };
+            }
+          } catch {}
+        }
+
+        // Strategy 6: Check if file is available in memory
+        if (m.mediaData?.file) {
+          try {
+            const buffer = await m.mediaData.file.arrayBuffer();
+            const base64 = await getBase64FromArrayBuffer(buffer);
+            if (base64) {
+              return { data: base64, mimetype: effectiveMimetype, filename: effectiveFilename };
+            }
+          } catch {}
+        }
+
+        // Strategy 7: Try resolving mediaStage if not already RESOLVED
+        if (m.mediaData && m.mediaData.mediaStage !== 'RESOLVED' && typeof m.downloadMedia === 'function') {
+          try {
+            await m.downloadMedia({ downloadEvenIfExpensive: true, rmrReason: 1 });
+          } catch {}
+        }
+
+        // Re-check renderableUrl, blob, or file after trigger
+        if (m.mediaData?.renderableUrl) {
+          try {
+            const resp = await fetch(m.mediaData.renderableUrl);
+            const blob = await resp.blob();
+            const buffer = await blob.arrayBuffer();
+            const base64 = await getBase64FromArrayBuffer(buffer);
+            if (base64) {
+              return { data: base64, mimetype: effectiveMimetype, filename: effectiveFilename };
+            }
+          } catch {}
+        }
+        if (m.mediaData?.blob) {
+          try {
+            const buffer = await m.mediaData.blob.arrayBuffer();
+            const base64 = await getBase64FromArrayBuffer(buffer);
+            if (base64) {
+              return { data: base64, mimetype: effectiveMimetype, filename: effectiveFilename };
+            }
+          } catch {}
+        }
+
+        // Strategy 8: Decrypt via downloadAndMaybeDecrypt with parameters from model
+        const dp = m.directPath || m.mediaData?.directPath || directMediaParams?.directPath;
+        const mk = m.mediaKey || m.mediaData?.mediaKey || directMediaParams?.mediaKey;
+        const efh = m.encFilehash || m.mediaData?.encFilehash || directMediaParams?.encFilehash;
+        const fh = m.filehash || m.mediaData?.filehash || directMediaParams?.filehash;
+        const mkt = m.mediaKeyTimestamp || m.mediaData?.mediaKeyTimestamp || directMediaParams?.mediaKeyTimestamp;
+        const mType = m.type || directMediaParams?.type || 'document';
+
+        if (dm && dp && mk) {
+          try {
+            const mockQpl = { addAnnotations: () => {}, addPoint: () => {} };
+            const decrypted = await dm.downloadAndMaybeDecrypt({
+              directPath: dp,
+              encFilehash: efh,
+              filehash: fh,
+              mediaKey: mk,
+              mediaKeyTimestamp: mkt,
+              type: mType,
+              signal: new AbortController().signal,
+              downloadQpl: mockQpl
+            });
+            if (decrypted) {
+              const base64 = await getBase64FromArrayBuffer(decrypted);
+              if (base64) {
+                return {
+                  data: base64,
+                  mimetype: effectiveMimetype,
+                  filename: effectiveFilename,
+                  filesize: m.size || directMediaParams?.size
+                };
+              }
+            }
+          } catch (decErr) {
+            return { error: 'downloadAndMaybeDecrypt: ' + decErr.message };
+          }
+        }
+
+        return { error: 'Media keys not ready or missing' };
+      } catch (inner) {
+        return { error: inner.message };
+      }
+    }, { targetId, stanzaId, filename, targetChat, directMediaParams });
+
+    return res;
+  } catch (evalErr) {
+    console.warn('[VA2_AUDIO] In-page evaluate error:', evalErr.message);
+    return null;
+  }
+}
+
+async function downloadMediaWithFallback(msg, client = null, maxAttempts = 3, baseDelayMs = 1500) {
+  if (!msg) return null;
+
+  normalizeMessageId(msg);
+
+  const targetId = msg.id?._serialized || (typeof msg.id === 'string' ? msg.id : msg.id?.id);
+  const stanzaId = msg.id?.id || msg._data?.id?.id || (typeof msg.id === 'string' ? msg.id : null);
+  const filename = msg.filename || msg._data?.filename || msg.body;
+  const targetChat = msg.from || msg.to || msg._data?.from || msg._data?.to;
+
+  const directMediaParams = {
+    directPath: msg._data?.directPath || msg.directPath,
+    mediaKey: msg._data?.mediaKey || msg.mediaKey,
+    encFilehash: msg._data?.encFilehash || msg.encFilehash,
+    filehash: msg._data?.filehash || msg.filehash,
+    mediaKeyTimestamp: msg._data?.mediaKeyTimestamp || msg.mediaKeyTimestamp,
+    type: msg.type || msg._data?.type || 'document',
+    mimetype: msg.mimetype || msg._data?.mimetype || 'audio/mpeg',
+    filename: filename || 'audio.mp3',
+    size: msg.size || msg._data?.size
+  };
+
+  const pupPage = client?.pupPage || msg.client?.pupPage;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      const media = await msg.downloadMedia();
-      if (media && media.data && typeof media.data === 'string' && media.data.length > 0) {
-        return media;
+    // 1. Try built-in msg.downloadMedia()
+    if (typeof msg.downloadMedia === 'function') {
+      try {
+        const media = await msg.downloadMedia();
+        if (media && media.data && typeof media.data === 'string' && media.data.length > 0) {
+          if (filename && !media.filename) media.filename = filename;
+          return media;
+        }
+      } catch (err) {
+        console.warn(`[VA2_AUDIO] Built-in downloadMedia attempt ${attempt}/${maxAttempts} error: ${err?.message || err}`);
       }
-    } catch (err) {
-      console.warn(`[VA2_AUDIO] Media download attempt ${attempt}/${maxAttempts} error: ${err?.message || err}`);
+    }
+
+    // 2. Try in-page fallback extraction if pupPage is available
+    if (pupPage) {
+      try {
+        const inPageRes = await downloadMediaInPage(pupPage, {
+          targetId,
+          stanzaId,
+          filename,
+          targetChat,
+          directMediaParams
+        });
+        if (inPageRes && inPageRes.data && typeof inPageRes.data === 'string' && inPageRes.data.length > 0) {
+          console.log(`[VA2_AUDIO] Successfully downloaded media via in-page fallback on attempt ${attempt}`);
+          return createMedia(
+            inPageRes.mimetype || msg.mimetype || 'audio/mpeg',
+            inPageRes.data,
+            inPageRes.filename || filename || 'audio.mp3'
+          );
+        } else if (inPageRes?.error) {
+          console.warn(`[VA2_AUDIO] In-page fallback attempt ${attempt} diagnostic: ${inPageRes.error}`);
+        }
+      } catch (inPageErr) {
+        console.warn(`[VA2_AUDIO] In-page fallback attempt ${attempt} error: ${inPageErr?.message || inPageErr}`);
+      }
     }
 
     if (attempt < maxAttempts) {
@@ -213,6 +513,10 @@ async function downloadMediaWithRetry(msg, maxAttempts = 3, baseDelayMs = 1500) 
   }
 
   return null;
+}
+
+async function downloadMediaWithRetry(msg, maxAttempts = 3, baseDelayMs = 1500, client = null) {
+  return downloadMediaWithFallback(msg, client, maxAttempts, baseDelayMs);
 }
 
 function extractUser(jid) {
@@ -822,10 +1126,10 @@ async function handleMessageCreate({
           return { action: 'IGNORED_VA2_AUDIO_NO_ORDER' };
         }
 
-        let media = await downloadMediaWithRetry(msg);
+        let media = await downloadMediaWithFallback(msg, client);
 
         if (!media || !media.data || media.data.length === 0) {
-          console.warn(`[VA2_AUDIO] Media could not be downloaded for order ${order.order_id} from message ${msg.id?._serialized || ''}. Aborting audio processing.`);
+          console.warn(`[VA2_AUDIO] Media could not be downloaded for order ${order.order_id} from message ${msg.id?._serialized || msg.id?.id || ''}. Aborting audio processing.`);
           return {
             action: 'VA2_AUDIO_DOWNLOAD_FAILED',
             details: {
@@ -836,6 +1140,9 @@ async function handleMessageCreate({
         }
 
         const rawFilename = msg.filename || msg.body || media?.filename || '';
+        if (media && rawFilename && !media.filename) {
+          media.filename = rawFilename;
+        }
         const hasBengali = hasBengaliCharacters(rawFilename);
 
         if (hasBengali) {
@@ -1628,7 +1935,7 @@ async function recoverPendingWorkflows({ client, db, handleMessageCreateFn = han
       return { recovered: 0 };
     }
 
-    const recentMessages = await va2Chat.fetchMessages({ limit: 25 });
+    const recentMessages = await va2Chat.fetchMessages({ limit: 50 });
     if (!recentMessages || recentMessages.length === 0) {
       return { recovered: 0 };
     }
@@ -1665,6 +1972,10 @@ async function recoverPendingWorkflows({ client, db, handleMessageCreateFn = han
             isMatch = true;
           }
         } else if (!order.va2_forward_msg_id && (quoteInfo.quotedFromMe || (quoteInfo.quotedBody && quoteInfo.quotedBody.includes('[নতুন ভয়েস অর্ডার]')))) {
+          isMatch = true;
+        } else if (!order.va2_forward_msg_id && quoteInfo.hasQuote && (
+          pendingOrders.length === 1 || order.order_id === pendingOrders[pendingOrders.length - 1].order_id
+        )) {
           isMatch = true;
         }
 
@@ -1952,6 +2263,8 @@ module.exports = {
   createMedia,
   isPhoneMatch,
   extractQuotedMessageInfo,
+  downloadMediaWithFallback,
+  downloadMediaWithRetry,
   recoverPendingWorkflows,
   catchupUnreadCustomerMessages
 };

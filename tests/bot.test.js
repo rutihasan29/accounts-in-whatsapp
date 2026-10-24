@@ -1968,6 +1968,135 @@ describe('Bot Message Router', () => {
       assert.strictEqual(notifiedVa2ToEdit, false, 'Should not tell VA2 to edit manually when download failed');
       db.close();
     });
+
+    it('VA2 audio reply with Bengali filename uses in-page pupPage fallback when msg.downloadMedia throws r and forwards directly to customer', async () => {
+      const db = initDb(':memory:');
+      const order = createVoiceJobOrder(db, {
+        customerPhone: '8801918195071',
+        customerName: 'Dengue News Client',
+        customerScriptMsgId: 'cust-script-bengali-123',
+        va2ForwardMsgId: 'va2-fwd-bengali-456',
+        scriptText: 'ডেঙ্গু ও চিকুনগুনিয়া প্রতিরোধে কর্মসূচি অনুষ্ঠিত হয়েছে',
+        headline: 'ডেঙ্গু প্রতিরোধ'
+      });
+
+      const sentMessages = [];
+      let pupPageEvaluated = false;
+
+      const mockClient = {
+        info: { wid: { user: '8801340517587' } },
+        pupPage: {
+          evaluate: async (fn, args) => {
+            pupPageEvaluated = true;
+            return {
+              data: Buffer.from('mock-bengali-audio-bytes').toString('base64'),
+              mimetype: 'audio/mpeg',
+              filename: 'শনিবার ক্লিনিং ডে.mp3'
+            };
+          }
+        },
+        sendMessage: async (jid, content, options) => {
+          sentMessages.push({ jid, content, options });
+          return { id: { _serialized: 'ack-bengali-forward-ok' } };
+        }
+      };
+
+      const va2Msg = {
+        id: { id: 'va2-stanza-bengali-789' }, // missing _serialized to test normalization
+        fromMe: false,
+        from: '8801307760509@c.us',
+        to: '8801340517587@c.us',
+        hasMedia: true,
+        type: 'document',
+        filename: 'শনিবার ক্লিনিং ডে.mp3',
+        mimetype: 'audio/mpeg',
+        hasQuotedMsg: true,
+        quotedMsgId: 'va2-fwd-bengali-456',
+        downloadMedia: async () => {
+          throw new Error('Evaluation failed: r');
+        }
+      };
+
+      const res = await handleMessageCreate({
+        msg: va2Msg,
+        client: mockClient,
+        db
+      });
+
+      assert.strictEqual(pupPageEvaluated, true, 'pupPage.evaluate should be called when msg.downloadMedia throws r');
+      assert.strictEqual(res.action, 'DELIVERED_VA2_AUDIO_DIRECT');
+      assert.strictEqual(sentMessages.length, 1);
+      assert.strictEqual(sentMessages[0].jid, '8801918195071@c.us');
+      assert.strictEqual(sentMessages[0].options?.quotedMessageId, 'cust-script-bengali-123');
+      assert.strictEqual(sentMessages[0].options?.sendMediaAsDocument, true);
+      assert.strictEqual(sentMessages[0].content?.filename, 'শনিবার ক্লিনিং ডে.mp3');
+
+      // Verify DB was updated
+      const updatedOrder = db.prepare('SELECT * FROM voice_job_orders WHERE id = ?').get(order.id);
+      assert.strictEqual(updatedOrder.status, 'DELIVERED');
+      assert.strictEqual(updatedOrder.va2_audio_filename, 'শনিবার ক্লিনিং ডে.mp3');
+      db.close();
+    });
+
+    it('recoverPendingWorkflows recovers pending order with null va2_forward_msg_id when offline audio reply is fetched', async () => {
+      const db = initDb(':memory:');
+      const order = createVoiceJobOrder(db, {
+        customerPhone: '8801918195071',
+        customerName: 'Dengue News Client',
+        customerScriptMsgId: 'cust-script-dengue-789',
+        va2ForwardMsgId: null, // null va2_forward_msg_id
+        scriptText: 'ডেঙ্গু ও চিকুনগুনিয়া প্রতিরোধে প্রধানমন্ত্রী তারেক রহমানের নির্দেশনায়...',
+        headline: 'ডেঙ্গু প্রতিরোধ'
+      });
+
+      const sentMessages = [];
+      const offlineVa2AudioMsg = {
+        id: { _serialized: 'offline-va2-msg-999', id: 'offline-va2-msg-999' },
+        fromMe: false,
+        from: '8801307760509@c.us',
+        to: '8801340517587@c.us',
+        hasMedia: true,
+        type: 'document',
+        filename: 'শনিবার ক্লিনিং ডে.mp3',
+        mimetype: 'audio/mpeg',
+        hasQuotedMsg: true,
+        _data: {
+          quotedStanzaId: 'some-previous-msg-id',
+          quotedMsg: {
+            body: '[নতুন ভয়েস অর্ডার]\nস্ক্রিপ্ট: ডেঙ্গু ও চিকুনগুনিয়া প্রতিরোধে প্রধানমন্ত্রী তারেক রহমানের নির্দেশনায়...'
+          }
+        },
+        downloadMedia: async () => {
+          return {
+            data: Buffer.from('mock-offline-audio').toString('base64'),
+            mimetype: 'audio/mpeg',
+            filename: 'শনিবার ক্লিনিং ডে.mp3'
+          };
+        }
+      };
+
+      const mockClient = {
+        info: { wid: { user: '8801340517587' } },
+        getChatById: async (jid) => ({
+          fetchMessages: async ({ limit }) => [offlineVa2AudioMsg]
+        }),
+        sendMessage: async (jid, content, options) => {
+          sentMessages.push({ jid, content, options });
+          return { id: { _serialized: 'ack-recovery-ok' } };
+        }
+      };
+
+      const { recoverPendingWorkflows } = require('../src/bot');
+      const recResult = await recoverPendingWorkflows({ client: mockClient, db });
+      assert.strictEqual(recResult.recovered, 1);
+      assert.strictEqual(sentMessages.length, 1);
+      assert.strictEqual(sentMessages[0].jid, '8801918195071@c.us');
+      assert.strictEqual(sentMessages[0].options?.sendMediaAsDocument, true);
+
+      const updated = db.prepare('SELECT * FROM voice_job_orders WHERE id = ?').get(order.id);
+      assert.strictEqual(updated.status, 'DELIVERED');
+      db.close();
+    });
   });
 });
 
