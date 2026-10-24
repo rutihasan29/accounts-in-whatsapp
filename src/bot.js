@@ -192,6 +192,29 @@ async function extractQuotedMessageInfo(msg) {
   };
 }
 
+async function downloadMediaWithRetry(msg, maxAttempts = 3, baseDelayMs = 1500) {
+  if (!msg || typeof msg.downloadMedia !== 'function') return null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const media = await msg.downloadMedia();
+      if (media && media.data && typeof media.data === 'string' && media.data.length > 0) {
+        return media;
+      }
+    } catch (err) {
+      console.warn(`[VA2_AUDIO] Media download attempt ${attempt}/${maxAttempts} error: ${err?.message || err}`);
+    }
+
+    if (attempt < maxAttempts) {
+      const delay = (process.env.NODE_ENV === 'test' ? 10 : baseDelayMs) * attempt;
+      console.log(`[VA2_AUDIO] Waiting ${delay}ms before retrying media download (attempt ${attempt + 1}/${maxAttempts})...`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+
+  return null;
+}
+
 function extractUser(jid) {
   if (!jid || typeof jid !== 'string') return '';
   return jid.split('@')[0].split(':')[0].replace(/\D/g, '');
@@ -799,13 +822,17 @@ async function handleMessageCreate({
           return { action: 'IGNORED_VA2_AUDIO_NO_ORDER' };
         }
 
-        let media = null;
-        if (typeof msg.downloadMedia === 'function') {
-          try {
-            media = await msg.downloadMedia();
-          } catch (e) {
-            console.warn('[VA2_AUDIO] Error downloading media from VA2:', e.message);
-          }
+        let media = await downloadMediaWithRetry(msg);
+
+        if (!media || !media.data || media.data.length === 0) {
+          console.warn(`[VA2_AUDIO] Media could not be downloaded for order ${order.order_id} from message ${msg.id?._serialized || ''}. Aborting audio processing.`);
+          return {
+            action: 'VA2_AUDIO_DOWNLOAD_FAILED',
+            details: {
+              orderId: order.order_id,
+              msgId: msg.id?._serialized || msg.id?.id || null
+            }
+          };
         }
 
         const rawFilename = msg.filename || msg.body || media?.filename || '';
@@ -849,9 +876,7 @@ async function handleMessageCreate({
             }
           };
         } else {
-          const audioBuffer = (media && media.data)
-            ? Buffer.from(media.data, 'base64')
-            : (Buffer.isBuffer(media) ? media : Buffer.alloc(0));
+          const audioBuffer = Buffer.from(media.data, 'base64');
 
           const aircheckEnabled = getBotSetting(db, 'aircheck_enabled', true);
           let aircheckRes = null;

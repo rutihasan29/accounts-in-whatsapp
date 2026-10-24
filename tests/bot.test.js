@@ -1853,6 +1853,121 @@ describe('Bot Message Router', () => {
       assert.strictEqual(updatedOrder.va2_forward_msg_id, 'true_8801307760509@c.us_FORW12345');
       db.close();
     });
+
+    it('VA2 audio reply retries media download if first attempt fails with error r and succeeds on retry', async () => {
+      const db = initDb(':memory:');
+      const order = createVoiceJobOrder(db, {
+        customerPhone: '8801534323811',
+        customerName: 'Preenan',
+        customerScriptMsgId: 'cust-script-retry',
+        va2ForwardMsgId: 'script-forward-retry',
+        scriptText: 'টেস্ট স্ক্রিপ্ট অডিও রিট্রাই',
+        headline: 'অডিও রিট্রাই'
+      });
+
+      const sentMessages = [];
+      const mockClient = {
+        info: { wid: { user: '8801340517587' } },
+        sendMessage: async (jid, content, options) => {
+          sentMessages.push({ jid, content, options });
+          return { id: { _serialized: 'ack-retry' } };
+        }
+      };
+
+      let downloadAttempts = 0;
+      const va2Msg = {
+        id: { _serialized: 'va2-audio-retry-msg', id: 'va2-audio-retry-msg' },
+        fromMe: false,
+        from: '8801307760509@c.us',
+        to: '8801340517587@c.us',
+        hasMedia: true,
+        type: 'document',
+        filename: 'ভয়েস রিট্রাই ফাইনাল.mp3',
+        mimetype: 'audio/mp3',
+        hasQuotedMsg: true,
+        quotedMsgId: 'script-forward-retry',
+        downloadMedia: async () => {
+          downloadAttempts++;
+          if (downloadAttempts === 1) {
+            throw new Error('r'); // Simulating the exact 'r' error from WhatsApp Web
+          }
+          return {
+            data: Buffer.from('mock-audio').toString('base64'),
+            mimetype: 'audio/mp3',
+            filename: 'ভয়েস রিট্রাই ফাইনাল.mp3'
+          };
+        }
+      };
+
+      const res = await handleMessageCreate({
+        msg: va2Msg,
+        client: mockClient,
+        db
+      });
+
+      assert.strictEqual(downloadAttempts, 2);
+      assert.strictEqual(res.action, 'DELIVERED_VA2_AUDIO_DIRECT');
+      assert.strictEqual(sentMessages.length, 1);
+      assert.strictEqual(sentMessages[0].jid, '8801534323811@c.us');
+      db.close();
+    });
+
+    it('VA2 audio reply returns VA2_AUDIO_DOWNLOAD_FAILED without running AirCheck or notifying VA2 if media download fails completely', async () => {
+      const db = initDb(':memory:');
+      const order = createVoiceJobOrder(db, {
+        customerPhone: '8801534323811',
+        customerName: 'Preenan',
+        customerScriptMsgId: 'cust-script-fail',
+        va2ForwardMsgId: 'script-forward-fail',
+        scriptText: 'টেস্ট স্ক্রিপ্ট অডিও ফেইল',
+        headline: 'অডিও ফেইল'
+      });
+
+      const sentMessages = [];
+      const mockClient = {
+        info: { wid: { user: '8801340517587' } },
+        sendMessage: async (jid, content, options) => {
+          sentMessages.push({ jid, content, options });
+          return { id: { _serialized: 'ack-fail' } };
+        }
+      };
+
+      let aircheckCalled = false;
+      const mockCleanAudioFn = async () => {
+        aircheckCalled = true;
+        return { failed: true };
+      };
+
+      const va2Msg = {
+        id: { _serialized: 'va2-audio-fail-msg', id: 'va2-audio-fail-msg' },
+        fromMe: false,
+        from: '8801307760509@c.us',
+        to: '8801340517587@c.us',
+        hasMedia: true,
+        type: 'document',
+        filename: 'recording.wav',
+        mimetype: 'audio/wav',
+        hasQuotedMsg: true,
+        quotedMsgId: 'script-forward-fail',
+        downloadMedia: async () => {
+          throw new Error('r');
+        }
+      };
+
+      const res = await handleMessageCreate({
+        msg: va2Msg,
+        client: mockClient,
+        db,
+        cleanVoiceoverAudioFn: mockCleanAudioFn
+      });
+
+      assert.strictEqual(res.action, 'VA2_AUDIO_DOWNLOAD_FAILED');
+      assert.strictEqual(aircheckCalled, false, 'AirCheck should NOT be called on empty audio');
+      // Should NOT notify VA2 with "এটা এডিট করে, স্ক্রিপ্টে রিপ্লাই দিয়ে পাঠান"
+      const notifiedVa2ToEdit = sentMessages.some(m => m.content && m.content.includes('এটা এডিট করে'));
+      assert.strictEqual(notifiedVa2ToEdit, false, 'Should not tell VA2 to edit manually when download failed');
+      db.close();
+    });
   });
 });
 
