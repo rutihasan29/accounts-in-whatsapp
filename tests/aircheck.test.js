@@ -816,6 +816,34 @@ describe('AirCheck Engine Module', () => {
       });
     });
 
+    describe('2-Word Bengali News Title extraction', () => {
+      it('extracts and normalizes newsTitle to exactly 2 words from Gemini response', async () => {
+        const mockResult = {
+          newsTitle: 'তিতাসে শতবর্ষী বৃদ্ধার মামলা',
+          overallTranscript: 'তিতাসে শতবর্ষী বৃদ্ধার ওপর নির্যাতন...',
+          mistakesAndRetakes: []
+        };
+
+        const mockFetch = async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            candidates: [{ content: { parts: [{ text: JSON.stringify(mockResult) }] } }]
+          })
+        });
+
+        const res = await analyzeVoiceoverWithGemini({
+          audioBuffer: Buffer.from('mock-audio'),
+          duration: 10.0,
+          apiKey: 'test-key',
+          fetchFn: mockFetch,
+          backoffMs: 1
+        });
+
+        assert.strictEqual(res.newsTitle, 'তিতাসে শতবর্ষী');
+      });
+    });
+
     describe('renderCleanAudioBufferWithCrossfade', () => {
       it('splices kept segments with 12ms equal-power cosine crossfade', async () => {
         const totalSec = 2;

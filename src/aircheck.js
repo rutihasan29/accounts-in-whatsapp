@@ -50,6 +50,7 @@ CRITICAL RULE FOR ACCURATE CUTS (DO NOT CUT IN WRONG PLACES):
 - You MUST remove the ENTIRE aborted attempt from where it started (plus the pause), up to the exact start of the clean retake.
 - Anchor your cutStartTime and cutEndTime to the Ground-Truth Acoustic Phrase Boundaries above whenever a mistake starts at a phrase boundary and the retake starts at a subsequent phrase boundary!
 - Provide the exact flubStartPhraseIndex (the Phrase # where the aborted attempt began) and retakeStartPhraseIndex (the Phrase # where the clean retake began), or -1 if mid-phrase.
+- In "newsTitle", provide a concise 2-word Bengali headline summarizing what this news voiceover is about (e.g. "তিতাসে শতবর্ষী", "চেয়ারম্যান প্রার্থী"). It MUST be exactly 2 Bengali words.
 - DO NOT cut normal pauses between two different sentences where nothing was flubbed or repeated.`;
 };
 
@@ -59,6 +60,10 @@ CRITICAL RULE FOR ACCURATE CUTS (DO NOT CUT IN WRONG PLACES):
 const VOICEOVER_RESPONSE_SCHEMA = {
   type: 'OBJECT',
   properties: {
+    newsTitle: {
+      type: 'STRING',
+      description: 'A concise 2-word Bengali headline summarizing the actual news story spoken in the voiceover (e.g. "তিতাসে শতবর্ষী", "চেয়ারম্যান প্রার্থী"). Must be exactly 2 Bengali words.'
+    },
     overallTranscript: {
       type: 'STRING',
       description: 'Full verbatim transcription of everything spoken in the audio, including slips and retakes.'
@@ -1026,9 +1031,25 @@ async function analyzeVoiceoverWithGemini({
             };
           });
 
+          // Extract 2-word Bengali news title from Gemini
+          let newsTitle = '';
+          if (parsedData.newsTitle && typeof parsedData.newsTitle === 'string') {
+            const words = parsedData.newsTitle
+              .replace(/[^\u0980-\u09FF\s]/g, ' ')
+              .trim()
+              .split(/\s+/)
+              .filter(Boolean);
+            if (words.length >= 2) {
+              newsTitle = words.slice(0, 2).join(' ');
+            } else if (words.length === 1) {
+              newsTitle = words[0];
+            }
+          }
+
           return {
             overallTranscript: parsedData.overallTranscript || '',
             summary: parsedData.summary || '',
+            newsTitle,
             mistakesAndRetakes: refinedCuts,
             cuts: refinedCuts,
             acousticPhrases: phrases,
@@ -1130,6 +1151,7 @@ async function cleanVoiceoverAudio({
       cutsCount: 0,
       modelUsed: analysis.modelUsed,
       cuts: [],
+      newsTitle: analysis.newsTitle || '',
       acousticPhrases: analysis.acousticPhrases || []
     };
   }
@@ -1191,6 +1213,7 @@ async function cleanVoiceoverAudio({
       cutsCount: validCuts.length,
       modelUsed: analysis.modelUsed,
       cuts: validCuts,
+      newsTitle: analysis.newsTitle || '',
       acousticPhrases: analysis.acousticPhrases || []
     };
   } catch (spliceErr) {

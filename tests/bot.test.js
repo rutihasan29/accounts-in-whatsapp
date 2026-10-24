@@ -2097,6 +2097,131 @@ describe('Bot Message Router', () => {
       assert.strictEqual(updated.status, 'DELIVERED');
       db.close();
     });
+
+    it('uses Gemini 2-word newsTitle for filename instead of outdated order.headline', async () => {
+      const db = initDb(':memory:');
+      const order = createVoiceJobOrder(db, {
+        customerPhone: '8801755667788',
+        customerName: 'Headline Test Customer',
+        customerScriptMsgId: 'cust-script-msg-news-1',
+        va2ForwardMsgId: 'va2-fwd-msg-news-2',
+        scriptText: 'পুরোনো নিউজের টেক্সট যা আর প্রাসঙ্গিক নয়',
+        headline: 'পুরোনো নিউজের লম্বা হেডলাইন যা ভুল'
+      });
+
+      const sentMessages = [];
+      const mockClient = {
+        info: { wid: { user: '8801340517587' } },
+        sendMessage: async (jid, content, options) => {
+          sentMessages.push({ jid, content, options });
+          return { id: { _serialized: `sent-${Date.now()}` } };
+        }
+      };
+
+      const wavBuffer = createWavBuffer(60);
+      const va2Msg = {
+        id: { _serialized: 'va2-audio-reply-title', id: 'va2-audio-reply-title' },
+        fromMe: false,
+        from: '8801307760509@c.us',
+        to: '8801340517587@c.us',
+        hasMedia: true,
+        type: 'document',
+        filename: 'Standard recording 999.wav',
+        mimetype: 'audio/wav',
+        hasQuotedMsg: true,
+        getQuotedMessage: async () => ({
+          id: { _serialized: 'va2-fwd-msg-news-2' }
+        }),
+        downloadMedia: async () => ({
+          data: wavBuffer.toString('base64'),
+          mimetype: 'audio/wav',
+          filename: 'Standard recording 999.wav'
+        })
+      };
+
+      const res = await handleMessageCreate({
+        msg: va2Msg,
+        client: mockClient,
+        db,
+        cleanVoiceoverAudioFn: async ({ audioBuffer }) => ({
+          cleanBuffer: audioBuffer,
+          durationSeconds: 59,
+          cutsCount: 1,
+          newsTitle: 'তিতাসে শতবর্ষী',
+          modelUsed: 'gemini-3.8-flash',
+          cuts: []
+        })
+      });
+
+      assert.strictEqual(res.action, 'DELIVERED_VA2_AUDIO_AIRCHECK');
+      assert.strictEqual(res.details.finalFilename, 'তিতাসে শতবর্ষী (59s).wav');
+      assert.strictEqual(sentMessages[0].content.filename, 'তিতাসে শতবর্ষী (59s).wav');
+
+      const updated = db.prepare('SELECT * FROM voice_job_orders WHERE order_id = ?').get(order.order_id);
+      assert.strictEqual(updated.headline, 'তিতাসে শতবর্ষী');
+      db.close();
+    });
+
+    it('when AirCheck fails, notifies VA2 quoting respective script message even if va2_forward_msg_id was initially null', async () => {
+      const db = initDb(':memory:');
+      const order = createVoiceJobOrder(db, {
+        customerPhone: '8801755667788',
+        customerName: 'Fail Test Customer',
+        customerScriptMsgId: 'cust-script-msg-fail-1',
+        va2ForwardMsgId: null,
+        scriptText: 'স্ক্রিপ্ট টেস্ট'
+      });
+
+      const sentMessages = [];
+      const mockClient = {
+        info: { wid: { user: '8801340517587' } },
+        sendMessage: async (jid, content, options) => {
+          sentMessages.push({ jid, content, options });
+          return { id: { _serialized: `sent-${Date.now()}` } };
+        }
+      };
+
+      const wavBuffer = createWavBuffer(30);
+      const va2Msg = {
+        id: { _serialized: 'va2-audio-reply-fail-99', id: 'va2-audio-reply-fail-99' },
+        fromMe: false,
+        from: '8801307760509@c.us',
+        to: '8801340517587@c.us',
+        hasMedia: true,
+        type: 'document',
+        filename: 'recording.wav',
+        mimetype: 'audio/wav',
+        hasQuotedMsg: true,
+        _data: {
+          quotedStanzaId: 'quoted-script-stanza-123',
+          quotedMsg: { body: '[নতুন ভয়েস অর্ডার]\nস্ক্রিপ্ট: স্ক্রিপ্ট টেস্ট' }
+        },
+        downloadMedia: async () => ({
+          data: wavBuffer.toString('base64'),
+          mimetype: 'audio/wav',
+          filename: 'recording.wav'
+        })
+      };
+
+      const res = await handleMessageCreate({
+        msg: va2Msg,
+        client: mockClient,
+        db,
+        cleanVoiceoverAudioFn: async () => ({
+          failed: true,
+          modelUsed: 'fallback',
+          cutsCount: 0,
+          cleanBuffer: wavBuffer
+        })
+      });
+
+      assert.strictEqual(res.action, 'AIRCHECK_FAILED_NOTIFIED_VA2');
+      assert.strictEqual(sentMessages.length, 1);
+      assert.strictEqual(sentMessages[0].jid, '8801307760509@c.us');
+      assert.strictEqual(sentMessages[0].content, 'এটা এডিট করে, স্ক্রিপ্টে রিপ্লাই দিয়ে পাঠান');
+      assert.strictEqual(sentMessages[0].options.quotedMessageId, 'quoted-script-stanza-123');
+      db.close();
+    });
   });
 });
 

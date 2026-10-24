@@ -1118,6 +1118,7 @@ async function handleMessageCreate({
         // If order matched and order had null or different va2_forward_msg_id, link it now!
         if (order && quoteInfo.quotedMsgId && (!order.va2_forward_msg_id || order.va2_forward_msg_id !== quoteInfo.quotedMsgId)) {
           updateVoiceJobVa2ForwardMsgId(db, order.order_id, quoteInfo.quotedMsgId);
+          order.va2_forward_msg_id = quoteInfo.quotedMsgId;
           console.log(`[VA2_AUDIO] Linked order ${order.order_id} to VA2 quoted msg ID ${quoteInfo.quotedMsgId}`);
         }
 
@@ -1214,7 +1215,7 @@ async function handleMessageCreate({
             console.log(`[AIRCHECK] AirCheck did not work for order ${order.order_id}. Notifying VA2 to edit manually.`);
             const va2ReplyText = 'এটা এডিট করে, স্ক্রিপ্টে রিপ্লাই দিয়ে পাঠান';
             const va2Jid = `${cleanVa2}@c.us`;
-            const replyMsgId = order.va2_forward_msg_id || msg.id?._serialized || msg.id?.id;
+            const replyMsgId = order.va2_forward_msg_id || quoteInfo.quotedMsgId;
             if (client && typeof client.sendMessage === 'function') {
               try {
                 if (replyMsgId) {
@@ -1260,8 +1261,26 @@ async function handleMessageCreate({
             ext = 'aac';
           }
 
+          let headline = (aircheckRes && aircheckRes.newsTitle) ? aircheckRes.newsTitle : order.headline;
+          if (aircheckRes && aircheckRes.newsTitle) {
+            const words = String(aircheckRes.newsTitle)
+              .replace(/[^\u0980-\u09FF\s]/g, ' ')
+              .trim()
+              .split(/\s+/)
+              .filter(Boolean);
+            if (words.length >= 2) {
+              headline = words.slice(0, 2).join(' ');
+            } else if (words.length === 1) {
+              headline = words[0];
+            }
+            try {
+              db.prepare('UPDATE voice_job_orders SET headline = ? WHERE order_id = ?').run(headline, order.order_id);
+              order.headline = headline;
+            } catch {}
+          }
+
           const finalFilename = buildCleanVoiceFilename({
-            headline: order.headline,
+            headline,
             durationSeconds: aircheckRes.durationSeconds,
             ext
           });
@@ -1292,7 +1311,7 @@ async function handleMessageCreate({
           if (client && typeof client.sendMessage === 'function') {
             try {
               await client.sendMessage(va2Jid, cleanMedia, {
-                quotedMessageId: order.va2_forward_msg_id,
+                quotedMessageId: order.va2_forward_msg_id || quoteInfo.quotedMsgId,
                 sendMediaAsDocument: true
               });
             } catch (va2Err) {
