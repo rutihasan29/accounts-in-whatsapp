@@ -1544,6 +1544,9 @@ describe('Bot Message Router', () => {
         type: 'audio',
         mimetype: 'audio/mp3',
         filename: 'unmatched.mp3',
+        hasQuotedMsg: true,
+        quotedMsgId: 'unknown-script-msg-id',
+        getQuotedMessage: async () => ({ id: { _serialized: 'unknown-script-msg-id' } }),
         downloadMedia: async () => ({
           data: Buffer.from('unmatched-audio').toString('base64'),
           mimetype: 'audio/mp3'
@@ -1561,9 +1564,9 @@ describe('Bot Message Router', () => {
       db.close();
     });
 
-    it('VA2 audio reply without quote falls back to latest pending voice job order', async () => {
+    it('VA2 audio reply without quote is ignored (must be reply to script)', async () => {
       const db = initDb(':memory:');
-      const order = createVoiceJobOrder(db, {
+      createVoiceJobOrder(db, {
         customerPhone: '8801811223344',
         customerName: 'Pending Customer',
         customerScriptMsgId: 'script-msg-888',
@@ -1591,12 +1594,7 @@ describe('Bot Message Router', () => {
         type: 'document',
         filename: 'মেগা সেল অফার.mp3',
         mimetype: 'audio/mp3',
-        hasQuotedMsg: false,
-        downloadMedia: async () => ({
-          data: Buffer.from('audio-data').toString('base64'),
-          mimetype: 'audio/mp3',
-          filename: 'মেগা সেল অফার.mp3'
-        })
+        hasQuotedMsg: false
       };
 
       const res = await handleMessageCreate({
@@ -1605,12 +1603,8 @@ describe('Bot Message Router', () => {
         db
       });
 
-      assert.strictEqual(res.action, 'DELIVERED_VA2_AUDIO_DIRECT');
-      assert.strictEqual(res.details.orderId, order.order_id);
-      assert.strictEqual(res.details.customerPhone, '8801811223344');
-      assert.strictEqual(sentMessages.length, 1);
-      assert.strictEqual(sentMessages[0].jid, '8801811223344@c.us');
-      assert.strictEqual(sentMessages[0].options.quotedMessageId, 'script-msg-888');
+      assert.strictEqual(res.action, 'IGNORED_VA2_UNQUOTED_AUDIO');
+      assert.strictEqual(sentMessages.length, 0);
       db.close();
     });
 
@@ -1637,7 +1631,7 @@ describe('Bot Message Router', () => {
         }
       };
 
-      // Message from VA2 with LID as sender
+      // Message from VA2 with LID as sender quoting script
       const va2Msg = {
         id: { _serialized: 'va2-lid-msg-id', id: 'va2-lid-msg-id', remote: '123456789012345@lid' },
         fromMe: false,
@@ -1647,7 +1641,9 @@ describe('Bot Message Router', () => {
         type: 'document',
         filename: 'স্পেশাল টেস্ট.mp3',
         mimetype: 'audio/mp3',
-        hasQuotedMsg: false,
+        hasQuotedMsg: true,
+        quotedMsgId: 'va2-msg-lid',
+        getQuotedMessage: async () => ({ id: { _serialized: 'va2-msg-lid' } }),
         downloadMedia: async () => ({
           data: Buffer.from('audio-data-lid').toString('base64'),
           mimetype: 'audio/mp3',
@@ -1667,9 +1663,9 @@ describe('Bot Message Router', () => {
       db.close();
     });
 
-    it('VA2 voice note (type === ptt, isVoice === true) is recognized as audio and processed', async () => {
+    it('VA2 voice note (type === ptt, isVoice === true) is strictly ignored', async () => {
       const db = initDb(':memory:');
-      const order = createVoiceJobOrder(db, {
+      createVoiceJobOrder(db, {
         customerPhone: '8801799001122',
         customerName: 'Voice Note Customer',
         customerScriptMsgId: 'script-msg-ptt',
@@ -1697,12 +1693,8 @@ describe('Bot Message Router', () => {
         type: 'ptt',
         isVoice: true,
         mimetype: 'audio/ogg; codecs=opus',
-        hasQuotedMsg: false,
-        downloadMedia: async () => ({
-          data: Buffer.from('audio-data-ptt').toString('base64'),
-          mimetype: 'audio/ogg; codecs=opus',
-          filename: 'ভয়েস নোট টেস্ট.ogg'
-        })
+        hasQuotedMsg: true,
+        quotedMsgId: 'va2-msg-ptt'
       };
 
       const res = await handleMessageCreate({
@@ -1711,9 +1703,8 @@ describe('Bot Message Router', () => {
         db
       });
 
-      assert.strictEqual(res.action, 'DELIVERED_VA2_AUDIO_DIRECT');
-      assert.strictEqual(res.details.orderId, order.order_id);
-      assert.strictEqual(sentMessages[0].jid, '8801799001122@c.us');
+      assert.strictEqual(res.action, 'IGNORED_VA2_PTT');
+      assert.strictEqual(sentMessages.length, 0);
       db.close();
     });
   });

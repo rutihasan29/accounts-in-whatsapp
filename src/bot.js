@@ -680,12 +680,15 @@ async function handleMessageCreate({
     }
 
     if (isVa2) {
+      if (msg.type === 'ptt' || msg.isVoice === true) {
+        console.log('[VA2_AUDIO] Ignoring PTT/voice note from VA2 (only audio file replies to script are allowed).');
+        return { action: 'IGNORED_VA2_PTT' };
+      }
+
       const isAudio = isAudioDocumentMessage(msg) ||
         msg.type === 'audio' ||
-        msg.type === 'ptt' ||
-        msg.isVoice === true ||
         msg.mimetype?.startsWith('audio/') ||
-        (msg.hasMedia && (msg.filename || msg.body) && /\.(wav|mp3|m4a|ogg|aac|flac|opus)$/i.test(msg.filename || msg.body));
+        (msg.hasMedia && (msg.filename || msg.body) && /\.(wav|mp3|m4a|ogg|aac|flac)$/i.test(msg.filename || msg.body));
 
       if (isAudio) {
         let quotedMsgId = null;
@@ -699,11 +702,15 @@ async function handleMessageCreate({
           quotedMsgId = msg.quotedMsgId;
         }
 
-        const order = (quotedMsgId ? findVoiceJobOrderByVa2MsgId(db, quotedMsgId) : null)
-          || findLatestPendingVoiceJob(db);
+        if (!quotedMsgId) {
+          console.log('[VA2_AUDIO] Audio file from VA2 ignored because it was not sent as a reply to a script.');
+          return { action: 'IGNORED_VA2_UNQUOTED_AUDIO' };
+        }
+
+        const order = findVoiceJobOrderByVa2MsgId(db, quotedMsgId);
 
         if (!order) {
-          console.log('[VA2_AUDIO] Received audio from VA2 but no pending voice job order found.');
+          console.log(`[VA2_AUDIO] Received audio from VA2 replying to ${quotedMsgId}, but no matching voice job order found.`);
           return { action: 'IGNORED_VA2_AUDIO_NO_ORDER' };
         }
 
@@ -1518,12 +1525,11 @@ async function recoverPendingWorkflows({ client, db, handleMessageCreateFn = han
 
       for (const m of recentMessages) {
         if (m.fromMe) continue;
+        if (m.type === 'ptt' || m.isVoice === true) continue;
         const isAudio = isAudioDocumentMessage(m) ||
           m.type === 'audio' ||
-          m.type === 'ptt' ||
-          m.isVoice === true ||
           m.mimetype?.startsWith('audio/') ||
-          (m.hasMedia && (m.filename || m.body) && /\.(wav|mp3|m4a|ogg|aac|flac|opus)$/i.test(m.filename || m.body));
+          (m.hasMedia && (m.filename || m.body) && /\.(wav|mp3|m4a|ogg|aac|flac)$/i.test(m.filename || m.body));
 
         if (!isAudio) continue;
 
@@ -1545,27 +1551,6 @@ async function recoverPendingWorkflows({ client, db, handleMessageCreateFn = han
         )) {
           matchedMsg = m;
           break;
-        }
-
-        const name = (m.filename || m.body || '').toLowerCase();
-        if (order.headline && name.includes(order.headline.toLowerCase())) {
-          matchedMsg = m;
-          break;
-        }
-      }
-
-      if (!matchedMsg) {
-        const lastAudio = [...recentMessages].reverse().find(m => {
-          if (m.fromMe) return false;
-          return isAudioDocumentMessage(m) ||
-            m.type === 'audio' ||
-            m.type === 'ptt' ||
-            m.isVoice === true ||
-            m.mimetype?.startsWith('audio/') ||
-            (m.hasMedia && (m.filename || m.body) && /\.(wav|mp3|m4a|ogg|aac|flac|opus)$/i.test(m.filename || m.body));
-        });
-        if (lastAudio) {
-          matchedMsg = lastAudio;
         }
       }
 
