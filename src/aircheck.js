@@ -276,7 +276,7 @@ async function analyzeVoiceoverWithGemini({
   timeoutMs = 60000,
   backoffMs = undefined
 } = {}) {
-  const effectiveKey = apiKey !== undefined ? apiKey : config.GEMINI_API_KEY;
+  const effectiveKey = apiKey !== undefined ? apiKey : (config.GEMINI_AUDIO_API_KEY || config.GEMINI_API_KEY);
   if (!effectiveKey) {
     throw new Error('GEMINI_API_KEY is not configured');
   }

@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const config = require('../src/config');
 const {
   computeKeptSegments,
   spliceAudioWithFFmpeg,
@@ -311,6 +312,41 @@ describe('AirCheck Engine Module', () => {
         }),
         /GEMINI_API_KEY is not configured/
       );
+    });
+
+    it('uses GEMINI_AUDIO_API_KEY when apiKey is omitted', async () => {
+      let passedKey = null;
+      const mockFetch = async (url) => {
+        const u = new URL(url);
+        passedKey = u.searchParams.get('key');
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    { text: '{"cuts": []}' }
+                  ]
+                }
+              }
+            ]
+          })
+        };
+      };
+
+      const originalAudioKey = config.GEMINI_AUDIO_API_KEY;
+      config.GEMINI_AUDIO_API_KEY = 'test-audio-key-override';
+      try {
+        await analyzeVoiceoverWithGemini({
+          audioBuffer: Buffer.from('audio'),
+          fetchFn: mockFetch
+        });
+        assert.strictEqual(passedKey, 'test-audio-key-override');
+      } finally {
+        config.GEMINI_AUDIO_API_KEY = originalAudioKey;
+      }
     });
 
     it('throws error when all models fail', async () => {
