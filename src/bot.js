@@ -1923,22 +1923,57 @@ async function recoverPendingWorkflows({ client, db, handleMessageCreateFn = han
 
     const cleanVa2 = String(config.VA2_PHONE || '8801307760509').replace(/\D/g, '');
     const va2Jid = `${cleanVa2}@c.us`;
+    const cachedVa2Lid = getCachedStaffLid(db, 'VA2') || getCachedStaffLid(db, 'va2');
+
+    // Pre-load chats into memory if pupPage is available
+    if (client.pupPage && typeof client.pupPage.evaluate === 'function') {
+      try {
+        await client.pupPage.evaluate(async (jids) => {
+          for (const jid of jids) {
+            try {
+              if (window.WWebJS?.getChat) await window.WWebJS.getChat(jid, { getAsModel: false });
+            } catch {}
+          }
+        }, [cachedVa2Lid, va2Jid].filter(Boolean));
+      } catch {}
+    }
 
     let va2Chat = null;
-    if (typeof client.getChatById === 'function') {
+    if (cachedVa2Lid && typeof client.getChatById === 'function') {
+      try {
+        va2Chat = await client.getChatById(cachedVa2Lid);
+      } catch {}
+    }
+    if (!va2Chat && typeof client.getChatById === 'function') {
       try {
         va2Chat = await client.getChatById(va2Jid);
       } catch {}
     }
+    if (!va2Chat && typeof client.getChats === 'function') {
+      try {
+        const allChats = await client.getChats();
+        va2Chat = allChats.find(c => {
+          const id = c.id?._serialized || '';
+          return (cachedVa2Lid && id === cachedVa2Lid) ||
+                 id === va2Jid ||
+                 id.startsWith(cleanVa2) ||
+                 isPhoneMatch(id, cleanVa2);
+        });
+      } catch {}
+    }
 
     if (!va2Chat || typeof va2Chat.fetchMessages !== 'function') {
+      console.warn('[RECOVERY] VA2 chat could not be found or loaded.');
       return { recovered: 0 };
     }
 
+    console.log(`[RECOVERY] Found VA2 chat (${va2Chat.id?._serialized || 'unknown'}). Fetching recent messages...`);
     const recentMessages = await va2Chat.fetchMessages({ limit: 50 });
     if (!recentMessages || recentMessages.length === 0) {
+      console.log('[RECOVERY] No recent messages found in VA2 chat.');
       return { recovered: 0 };
     }
+    console.log(`[RECOVERY] Fetched ${recentMessages.length} message(s) from VA2 chat.`);
 
     for (const order of pendingOrders) {
       let matchedMsg = null;
