@@ -1589,11 +1589,40 @@ async function recoverPendingWorkflows({ client, db, handleMessageCreateFn = han
 }
 
 async function catchupUnreadCustomerMessages({ client, db, handleMessageCreateFn = handleMessageCreate }) {
-  if (!client || typeof client.getChats !== 'function') return { processed: 0 };
+  if (!client) return { processed: 0 };
   let processed = 0;
 
   try {
-    const chats = await client.getChats();
+    let chats = [];
+    if (client?.pupPage && typeof client.pupPage.evaluate === 'function') {
+      try {
+        chats = await client.pupPage.evaluate(() => {
+          try {
+            const chatCollection = window.require('WAWebCollections')?.Chat;
+            if (!chatCollection) return [];
+            const models = chatCollection.models || [];
+            return models
+              .filter(c => c && c.unreadCount > 0 && !c.isGroup)
+              .map(c => ({
+                id: c.id ? { _serialized: c.id._serialized } : null,
+                unreadCount: c.unreadCount || 0,
+                isGroup: !!c.isGroup
+              }));
+          } catch {
+            return [];
+          }
+        });
+      } catch {}
+    }
+
+    if (!chats || chats.length === 0) {
+      if (typeof client.getChats === 'function') {
+        try {
+          chats = await client.getChats();
+        } catch {}
+      }
+    }
+
     const myUser = getMyUser(client);
     const cleanVa2 = String(config.VA2_PHONE || '8801307760509').replace(/\D/g, '');
     const cleanVe3 = String(config.VE3_PHONE || '8801831366604').replace(/\D/g, '');
@@ -1615,8 +1644,16 @@ async function catchupUnreadCustomerMessages({ client, db, handleMessageCreateFn
 
     for (const chat of unreadChats) {
       try {
+        let fullChat = chat;
+        if (typeof fullChat.fetchMessages !== 'function' && typeof client.getChatById === 'function') {
+          try {
+            fullChat = await client.getChatById(chat.id._serialized);
+          } catch {}
+        }
+        if (!fullChat || typeof fullChat.fetchMessages !== 'function') continue;
+
         const fetchCount = Math.min(chat.unreadCount || 1, 5);
-        const msgs = typeof chat.fetchMessages === 'function' ? await chat.fetchMessages({ limit: fetchCount }) : [];
+        const msgs = await fullChat.fetchMessages({ limit: fetchCount });
         for (const m of msgs) {
           if (m && !m.fromMe) {
             console.log(`[CATCHUP] Processing unread message from +${extractUser(m.from || chat.id?._serialized)}...`);
