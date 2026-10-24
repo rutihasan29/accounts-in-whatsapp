@@ -5,8 +5,18 @@ const path = require('path');
 const os = require('os');
 const config = require('../src/config');
 const {
+  DEFAULT_SPLICE_SETTINGS,
+  VOICEOVER_PROMPT,
+  VOICEOVER_RESPONSE_SCHEMA,
+  findNearestZeroCrossing,
+  findSilenceValley,
+  refineCutBoundaries,
+  extractAcousticPhrases,
+  decodeAudioToFloat32,
+  downsampleAudioBufferToWav,
   computeKeptSegments,
   spliceAudioWithFFmpeg,
+  renderCleanAudioBufferWithCrossfade,
   spliceAudioCuts,
   analyzeVoiceoverWithGemini,
   cleanVoiceoverAudio,
@@ -223,8 +233,9 @@ describe('AirCheck Engine Module', () => {
       assert.strictEqual(res.modelUsed, 'gemini-3.8-flash');
       assert.strictEqual(res.overallTranscript, mockResult.overallTranscript);
       assert.strictEqual(res.mistakesAndRetakes.length, 1);
-      assert.strictEqual(res.mistakesAndRetakes[0].cutStartTime, 1.25);
-      assert.strictEqual(res.mistakesAndRetakes[0].cutEndTime, 3.5);
+      assert.ok(Math.abs(res.mistakesAndRetakes[0].cutStartTime - 1.25) <= 0.2, 'Cut start refined near 1.25s');
+      assert.ok(Math.abs(res.mistakesAndRetakes[0].cutEndTime - 3.5) <= 0.2, 'Cut end refined near 3.5s');
+      assert.strictEqual(res.data.mistakesAndRetakes[0].cutStartTime, 1.25);
     });
 
     it('strips markdown code fences from response payload', async () => {
@@ -651,6 +662,218 @@ describe('AirCheck Engine Module', () => {
       assert.strictEqual(res.cutsCount, 0);
       assert.strictEqual(res.cleanBuffer, wavBuffer);
       assert.strictEqual(Math.round(res.durationSeconds), 2);
+    });
+  });
+
+  describe('DSP & Acoustic Anchoring Utilities', () => {
+    describe('findNearestZeroCrossing', () => {
+      it('finds sign change zero-crossing in waveform array', () => {
+        const data = new Float32Array([0.5, 0.2, -0.1, -0.4]);
+        const zc = findNearestZeroCrossing(data, 1, 10);
+        assert.strictEqual(zc, 1);
+      });
+
+      it('returns clamped index on bounds or empty data', () => {
+        assert.strictEqual(findNearestZeroCrossing(new Float32Array([]), 0), 0);
+        const data = new Float32Array([0.1, 0.2]);
+        assert.strictEqual(findNearestZeroCrossing(data, 0), 0);
+        assert.strictEqual(findNearestZeroCrossing(data, 1), 1);
+      });
+    });
+
+    describe('findSilenceValley', () => {
+      it('locates local minimum RMS region and snaps to zero-crossing', () => {
+        const sr = 1000;
+        const data = new Float32Array(1000);
+        for (let i = 0; i < 400; i++) data[i] = 0.8 * Math.sin(2 * Math.PI * 50 * (i / sr));
+        for (let i = 400; i < 600; i++) data[i] = 0.0;
+        for (let i = 600; i < 1000; i++) data[i] = 0.8 * Math.sin(2 * Math.PI * 50 * (i / sr));
+
+        const valley = findSilenceValley(data, sr, 0.5, 0.15);
+        assert.ok(valley >= 0.38 && valley <= 0.62, `Valley ${valley} should be within the silent gap`);
+      });
+    });
+
+    describe('refineCutBoundaries', () => {
+      it('refines start and end cut points using silence valleys', () => {
+        const sr = 1000;
+        const data = new Float32Array(2000);
+        for (let i = 0; i < 2000; i++) {
+          const t = i / sr;
+          const isPause = (t >= 0.45 && t <= 0.55) || (t >= 1.45 && t <= 1.55);
+          data[i] = isPause ? 0.0 : 0.7 * Math.sin(2 * Math.PI * 50 * t);
+        }
+
+        const { refinedStart, refinedEnd } = refineCutBoundaries(data, sr, 0.5, 1.5);
+        assert.ok(refinedStart >= 0.40 && refinedStart <= 0.60);
+        assert.ok(refinedEnd >= 1.40 && refinedEnd <= 1.60);
+        assert.ok(refinedEnd > refinedStart);
+      });
+    });
+
+    describe('extractAcousticPhrases', () => {
+      it('extracts discrete phrase boundaries from waveform with speech bursts', () => {
+        const sr = 1000;
+        const data = new Float32Array(3000);
+        for (let i = 100; i < 800; i++) data[i] = 0.8 * Math.sin(2 * Math.PI * 60 * (i / sr));
+        for (let i = 1500; i < 2500; i++) data[i] = 0.8 * Math.sin(2 * Math.PI * 60 * (i / sr));
+
+        const phrases = extractAcousticPhrases(data, sr);
+        assert.ok(Array.isArray(phrases));
+        assert.ok(phrases.length >= 2, `Expected at least 2 phrases, got ${phrases.length}`);
+        assert.strictEqual(phrases[0].index, 0);
+        assert.ok(phrases[0].startTime <= 0.2);
+        assert.ok(phrases[0].pauseAfter >= 0.5, 'Identifies pause after phrase 1');
+      });
+    });
+
+    describe('Acoustic Phrase Locking in analyzeVoiceoverWithGemini', () => {
+      it('locks candidateStart and candidateEnd to exact acoustic phrase indices', async () => {
+        const mockPhrases = [
+          { index: 0, startTime: 0.1, endTime: 1.2, duration: 1.1, pauseAfter: 0.3 },
+          { index: 1, startTime: 1.5, endTime: 2.8, duration: 1.3, pauseAfter: 1.2 },
+          { index: 2, startTime: 4.0, endTime: 5.5, duration: 1.5, pauseAfter: 0.4 }
+        ];
+
+        const mockResult = {
+          overallTranscript: 'Phrase zero. Bad phrase. Clean retake phrase.',
+          mistakesAndRetakes: [
+            {
+              flubStartPhraseIndex: 1,
+              retakeStartPhraseIndex: 2,
+              cutStartTime: 1.6,
+              cutEndTime: 3.9,
+              mistakeText: 'Bad phrase',
+              retakeText: 'Clean retake phrase',
+              reason: 'Retake',
+              confidence: 0.98
+            }
+          ]
+        };
+
+        const mockFetch = async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            candidates: [{ content: { parts: [{ text: JSON.stringify(mockResult) }] } }]
+          })
+        });
+
+        const res = await analyzeVoiceoverWithGemini({
+          audioBuffer: Buffer.from('mock-audio'),
+          duration: 6.0,
+          acousticPhrases: mockPhrases,
+          apiKey: 'test-key',
+          fetchFn: mockFetch,
+          backoffMs: 1
+        });
+
+        assert.strictEqual(res.mistakesAndRetakes.length, 1);
+        assert.strictEqual(res.mistakesAndRetakes[0].cutStartTime, 1.5);
+        assert.strictEqual(res.mistakesAndRetakes[0].cutEndTime, 4.0);
+      });
+
+      it('snaps to nearest phrase within 350ms when phrase index is missing', async () => {
+        const mockPhrases = [
+          { index: 0, startTime: 0.1, endTime: 1.2, duration: 1.1, pauseAfter: 0.3 },
+          { index: 1, startTime: 2.0, endTime: 3.5, duration: 1.5, pauseAfter: 1.0 },
+          { index: 2, startTime: 4.5, endTime: 6.0, duration: 1.5, pauseAfter: 0.5 }
+        ];
+
+        const mockResult = {
+          overallTranscript: 'Text',
+          mistakesAndRetakes: [
+            {
+              cutStartTime: 2.15,
+              cutEndTime: 4.35,
+              mistakeText: 'flub',
+              retakeText: 'retake',
+              reason: 'retake',
+              confidence: 0.95
+            }
+          ]
+        };
+
+        const mockFetch = async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            candidates: [{ content: { parts: [{ text: JSON.stringify(mockResult) }] } }]
+          })
+        });
+
+        const res = await analyzeVoiceoverWithGemini({
+          audioBuffer: Buffer.from('mock-audio'),
+          duration: 7.0,
+          acousticPhrases: mockPhrases,
+          apiKey: 'test-key',
+          fetchFn: mockFetch,
+          backoffMs: 1
+        });
+
+        assert.strictEqual(res.mistakesAndRetakes[0].cutStartTime, 2.0);
+        assert.strictEqual(res.mistakesAndRetakes[0].cutEndTime, 4.5);
+      });
+    });
+
+    describe('renderCleanAudioBufferWithCrossfade', () => {
+      it('splices kept segments with 12ms equal-power cosine crossfade', async () => {
+        const totalSec = 2;
+        const wavBuffer = createWavBuffer(totalSec, 8000);
+        const tempIn = path.join(os.tmpdir(), `test_crossfade_in_${Date.now()}.wav`);
+        const tempOut = path.join(os.tmpdir(), `test_crossfade_out_${Date.now()}.wav`);
+
+        try {
+          await fs.promises.writeFile(tempIn, wavBuffer);
+
+          const keptSegments = [
+            { start: 0, end: 0.6 },
+            { start: 1.4, end: 2.0 }
+          ];
+
+          await renderCleanAudioBufferWithCrossfade({
+            inputPath: tempIn,
+            outputPath: tempOut,
+            keptSegments,
+            settings: { crossfadeDurationMs: 12 }
+          });
+
+          assert.ok(fs.existsSync(tempOut), 'Output file should exist');
+          const splicedBuffer = await fs.promises.readFile(tempOut);
+          assert.ok(splicedBuffer.length > 0);
+          const duration = await getAudioDurationFromBuffer(splicedBuffer, 'audio/wav');
+          assert.strictEqual(Math.round(duration), 1);
+        } finally {
+          try { await fs.promises.unlink(tempIn); } catch {}
+          try { await fs.promises.unlink(tempOut); } catch {}
+        }
+      });
+    });
+
+    describe('Strict Gemini requirement (never edit without Gemini)', () => {
+      it('never cuts audio if Gemini API fails and sets failed: true', async () => {
+        const wavBuffer = createWavBuffer(3, 8000);
+
+        const failingFetch = async () => ({
+          ok: false,
+          status: 503,
+          text: async () => 'Unavailable'
+        });
+
+        const res = await cleanVoiceoverAudio({
+          audioBuffer: wavBuffer,
+          filename: 'voice.wav',
+          mimeType: 'audio/wav',
+          apiKey: 'key',
+          fetchFn: failingFetch,
+          backoffMs: 1
+        });
+
+        assert.strictEqual(res.failed, true);
+        assert.strictEqual(res.modelUsed, 'fallback');
+        assert.strictEqual(res.cutsCount, 0);
+        assert.strictEqual(res.cleanBuffer, wavBuffer, 'Buffer must be original without any cuts');
+      });
     });
   });
 
