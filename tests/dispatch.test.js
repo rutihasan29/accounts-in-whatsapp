@@ -508,3 +508,43 @@ test('schedulePendingConfirmation persists to db and restores across memory loss
   db.close();
 });
 
+test('handleClassificationAction creates order in DB before sending forwardMsg to VA2 with unique order tag', async () => {
+  const db = initDb(':memory:');
+  let orderExistedDuringSend = false;
+  let sentForwardMsg = null;
+
+  const mockClient = {
+    sendMessage: async (jid, text) => {
+      sentForwardMsg = text;
+      const match = text.match(/VJO-\d+-\d+/);
+      if (match) {
+        const found = db.prepare('SELECT * FROM voice_job_orders WHERE order_id = ?').get(match[0]);
+        if (found) orderExistedDuringSend = true;
+      }
+      return { id: { _serialized: 'va2-forward-early-msg' } };
+    }
+  };
+  const mockChat = {
+    sendMessage: async () => ({ id: { _serialized: 'ok-ack' } })
+  };
+
+  const res = await handleClassificationAction({
+    client: mockClient,
+    chat: mockChat,
+    classificationResult: {
+      classification: 'VOICE_JOB',
+      extracted_script: 'টেস্ট স্ক্রিপ্ট টেক্সট'
+    },
+    customerPhone: '8801712345678',
+    customerName: 'Test Customer',
+    customerScriptMsgId: 'cust-msg-123',
+    db
+  });
+
+  assert.equal(res.action, 'VOICE_JOB_DISPATCHED');
+  assert.ok(sentForwardMsg.includes(`[নতুন ভয়েস অর্ডার #${res.details.orderId}]`));
+  assert.strictEqual(orderExistedDuringSend, true, 'Order MUST exist in DB before client.sendMessage is invoked to avoid race condition');
+  db.close();
+});
+
+

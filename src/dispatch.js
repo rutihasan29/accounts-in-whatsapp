@@ -1,6 +1,7 @@
 const config = require('./config');
 const {
   createVoiceJobOrder,
+  updateVoiceJobVa2ForwardMsgId,
   getBotSetting,
   savePendingConfirmation,
   getPendingConfirmationFromDb,
@@ -193,7 +194,27 @@ async function handleClassificationAction({
     const cleanVa2 = String(config.VA2_PHONE || '8801307760509').replace(/\D/g, '');
     const va2Jid = `${cleanVa2}@c.us`;
     const scriptBody = extracted_script || latestMessageText;
-    const forwardMsg = `[নতুন ভয়েস অর্ডার]\n\nস্ক্রিপ্ট:\n${scriptBody}`;
+    const headline = typeof extractHeadline === 'function' ? extractHeadline(scriptBody) : 'ভয়েস স্ক্রিপ্ট';
+    const orderId = `VJO-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    let order = null;
+    if (db) {
+      try {
+        order = createVoiceJobOrder(db, {
+          orderId,
+          customerPhone: cleanCustomerPhone,
+          customerName,
+          customerScriptMsgId,
+          va2ForwardMsgId: null,
+          scriptText: scriptBody,
+          headline
+        });
+      } catch (err) {
+        console.warn('[DISPATCH] Failed creating voice job order in db:', err.message);
+      }
+    }
+
+    const forwardMsg = `[নতুন ভয়েস অর্ডার #${order?.order_id || orderId}]\n\nস্ক্রিপ্ট:\n${scriptBody}`;
 
     let delivered = false;
     let sentMsg = null;
@@ -208,21 +229,11 @@ async function handleClassificationAction({
     }
 
     const va2ForwardMsgId = sentMsg?.id?._serialized || sentMsg?.id?.id || (typeof sentMsg?.id === 'string' ? sentMsg.id : null);
-    const headline = typeof extractHeadline === 'function' ? extractHeadline(scriptBody) : 'ভয়েস স্ক্রিপ্ট';
-
-    let order = null;
-    if (db) {
+    if (db && va2ForwardMsgId && order) {
       try {
-        order = createVoiceJobOrder(db, {
-          customerPhone: cleanCustomerPhone,
-          customerName,
-          customerScriptMsgId,
-          va2ForwardMsgId,
-          scriptText: scriptBody,
-          headline
-        });
+        updateVoiceJobVa2ForwardMsgId(db, order.order_id, va2ForwardMsgId);
       } catch (err) {
-        console.warn('[DISPATCH] Failed creating voice job order in db:', err.message);
+        console.warn('[DISPATCH] Failed updating va2_forward_msg_id in db:', err.message);
       }
     }
 

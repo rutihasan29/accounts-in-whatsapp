@@ -1018,6 +1018,7 @@ function isVideoCustomer(db, phone) {
 }
 
 function createVoiceJobOrder(db, {
+  orderId = null,
   customerPhone,
   customerName = null,
   customerScriptMsgId = null,
@@ -1027,7 +1028,7 @@ function createVoiceJobOrder(db, {
 } = {}) {
   if (!db) return null;
   const cleanPhone = String(customerPhone || '').replace(/\D/g, '');
-  const orderId = `VJO-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+  const finalOrderId = orderId || `VJO-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
   const cleanScript = scriptText != null ? String(scriptText) : '';
 
   const stmt = db.prepare(`
@@ -1044,7 +1045,7 @@ function createVoiceJobOrder(db, {
   `);
 
   stmt.run(
-    orderId,
+    finalOrderId,
     cleanPhone,
     customerName,
     customerScriptMsgId,
@@ -1053,7 +1054,7 @@ function createVoiceJobOrder(db, {
     headline
   );
 
-  return db.prepare('SELECT * FROM voice_job_orders WHERE order_id = ?').get(orderId) || null;
+  return db.prepare('SELECT * FROM voice_job_orders WHERE order_id = ?').get(finalOrderId) || null;
 }
 
 function findVoiceJobOrderByVa2MsgId(db, va2ForwardMsgId) {

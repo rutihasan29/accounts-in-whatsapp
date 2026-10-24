@@ -2222,6 +2222,175 @@ describe('Bot Message Router', () => {
       assert.strictEqual(sentMessages[0].options.quotedMessageId, 'quoted-script-stanza-123');
       db.close();
     });
+
+    it('VA2 audio reply matches order by explicit order ID in quoted message body even when quotedMsgId differs', async () => {
+      const db = initDb(':memory:');
+      // Create Order 1 (Preenan)
+      const order1 = createVoiceJobOrder(db, {
+        orderId: 'VJO-1111111111-1001',
+        customerPhone: '8801534323811',
+        customerName: 'Preenan',
+        customerScriptMsgId: 'preenan-script-msg',
+        va2ForwardMsgId: 'va2-preenan-fwd',
+        scriptText: 'প্রথম খবরের স্ক্রিপ্ট',
+        headline: 'প্রথম খবর'
+      });
+      // Create Order 2 (Riton Mia)
+      const order2 = createVoiceJobOrder(db, {
+        orderId: 'VJO-2222222222-2002',
+        customerPhone: '8801748921188',
+        customerName: 'Riton Mia',
+        customerScriptMsgId: 'riton-script-msg',
+        va2ForwardMsgId: 'va2-riton-fwd',
+        scriptText: 'দ্বিতীয় খবরের স্ক্রিপ্ট',
+        headline: 'দ্বিতীয় খবর'
+      });
+
+      const sentMessages = [];
+      const mockClient = {
+        info: { wid: { user: '8801340517587' } },
+        sendMessage: async (jid, content, options) => {
+          sentMessages.push({ jid, content, options });
+          return { id: { _serialized: 'ack-riton-delivered' } };
+        }
+      };
+
+      // VA2 replies to Riton Mia's order, but quotedStanzaId is arbitrary/corrupted or different
+      const va2Msg = {
+        id: { _serialized: 'va2-audio-reply-riton', id: 'va2-audio-reply-riton' },
+        fromMe: false,
+        from: '8801307760509@c.us',
+        to: '8801340517587@c.us',
+        hasMedia: true,
+        type: 'document',
+        filename: 'দ্বিতীয় খবর ফাইনাল.mp3',
+        mimetype: 'audio/mp3',
+        hasQuotedMsg: true,
+        _data: {
+          quotedStanzaId: 'unrecognized-stanza-id-999',
+          quotedMsg: {
+            body: '[নতুন ভয়েস অর্ডার #VJO-2222222222-2002]\n\nস্ক্রিপ্ট:\nকোনো অমিল স্ক্রিপ্ট টেক্সট'
+          }
+        },
+        downloadMedia: async () => ({
+          data: Buffer.from('mock-audio-bytes').toString('base64'),
+          mimetype: 'audio/mp3',
+          filename: 'দ্বিতীয় খবর ফাইনাল.mp3'
+        })
+      };
+
+      const res = await handleMessageCreate({
+        msg: va2Msg,
+        client: mockClient,
+        db
+      });
+
+      assert.strictEqual(res.action, 'DELIVERED_VA2_AUDIO_DIRECT');
+      assert.strictEqual(res.details.orderId, 'VJO-2222222222-2002');
+      assert.strictEqual(sentMessages[0].jid, '8801748921188@c.us');
+      db.close();
+    });
+
+    it('VA2 audio reply refuses blind fallback when multiple pending orders exist and quoted message cannot be matched', async () => {
+      const db = initDb(':memory:');
+      // Create 2 pending orders
+      createVoiceJobOrder(db, {
+        orderId: 'VJO-1111111111-1001',
+        customerPhone: '8801534323811',
+        customerName: 'Preenan',
+        customerScriptMsgId: 'preenan-msg',
+        va2ForwardMsgId: 'preenan-fwd',
+        scriptText: 'প্রথম খবরের স্ক্রিপ্ট',
+        headline: 'প্রথম খবর'
+      });
+      createVoiceJobOrder(db, {
+        orderId: 'VJO-2222222222-2002',
+        customerPhone: '8801748921188',
+        customerName: 'Riton Mia',
+        customerScriptMsgId: 'riton-msg',
+        va2ForwardMsgId: 'riton-fwd',
+        scriptText: 'দ্বিতীয় খবরের স্ক্রিপ্ট',
+        headline: 'দ্বিতীয় খবর'
+      });
+
+      const sentMessages = [];
+      const mockClient = {
+        info: { wid: { user: '8801340517587' } },
+        sendMessage: async (jid, content, options) => {
+          sentMessages.push({ jid, content, options });
+          return { id: { _serialized: 'ack' } };
+        }
+      };
+
+      // VA2 sends an audio reply quoting something without orderId, with non-matching body and unknown msgId
+      const va2Msg = {
+        id: { _serialized: 'va2-audio-reply-ambiguous', id: 'va2-audio-reply-ambiguous' },
+        fromMe: false,
+        from: '8801307760509@c.us',
+        to: '8801340517587@c.us',
+        hasMedia: true,
+        type: 'document',
+        filename: 'ambiguous.mp3',
+        mimetype: 'audio/mp3',
+        hasQuotedMsg: true,
+        _data: {
+          quotedStanzaId: 'unmatched-id',
+          quotedMsg: {
+            body: '[নতুন ভয়েস অর্ডার]\n\nঅজানা কোনো লেখা'
+          }
+        },
+        downloadMedia: async () => ({
+          data: Buffer.from('mock-audio-bytes').toString('base64'),
+          mimetype: 'audio/mp3'
+        })
+      };
+
+      const res = await handleMessageCreate({
+        msg: va2Msg,
+        client: mockClient,
+        db
+      });
+
+      // Must NOT guess or deliver audio to either customer!
+      assert.strictEqual(res.action, 'IGNORED_VA2_AUDIO_NO_ORDER');
+      assert.strictEqual(sentMessages.length, 0);
+      db.close();
+    });
+
+    it('outgoing forward message with [নতুন ভয়েস অর্ডার #VJO-...] links msgId to specific order and does NOT steal previous order when script unknown', async () => {
+      const db = initDb(':memory:');
+      const order1 = createVoiceJobOrder(db, {
+        orderId: 'VJO-1111111111-1001',
+        customerPhone: '8801534323811',
+        customerName: 'Preenan',
+        customerScriptMsgId: 'cust-script-1',
+        va2ForwardMsgId: null,
+        scriptText: 'পুরোনো স্ক্রিপ্ট',
+        headline: 'পুরোনো খবর'
+      });
+
+      // Outgoing message with non-matching script and non-matching order ID
+      const forwardMsg = {
+        id: { _serialized: 'true_8801307760509@c.us_FORW99999', id: 'FORW99999' },
+        fromMe: true,
+        from: '8801340517587@c.us',
+        to: '8801307760509@c.us',
+        body: '[নতুন ভয়েস অর্ডার #VJO-9999999999-9999]\n\nস্ক্রিপ্ট:\nসম্পূর্ণ ভিন্ন একটি স্ক্রিপ্ট'
+      };
+
+      const res = await handleMessageCreate({
+        msg: forwardMsg,
+        client: { info: { wid: { user: '8801340517587' } } },
+        db
+      });
+
+      // Because order VJO-9999999999-9999 doesn't exist, it should NOT link to Order 1!
+      assert.strictEqual(res?.action, 'LINKED_MANUAL_VA2_FORWARD_NOT_FOUND');
+      const order1After = getVoiceJobOrder(db, order1.order_id);
+      assert.strictEqual(order1After.va2_forward_msg_id, null, 'Must NOT hijack Order 1!');
+      db.close();
+    });
   });
 });
+
 
