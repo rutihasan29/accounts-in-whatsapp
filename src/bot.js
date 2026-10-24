@@ -41,7 +41,12 @@ const { cleanVoiceoverAudio } = require('./aircheck');
 const { sendWelcomeDemo } = require('./welcome');
 const { syncExistingInboxContacts } = require('./sync');
 const { classifyChat, isAffirmativeConfirmation, isNegativeConfirmation } = require('./classifier');
-const { handleClassificationAction, cancelPendingConfirmation, getPendingConfirmation } = require('./dispatch');
+const {
+  handleClassificationAction,
+  cancelPendingConfirmation,
+  getPendingConfirmation,
+  restorePendingConfirmations
+} = require('./dispatch');
 const qrcode = require('qrcode-terminal');
 
 let MessageMedia = null;
@@ -918,7 +923,7 @@ async function handleMessageCreate({
         // and escalate directly to VE3 as Video Customer Message.
         const videoEscalationEnabled = getBotSetting(db, 'video_customer_escalation_enabled', true);
         if (isVideoCustomer(db, phone) && videoEscalationEnabled) {
-          cancelPendingConfirmation(phone);
+          cancelPendingConfirmation(phone, db);
           recordExistingContact(db, { phone, name: contactName });
           console.log(`[VIDEO_CUSTOMER] Inbound message from video customer +${phone}. Escalating directly to VE3.`);
           const activeChat = await resolveChat(client, msg, rawSender, phone);
@@ -1015,7 +1020,7 @@ async function handleMessageCreate({
           }
 
           const myUser = getMyUser(client);
-          const pending = getPendingConfirmation(phone);
+          const pending = getPendingConfirmation(phone, db);
           const rawText = (msg.body || '').trim();
 
           let classificationResult = null;
@@ -1472,6 +1477,164 @@ async function handleMessageRevoke({ after, before, client, db }) {
   };
 }
 
+async function recoverPendingWorkflows({ client, db, handleMessageCreateFn = handleMessageCreate }) {
+  if (!db || !client) return { recovered: 0 };
+  let recovered = 0;
+
+  try {
+    const pendingOrders = db.prepare(`
+      SELECT * FROM voice_job_orders
+      WHERE status = 'PENDING_VA2'
+      ORDER BY id ASC
+    `).all();
+
+    if (!pendingOrders || pendingOrders.length === 0) {
+      return { recovered: 0 };
+    }
+
+    console.log(`[RECOVERY] Found ${pendingOrders.length} pending voice job order(s). Checking VA2 chat for offline audio...`);
+
+    const cleanVa2 = String(config.VA2_PHONE || '8801307760509').replace(/\D/g, '');
+    const va2Jid = `${cleanVa2}@c.us`;
+
+    let va2Chat = null;
+    if (typeof client.getChatById === 'function') {
+      try {
+        va2Chat = await client.getChatById(va2Jid);
+      } catch {}
+    }
+
+    if (!va2Chat || typeof va2Chat.fetchMessages !== 'function') {
+      return { recovered: 0 };
+    }
+
+    const recentMessages = await va2Chat.fetchMessages({ limit: 25 });
+    if (!recentMessages || recentMessages.length === 0) {
+      return { recovered: 0 };
+    }
+
+    for (const order of pendingOrders) {
+      let matchedMsg = null;
+
+      for (const m of recentMessages) {
+        if (m.fromMe) continue;
+        const isAudio = isAudioDocumentMessage(m) ||
+          m.type === 'audio' ||
+          m.type === 'ptt' ||
+          m.isVoice === true ||
+          m.mimetype?.startsWith('audio/') ||
+          (m.hasMedia && (m.filename || m.body) && /\.(wav|mp3|m4a|ogg|aac|flac|opus)$/i.test(m.filename || m.body));
+
+        if (!isAudio) continue;
+
+        let quotedMsgId = null;
+        if (m.hasQuotedMsg && typeof m.getQuotedMessage === 'function') {
+          try {
+            const q = await m.getQuotedMessage();
+            quotedMsgId = q?.id?._serialized || q?.id?.id || null;
+          } catch {}
+        }
+        if (!quotedMsgId && m.quotedMsgId) {
+          quotedMsgId = m.quotedMsgId;
+        }
+
+        if (quotedMsgId && order.va2_forward_msg_id && (
+          quotedMsgId === order.va2_forward_msg_id ||
+          quotedMsgId.includes(order.va2_forward_msg_id) ||
+          order.va2_forward_msg_id.includes(quotedMsgId)
+        )) {
+          matchedMsg = m;
+          break;
+        }
+
+        const name = (m.filename || m.body || '').toLowerCase();
+        if (order.headline && name.includes(order.headline.toLowerCase())) {
+          matchedMsg = m;
+          break;
+        }
+      }
+
+      if (!matchedMsg) {
+        const lastAudio = [...recentMessages].reverse().find(m => {
+          if (m.fromMe) return false;
+          return isAudioDocumentMessage(m) ||
+            m.type === 'audio' ||
+            m.type === 'ptt' ||
+            m.isVoice === true ||
+            m.mimetype?.startsWith('audio/') ||
+            (m.hasMedia && (m.filename || m.body) && /\.(wav|mp3|m4a|ogg|aac|flac|opus)$/i.test(m.filename || m.body));
+        });
+        if (lastAudio) {
+          matchedMsg = lastAudio;
+        }
+      }
+
+      if (matchedMsg) {
+        console.log(`[RECOVERY] Recovering offline audio for order ${order.order_id} (${order.headline || 'Voice Job'})...`);
+        const res = await handleMessageCreateFn({ msg: matchedMsg, client, db });
+        if (res && (
+          res.action === 'DELIVERED_VA2_AUDIO_DIRECT' ||
+          res.action === 'DELIVERED_VA2_AUDIO_AIRCHECK' ||
+          res.action === 'AIRCHECK_FAILED_NOTIFIED_VA2'
+        )) {
+          recovered++;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[RECOVERY] Error during pending workflow recovery:', err.message);
+  }
+
+  return { recovered };
+}
+
+async function catchupUnreadCustomerMessages({ client, db, handleMessageCreateFn = handleMessageCreate }) {
+  if (!client || typeof client.getChats !== 'function') return { processed: 0 };
+  let processed = 0;
+
+  try {
+    const chats = await client.getChats();
+    const myUser = getMyUser(client);
+    const cleanVa2 = String(config.VA2_PHONE || '8801307760509').replace(/\D/g, '');
+    const cleanVe3 = String(config.VE3_PHONE || '8801831366604').replace(/\D/g, '');
+
+    const unreadChats = (chats || []).filter(c => {
+      if (!c) return false;
+      if (c.isGroup === true || String(c.id?._serialized || '').includes('@g.us')) return false;
+      if (c.id?._serialized?.includes('@broadcast') || c.id?._serialized?.includes('@newsletter')) return false;
+      const user = extractUser(c.id?._serialized || '');
+      if (user === myUser || user === cleanVa2 || user === cleanVe3) return false;
+      return (c.unreadCount && c.unreadCount > 0);
+    });
+
+    if (unreadChats.length === 0) {
+      return { processed: 0 };
+    }
+
+    console.log(`[CATCHUP] Found ${unreadChats.length} unread customer chat(s) from downtime. Processing messages...`);
+
+    for (const chat of unreadChats) {
+      try {
+        const fetchCount = Math.min(chat.unreadCount || 1, 5);
+        const msgs = typeof chat.fetchMessages === 'function' ? await chat.fetchMessages({ limit: fetchCount }) : [];
+        for (const m of msgs) {
+          if (m && !m.fromMe) {
+            console.log(`[CATCHUP] Processing unread message from +${extractUser(m.from || chat.id?._serialized)}...`);
+            await handleMessageCreateFn({ msg: m, client, db });
+            processed++;
+          }
+        }
+      } catch (err) {
+        console.warn(`[CATCHUP] Error fetching messages for chat ${chat.id?._serialized}:`, err.message);
+      }
+    }
+  } catch (err) {
+    console.warn('[CATCHUP] Error in catchupUnreadCustomerMessages:', err.message);
+  }
+
+  return { processed };
+}
+
 function setupBotHandlers({ client, db }) {
   let heartbeatInterval = null;
 
@@ -1551,6 +1714,30 @@ function setupBotHandlers({ client, db }) {
     } catch (e) {
       // Non-fatal
     }
+
+    // Restore persistent pending confirmations across restart
+    try {
+      const restored = restorePendingConfirmations({ client, db });
+      if (restored > 0) {
+        console.log(`[RECOVERY] Restored ${restored} active pending confirmation(s) across restart.`);
+      }
+    } catch (e) {
+      console.warn('[RECOVERY] Error restoring pending confirmations on ready:', e.message);
+    }
+
+    // Recover in-flight pending voice jobs (VA2 offline audio replies)
+    try {
+      await recoverPendingWorkflows({ client, db });
+    } catch (e) {
+      console.warn('[RECOVERY] Error recovering pending voice jobs on ready:', e.message);
+    }
+
+    // Catch up unread customer messages sent while bot was offline
+    try {
+      await catchupUnreadCustomerMessages({ client, db });
+    } catch (e) {
+      console.warn('[CATCHUP] Error processing offline customer messages on ready:', e.message);
+    }
   });
 
   client.on('authenticated', () => {
@@ -1621,5 +1808,7 @@ module.exports = {
   pendingAutoBills,
   isTestEnv,
   createMedia,
-  isPhoneMatch
+  isPhoneMatch,
+  recoverPendingWorkflows,
+  catchupUnreadCustomerMessages
 };
