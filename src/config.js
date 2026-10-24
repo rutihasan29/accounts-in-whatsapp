@@ -11,10 +11,11 @@ module.exports = {
   AUTH_DATA_PATH: process.env.AUTH_DATA_PATH || path.join(__dirname, '..', '.wwebjs_auth'),
   PORT: process.env.PORT ? parseInt(process.env.PORT, 10) : 3000,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
-  GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-3.5-flash',
+  GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-flash-lite-latest',
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY || '',
-  OPENROUTER_MODEL: process.env.OPENROUTER_MODEL || 'nvidia/nemotron-3.5-lightning:free',
+  OPENROUTER_MODEL: process.env.OPENROUTER_MODEL || 'minimax/minimax-m3.1-flash:free',
   LLM_PROVIDER: process.env.LLM_PROVIDER || 'gemini',
   VA2_PHONE: process.env.VA2_PHONE || '8801307760509',
-  VE3_PHONE: process.env.VE3_PHONE || '8801831366604'
+  VE3_PHONE: process.env.VE3_PHONE || '8801831366604',
+  SCRIPT_TIMEOUT_MS: process.env.SCRIPT_TIMEOUT_MS ? parseInt(process.env.SCRIPT_TIMEOUT_MS, 10) : 5 * 60 * 1000
 };

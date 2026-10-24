@@ -204,7 +204,7 @@ async function classifyChat({
   }
 
   const geminiKey = (apiKey !== undefined && provider !== 'openrouter') ? apiKey : config.GEMINI_API_KEY;
-  const geminiModel = model || config.GEMINI_MODEL || 'gemini-3.5-flash';
+  const geminiModel = model || config.GEMINI_MODEL || 'gemini-flash-lite-latest';
 
   if (!geminiKey) {
     console.warn('[CLASSIFIER] No GEMINI_API_KEY provided; falling back to ESCALATE');
@@ -250,9 +250,9 @@ async function classifyChat({
       clearTimeout(timeout);
     }
 
-    if (!response.ok && (response.status === 503 || response.status === 429) && geminiModel !== 'gemini-flash-latest') {
-      console.warn(`[CLASSIFIER] Gemini returned ${response.status} (high demand/rate limit), retrying with gemini-flash-latest...`);
-      const fallbackUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${geminiKey}`;
+    if (!response.ok && (response.status === 503 || response.status === 429) && geminiModel !== 'gemini-3.1-flash-lite') {
+      console.warn(`[CLASSIFIER] Gemini returned ${response.status} (rate limit), retrying with gemini-3.1-flash-lite...`);
+      const fallbackUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${geminiKey}`;
       try {
         response = await fetchFn(fallbackUrl, {
           method: 'POST',
@@ -260,6 +260,21 @@ async function classifyChat({
           body: JSON.stringify(payload)
         });
       } catch {}
+    }
+
+    if (!response.ok && config.OPENROUTER_API_KEY) {
+      console.warn(`[CLASSIFIER] Gemini failed (${response.status}), falling back to OpenRouter...`);
+      try {
+        return await classifyWithOpenRouter({
+          transcript,
+          apiKey: config.OPENROUTER_API_KEY,
+          model: config.OPENROUTER_MODEL,
+          fetchFn,
+          timeoutMs
+        });
+      } catch (orErr) {
+        console.warn('[CLASSIFIER] OpenRouter fallback also failed:', orErr.message);
+      }
     }
 
     if (!response.ok) {
