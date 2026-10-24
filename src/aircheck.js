@@ -91,6 +91,7 @@ const VOICEOVER_RESPONSE_SCHEMA = {
 const DEFAULT_CANDIDATE_CONFIGS = [
   { model: 'gemini-3.8-flash', thinkingConfig: { thinkingLevel: 'low' } },
   { model: 'gemini-flash-latest' },
+  { model: 'gemini-3.5-flash-lite' },
   { model: 'gemini-3.5-flash' }
 ];
 
