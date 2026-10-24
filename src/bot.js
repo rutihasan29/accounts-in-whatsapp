@@ -1925,50 +1925,107 @@ async function recoverPendingWorkflows({ client, db, handleMessageCreateFn = han
     const va2Jid = `${cleanVa2}@c.us`;
     const cachedVa2Lid = getCachedStaffLid(db, 'VA2') || getCachedStaffLid(db, 'va2');
 
-    // Pre-load chats into memory if pupPage is available
+    let recentMessages = [];
+
+    // Strategy 1: Find VA2 chat and messages directly in-page memory (supports LID & multi-device)
     if (client.pupPage && typeof client.pupPage.evaluate === 'function') {
       try {
-        await client.pupPage.evaluate(async (jids) => {
-          for (const jid of jids) {
-            try {
-              if (window.WWebJS?.getChat) await window.WWebJS.getChat(jid, { getAsModel: false });
-            } catch {}
+        const rawMsgs = await client.pupPage.evaluate(async ({ cleanVa2, va2Jid, cachedVa2Lid }) => {
+          try {
+            const collections = window.require('WAWebCollections');
+            const chatModels = collections?.Chat?.models || [];
+
+            let foundChat = chatModels.find(c => {
+              const sId = c.id?._serialized || '';
+              const user = c.id?.user || '';
+              return (cachedVa2Lid && sId === cachedVa2Lid) ||
+                     sId === va2Jid ||
+                     sId.startsWith(cleanVa2) ||
+                     user === cleanVa2;
+            });
+
+            if (!foundChat) {
+              const contactModels = collections?.Contact?.models || [];
+              const foundContact = contactModels.find(ct => {
+                const sId = ct.id?._serialized || '';
+                const user = ct.id?.user || '';
+                return (cachedVa2Lid && sId === cachedVa2Lid) ||
+                       sId === va2Jid ||
+                       sId.startsWith(cleanVa2) ||
+                       user === cleanVa2;
+              });
+              if (foundContact) {
+                const targetId = foundContact.lid?._serialized || foundContact.id?._serialized;
+                if (targetId) {
+                  foundChat = chatModels.find(c => c.id?._serialized === targetId);
+                }
+              }
+            }
+
+            if (!foundChat) return { err: 'VA2 chat not found in Chat.models' };
+
+            if (foundChat.msgs && typeof foundChat.loadEarlierMsgs === 'function' && foundChat.msgs.length < 25) {
+              try { await foundChat.loadEarlierMsgs(); } catch {}
+            }
+
+            const msgs = foundChat.msgs?.models || [];
+            return {
+              chatId: foundChat.id?._serialized,
+              messages: msgs.slice(-50).map(m => window.WWebJS.getMessageModel(m))
+            };
+          } catch (e) {
+            return { err: e.message };
           }
-        }, [cachedVa2Lid, va2Jid].filter(Boolean));
-      } catch {}
+        }, { cleanVa2, va2Jid, cachedVa2Lid });
+
+        if (rawMsgs?.chatId) {
+          console.log(`[RECOVERY] In-page found VA2 chat: ${rawMsgs.chatId} with ${rawMsgs.messages?.length || 0} messages.`);
+          let MessageClass = null;
+          try { ({ Message: MessageClass } = require('whatsapp-web.js')); } catch {}
+          if (Array.isArray(rawMsgs.messages) && rawMsgs.messages.length > 0) {
+            recentMessages = rawMsgs.messages.map(data => MessageClass ? new MessageClass(client, data) : data);
+          }
+        } else if (rawMsgs?.err) {
+          console.log('[RECOVERY] In-page VA2 search diagnostic:', rawMsgs.err);
+        }
+      } catch (inPageErr) {
+        console.warn('[RECOVERY] In-page VA2 message retrieval error:', inPageErr.message);
+      }
     }
 
-    let va2Chat = null;
-    if (cachedVa2Lid && typeof client.getChatById === 'function') {
-      try {
-        va2Chat = await client.getChatById(cachedVa2Lid);
-      } catch {}
-    }
-    if (!va2Chat && typeof client.getChatById === 'function') {
-      try {
-        va2Chat = await client.getChatById(va2Jid);
-      } catch {}
-    }
-    if (!va2Chat && typeof client.getChats === 'function') {
-      try {
-        const allChats = await client.getChats();
-        va2Chat = allChats.find(c => {
-          const id = c.id?._serialized || '';
-          return (cachedVa2Lid && id === cachedVa2Lid) ||
-                 id === va2Jid ||
-                 id.startsWith(cleanVa2) ||
-                 isPhoneMatch(id, cleanVa2);
-        });
-      } catch {}
+    // Strategy 2: Fallback to getChatById / getChats if in-page returned no messages
+    if (!recentMessages || recentMessages.length === 0) {
+      let va2Chat = null;
+      if (cachedVa2Lid && typeof client.getChatById === 'function') {
+        try {
+          va2Chat = await client.getChatById(cachedVa2Lid);
+        } catch {}
+      }
+      if (!va2Chat && typeof client.getChatById === 'function') {
+        try {
+          va2Chat = await client.getChatById(va2Jid);
+        } catch {}
+      }
+      if (!va2Chat && typeof client.getChats === 'function') {
+        try {
+          const allChats = await client.getChats();
+          va2Chat = allChats.find(c => {
+            const id = c.id?._serialized || '';
+            return (cachedVa2Lid && id === cachedVa2Lid) ||
+                   id === va2Jid ||
+                   id.startsWith(cleanVa2) ||
+                   isPhoneMatch(id, cleanVa2);
+          });
+        } catch {}
+      }
+
+      if (va2Chat && typeof va2Chat.fetchMessages === 'function') {
+        try {
+          recentMessages = await va2Chat.fetchMessages({ limit: 50 });
+        } catch {}
+      }
     }
 
-    if (!va2Chat || typeof va2Chat.fetchMessages !== 'function') {
-      console.warn('[RECOVERY] VA2 chat could not be found or loaded.');
-      return { recovered: 0 };
-    }
-
-    console.log(`[RECOVERY] Found VA2 chat (${va2Chat.id?._serialized || 'unknown'}). Fetching recent messages...`);
-    const recentMessages = await va2Chat.fetchMessages({ limit: 50 });
     if (!recentMessages || recentMessages.length === 0) {
       console.log('[RECOVERY] No recent messages found in VA2 chat.');
       return { recovered: 0 };
