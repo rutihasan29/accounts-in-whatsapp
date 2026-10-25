@@ -69,7 +69,10 @@ describe('Multistep Workflow Recovery & Offline Downtime Catchup', () => {
       mimetype: 'audio/mp3',
       hasQuotedMsg: true,
       quotedMsgId: 'va2-fwd-444',
-      getQuotedMessage: async () => ({ id: { _serialized: 'va2-fwd-444' } }),
+      getQuotedMessage: async () => ({
+        id: { _serialized: 'va2-fwd-444' },
+        body: `[নতুন ভয়েস অর্ডার #${order.order_id}]\n\nস্ক্রিপ্ট:\n${order.script_text}`
+      }),
       downloadMedia: async () => ({
         data: Buffer.from('offline-audio-bytes').toString('base64'),
         mimetype: 'audio/mp3',

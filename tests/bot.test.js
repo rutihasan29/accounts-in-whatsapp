@@ -1401,7 +1401,8 @@ describe('Bot Message Router', () => {
         mimetype: 'audio/mp3',
         hasQuotedMsg: true,
         getQuotedMessage: async () => ({
-          id: { _serialized: 'va2-fwd-msg-202' }
+          id: { _serialized: 'va2-fwd-msg-202' },
+          body: `[নতুন ভয়েস অর্ডার #${order.order_id}]\n\nস্ক্রিপ্ট:\n${order.script_text}`
         }),
         downloadMedia: async () => mediaPayload
       };
@@ -1467,7 +1468,8 @@ describe('Bot Message Router', () => {
         mimetype: 'audio/wav',
         hasQuotedMsg: true,
         getQuotedMessage: async () => ({
-          id: { _serialized: 'va2-fwd-msg-606' }
+          id: { _serialized: 'va2-fwd-msg-606' },
+          body: `[নতুন ভয়েস অর্ডার #${order.order_id}]\n\nস্ক্রিপ্ট:\n${order.script_text}`
         }),
         downloadMedia: async () => ({
           data: wavBuffer.toString('base64'),
@@ -1643,7 +1645,10 @@ describe('Bot Message Router', () => {
         mimetype: 'audio/mp3',
         hasQuotedMsg: true,
         quotedMsgId: 'va2-msg-lid',
-        getQuotedMessage: async () => ({ id: { _serialized: 'va2-msg-lid' } }),
+        getQuotedMessage: async () => ({
+          id: { _serialized: 'va2-msg-lid' },
+          body: `[নতুন ভয়েস অর্ডার #${order.order_id}]\n\nস্ক্রিপ্ট:\n${order.script_text}`
+        }),
         downloadMedia: async () => ({
           data: Buffer.from('audio-data-lid').toString('base64'),
           mimetype: 'audio/mp3',
@@ -1739,7 +1744,10 @@ describe('Bot Message Router', () => {
         mimetype: 'audio/mp3',
         hasQuotedMsg: false, // WhatsApp Web had not set hasQuotedMsg
         _data: {
-          quotedStanzaId: 'script-stanza-999'
+          quotedStanzaId: 'script-stanza-999',
+          quotedMsg: {
+            body: `[নতুন ভয়েস অর্ডার #${order.order_id}]\n\nস্ক্রিপ্ট:\n${order.script_text}`
+          }
         },
         downloadMedia: async () => ({
           data: Buffer.from('mock-audio').toString('base64'),
@@ -1760,7 +1768,7 @@ describe('Bot Message Router', () => {
       db.close();
     });
 
-    it('VA2 audio reply matches order by quoted script text when va2_forward_msg_id was null in DB', async () => {
+    it('VA2 audio reply matches order by quoted Order ID when va2_forward_msg_id was null in DB', async () => {
       const db = initDb(':memory:');
       const order = createVoiceJobOrder(db, {
         customerPhone: '8801534323811',
@@ -1793,7 +1801,7 @@ describe('Bot Message Router', () => {
         _data: {
           quotedStanzaId: 'some-new-quoted-id',
           quotedMsg: {
-            body: '[নতুন ভয়েস অর্ডার]\n\nস্ক্রিপ্ট:\nপবা উপজেলার ৪ নং হরিপুর ইউনিয়ন চেয়ারম্যান'
+            body: `[নতুন ভয়েস অর্ডার #${order.order_id}]\n\nস্ক্রিপ্ট:\nপবা উপজেলার ৪ নং হরিপুর ইউনিয়ন চেয়ারম্যান`
           }
         },
         getQuotedMessage: async () => {
@@ -1886,6 +1894,11 @@ describe('Bot Message Router', () => {
         mimetype: 'audio/mp3',
         hasQuotedMsg: true,
         quotedMsgId: 'script-forward-retry',
+        _data: {
+          quotedMsg: {
+            body: `[নতুন ভয়েস অর্ডার #${order.order_id}]\n\nস্ক্রিপ্ট:\n${order.script_text}`
+          }
+        },
         downloadMedia: async () => {
           downloadAttempts++;
           if (downloadAttempts === 1) {
@@ -1949,6 +1962,11 @@ describe('Bot Message Router', () => {
         mimetype: 'audio/wav',
         hasQuotedMsg: true,
         quotedMsgId: 'script-forward-fail',
+        _data: {
+          quotedMsg: {
+            body: `[নতুন ভয়েস অর্ডার #${order.order_id}]\n\nস্ক্রিপ্ট:\n${order.script_text}`
+          }
+        },
         downloadMedia: async () => {
           throw new Error('r');
         }
@@ -2012,6 +2030,11 @@ describe('Bot Message Router', () => {
         mimetype: 'audio/mpeg',
         hasQuotedMsg: true,
         quotedMsgId: 'va2-fwd-bengali-456',
+        _data: {
+          quotedMsg: {
+            body: `[নতুন ভয়েস অর্ডার #${order.order_id}]\n\nস্ক্রিপ্ট:\n${order.script_text}`
+          }
+        },
         downloadMedia: async () => {
           throw new Error('Evaluation failed: r');
         }
@@ -2063,7 +2086,7 @@ describe('Bot Message Router', () => {
         _data: {
           quotedStanzaId: 'some-previous-msg-id',
           quotedMsg: {
-            body: '[নতুন ভয়েস অর্ডার]\nস্ক্রিপ্ট: ডেঙ্গু ও চিকুনগুনিয়া প্রতিরোধে প্রধানমন্ত্রী তারেক রহমানের নির্দেশনায়...'
+            body: `[নতুন ভয়েস অর্ডার #${order.order_id}]\nস্ক্রিপ্ট: ডেঙ্গু ও চিকুনগুনিয়া প্রতিরোধে প্রধানমন্ত্রী তারেক রহমানের নির্দেশনায়...`
           }
         },
         downloadMedia: async () => {
@@ -2130,7 +2153,8 @@ describe('Bot Message Router', () => {
         mimetype: 'audio/wav',
         hasQuotedMsg: true,
         getQuotedMessage: async () => ({
-          id: { _serialized: 'va2-fwd-msg-news-2' }
+          id: { _serialized: 'va2-fwd-msg-news-2' },
+          body: `[নতুন ভয়েস অর্ডার #${order.order_id}]\n\nস্ক্রিপ্ট:\n${order.script_text}`
         }),
         downloadMedia: async () => ({
           data: wavBuffer.toString('base64'),
@@ -2194,7 +2218,7 @@ describe('Bot Message Router', () => {
         hasQuotedMsg: true,
         _data: {
           quotedStanzaId: 'quoted-script-stanza-123',
-          quotedMsg: { body: '[নতুন ভয়েস অর্ডার]\nস্ক্রিপ্ট: স্ক্রিপ্ট টেস্ট' }
+          quotedMsg: { body: `[নতুন ভয়েস অর্ডার #${order.order_id}]\nস্ক্রিপ্ট: স্ক্রিপ্ট টেস্ট` }
         },
         downloadMedia: async () => ({
           data: wavBuffer.toString('base64'),
@@ -2388,6 +2412,64 @@ describe('Bot Message Router', () => {
       assert.strictEqual(res?.action, 'LINKED_MANUAL_VA2_FORWARD_NOT_FOUND');
       const order1After = getVoiceJobOrder(db, order1.order_id);
       assert.strictEqual(order1After.va2_forward_msg_id, null, 'Must NOT hijack Order 1!');
+      db.close();
+    });
+
+    it('strictly ignores VA2 audio reply if quoted message does not contain Order ID even if quotedMsgId matches', async () => {
+      const db = initDb(':memory:');
+      const order = createVoiceJobOrder(db, {
+        orderId: 'VJO-5555555555-5555',
+        customerPhone: '8801712345678',
+        customerName: 'Strict Order ID Client',
+        customerScriptMsgId: 'cust-script-strict',
+        va2ForwardMsgId: 'matching-va2-forward-id',
+        scriptText: 'যে স্ক্রিপ্টে কোনো ভুল নেই',
+        headline: 'টেস্ট খবর'
+      });
+
+      const sentMessages = [];
+      const mockClient = {
+        info: { wid: { user: '8801340517587' } },
+        sendMessage: async (jid, content, options) => {
+          sentMessages.push({ jid, content, options });
+          return { id: { _serialized: 'ack' } };
+        }
+      };
+
+      // VA2 sends audio quoting the forward message ID, but the quoted body does NOT have the VJO Order ID
+      const va2Msg = {
+        id: { _serialized: 'va2-audio-reply-no-orderid', id: 'va2-audio-reply-no-orderid' },
+        fromMe: false,
+        from: '8801307760509@c.us',
+        to: '8801340517587@c.us',
+        hasMedia: true,
+        type: 'document',
+        filename: 'টেস্ট খবর.mp3',
+        mimetype: 'audio/mp3',
+        hasQuotedMsg: true,
+        quotedMsgId: 'matching-va2-forward-id',
+        _data: {
+          quotedStanzaId: 'matching-va2-forward-id',
+          quotedMsg: {
+            body: 'কেমন আছেন ভাই? কাজ শেষ হয়েছে।' // No VJO Order ID!
+          }
+        },
+        downloadMedia: async () => ({
+          data: Buffer.from('mock-audio-bytes').toString('base64'),
+          mimetype: 'audio/mp3',
+          filename: 'টেস্ট খবর.mp3'
+        })
+      };
+
+      const res = await handleMessageCreate({
+        msg: va2Msg,
+        client: mockClient,
+        db
+      });
+
+      // Must strictly be ignored because there was no Order ID in the quoted text!
+      assert.strictEqual(res.action, 'IGNORED_VA2_AUDIO_NO_ORDER');
+      assert.strictEqual(sentMessages.length, 0);
       db.close();
     });
   });

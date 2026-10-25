@@ -440,7 +440,8 @@ describe('Bot Feature Toggles Runtime Integration', () => {
         mimetype: 'audio/wav',
         hasQuotedMsg: true,
         getQuotedMessage: async () => ({
-          id: { _serialized: 'va2-fwd-msg-102' }
+          id: { _serialized: 'va2-fwd-msg-102' },
+          body: `[নতুন ভয়েস অর্ডার #${order.order_id}]\n\nস্ক্রিপ্ট:\n${order.script_text}`
         }),
         downloadMedia: async () => ({
           data: wavBuffer.toString('base64'),
@@ -511,7 +512,8 @@ describe('Bot Feature Toggles Runtime Integration', () => {
         mimetype: 'audio/wav',
         hasQuotedMsg: true,
         getQuotedMessage: async () => ({
-          id: { _serialized: 'va2-fwd-msg-302' }
+          id: { _serialized: 'va2-fwd-msg-302' },
+          body: `[নতুন ভয়েস অর্ডার #${order.order_id}]\n\nস্ক্রিপ্ট:\n${order.script_text}`
         }),
         downloadMedia: async () => ({
           data: wavBuffer.toString('base64'),
@@ -585,7 +587,8 @@ describe('Bot Feature Toggles Runtime Integration', () => {
         mimetype: 'audio/wav',
         hasQuotedMsg: true,
         getQuotedMessage: async () => ({
-          id: { _serialized: 'va2-fwd-msg-202' }
+          id: { _serialized: 'va2-fwd-msg-202' },
+          body: `[নতুন ভয়েস অর্ডার #${order.order_id}]\n\nস্ক্রিপ্ট:\n${order.script_text}`
         }),
         downloadMedia: async () => ({
           data: wavBuffer.toString('base64'),

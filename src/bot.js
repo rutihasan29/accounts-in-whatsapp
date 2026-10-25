@@ -188,6 +188,12 @@ async function extractQuotedMessageInfo(msg) {
   if (d.quotedMsg?.body) {
     quotedBody = d.quotedMsg.body;
   }
+  if (!quotedBody && msg.quotedBody) {
+    quotedBody = msg.quotedBody;
+  }
+  if (!quotedBody && msg.quotedMsg?.body) {
+    quotedBody = msg.quotedMsg.body;
+  }
   if (d.quotedMsg?.fromMe !== undefined) {
     quotedFromMe = d.quotedMsg.fromMe;
   }
@@ -1100,7 +1106,9 @@ async function handleMessageCreate({
 
         let order = null;
 
-        // Tier 1: Check if quoted body contains explicit Order ID (e.g. [নতুন ভয়েস অর্ডার #VJO-12345-6789])
+        // STRICT ORDER ID MATCHING:
+        // Use ONLY the Order ID (VJO-...) present in the quoted script text.
+        // Never guess by message ID, script text, or pending order fallback.
         if (quoteInfo.quotedBody) {
           const orderIdMatch = quoteInfo.quotedBody.match(/VJO-\d+-\d+/i);
           if (orderIdMatch) {
@@ -1111,44 +1119,16 @@ async function handleMessageCreate({
           }
         }
 
-        // Tier 2: Check by quotedMsgId
-        if (!order && quoteInfo.quotedMsgId) {
-          order = findVoiceJobOrderByVa2MsgId(db, quoteInfo.quotedMsgId);
-        }
-
-        // Tier 3: Resilient order match by quoted message body (script text)
-        if (!order && quoteInfo.quotedBody) {
-          const cleanScript = quoteInfo.quotedBody
-            .replace(/^\[নতুন\s*ভয়েস\s*অর্ডার(?:\s*#[^\]]+)?\]\s*/i, '')
-            .replace(/^স্ক্রিপ্ট:\s*/i, '')
-            .trim();
-          order = findVoiceJobOrderByScriptText(db, cleanScript) ||
-                  findVoiceJobOrderByScriptText(db, quoteInfo.quotedBody);
-        }
-
-        // Tier 4: Safe single-order fallback
-        // ONLY allow fallback if there is EXACTLY ONE pending voice job order in the entire system.
-        // If there are 0 or >= 2 pending orders, refuse to guess so we never cross-deliver!
-        if (!order && (quoteInfo.quotedFromMe === true || (quoteInfo.quotedBody && /\[নতুন\s*ভয়েস\s*অর্ডার(?:\s*#[^\]]+)?\]/i.test(quoteInfo.quotedBody)))) {
-          const pendingOrders = db.prepare("SELECT * FROM voice_job_orders WHERE status = 'PENDING_VA2'").all();
-          if (pendingOrders.length === 1) {
-            order = pendingOrders[0];
-            console.log(`[VA2_AUDIO] Safely resolved single pending order ${order.order_id} via fallback.`);
-          } else if (pendingOrders.length > 1) {
-            console.warn(`[VA2_AUDIO] Refusing blind fallback: multiple pending orders exist (${pendingOrders.length} pending). Cannot safely determine customer.`);
-          }
+        if (!order) {
+          console.log(`[VA2_AUDIO] Received audio from VA2, but quoted message did not contain a valid Order ID (VJO-...). Aborting delivery to prevent wrong client delivery.`);
+          return { action: 'IGNORED_VA2_AUDIO_NO_ORDER' };
         }
 
         // If order matched and order had null or different va2_forward_msg_id, link it now!
-        if (order && quoteInfo.quotedMsgId && (!order.va2_forward_msg_id || order.va2_forward_msg_id !== quoteInfo.quotedMsgId)) {
+        if (quoteInfo.quotedMsgId && (!order.va2_forward_msg_id || order.va2_forward_msg_id !== quoteInfo.quotedMsgId)) {
           updateVoiceJobVa2ForwardMsgId(db, order.order_id, quoteInfo.quotedMsgId);
           order.va2_forward_msg_id = quoteInfo.quotedMsgId;
           console.log(`[VA2_AUDIO] Linked order ${order.order_id} to VA2 quoted msg ID ${quoteInfo.quotedMsgId}`);
-        }
-
-        if (!order) {
-          console.log(`[VA2_AUDIO] Received audio from VA2 replying to ${quoteInfo.quotedMsgId || 'quote'}, but no matching voice job order found.`);
-          return { action: 'IGNORED_VA2_AUDIO_NO_ORDER' };
         }
 
         let media = await downloadMediaWithFallback(msg, client);
@@ -2103,31 +2083,11 @@ async function recoverPendingWorkflows({ client, db, handleMessageCreateFn = han
         if (!quoteInfo.hasQuote && !quoteInfo.quotedMsgId && !quoteInfo.quotedBody) continue;
 
         let isMatch = false;
-        if (quoteInfo.quotedMsgId && order.va2_forward_msg_id && (
-          quoteInfo.quotedMsgId === order.va2_forward_msg_id ||
-          quoteInfo.quotedMsgId.includes(order.va2_forward_msg_id) ||
-          order.va2_forward_msg_id.includes(quoteInfo.quotedMsgId)
-        )) {
-          isMatch = true;
-        } else if (quoteInfo.quotedBody) {
+        if (quoteInfo.quotedBody) {
           const orderIdMatch = quoteInfo.quotedBody.match(/VJO-\d+-\d+/i);
           if (orderIdMatch && orderIdMatch[0] === order.order_id) {
             isMatch = true;
-          } else if (order.script_text) {
-            const cleanScript = quoteInfo.quotedBody
-              .replace(/^\[নতুন\s*ভয়েস\s*অর্ডার(?:\s*#[^\]]+)?\]\s*/i, '')
-              .replace(/^স্ক্রিপ্ট:\s*/i, '')
-              .trim();
-            if (cleanScript.includes(order.script_text.slice(0, 30)) || order.script_text.includes(cleanScript.slice(0, 30))) {
-              isMatch = true;
-            }
           }
-        } else if (!order.va2_forward_msg_id && (quoteInfo.quotedFromMe || (quoteInfo.quotedBody && /\[নতুন\s*ভয়েস\s*অর্ডার(?:\s*#[^\]]+)?\]/i.test(quoteInfo.quotedBody)))) {
-          isMatch = true;
-        } else if (!order.va2_forward_msg_id && quoteInfo.hasQuote && (
-          pendingOrders.length === 1 || order.order_id === pendingOrders[pendingOrders.length - 1].order_id
-        )) {
-          isMatch = true;
         }
 
         if (isMatch) {
