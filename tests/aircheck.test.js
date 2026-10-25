@@ -190,6 +190,11 @@ describe('AirCheck Engine Module', () => {
   });
 
   describe('analyzeVoiceoverWithGemini', () => {
+    it('DEFAULT_CANDIDATE_CONFIGS excludes weak lite models', () => {
+      const models = DEFAULT_CANDIDATE_CONFIGS.map(c => c.model);
+      assert.strictEqual(models.some(m => m.includes('lite')), false, 'Weak lite models must be excluded');
+    });
+
     it('parses valid cuts from Gemini API response', async () => {
       const mockResult = {
         overallTranscript: 'First sentence. Second sentence with retake.',
