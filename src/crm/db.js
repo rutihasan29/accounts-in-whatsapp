@@ -48,6 +48,14 @@ function initCrmDb(db) {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS crm_lead_notes (
+      id TEXT PRIMARY KEY,
+      lead_id TEXT NOT NULL REFERENCES crm_leads(id),
+      caller_id TEXT REFERENCES crm_callers(id),
+      note TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS crm_settings (
       key TEXT PRIMARY KEY,
       value TEXT
@@ -104,6 +112,75 @@ function getLeadById(db, leadId) {
   return db.prepare('SELECT * FROM crm_leads WHERE id = ?').get(leadId);
 }
 
+function addLeadNote(db, { leadId, callerId = null, note, timestamp = new Date() }) {
+  if (!leadId) throw new Error('leadId is required');
+  if (!note || !String(note).trim()) throw new Error('note text is required');
+
+  const now = typeof timestamp === 'string' || typeof timestamp === 'number'
+    ? new Date(timestamp)
+    : (timestamp || new Date());
+  const nowIso = now.toISOString();
+
+  const id = 'note_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+  db.prepare(`
+    INSERT INTO crm_lead_notes (id, lead_id, caller_id, note, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(id, leadId, callerId || null, String(note).trim(), nowIso);
+
+  return db.prepare('SELECT * FROM crm_lead_notes WHERE id = ?').get(id);
+}
+
+function getLeadNotes(db, leadId) {
+  return db.prepare(`
+    SELECT n.*, c.name AS caller_name
+    FROM crm_lead_notes n
+    LEFT JOIN crm_callers c ON n.caller_id = c.id
+    WHERE n.lead_id = ?
+    ORDER BY n.created_at DESC, n.rowid DESC
+  `).all(leadId);
+}
+
+function getLeadHistory(db, leadId) {
+  const lead = getLeadById(db, leadId);
+  if (!lead) return null;
+
+  let firstContactAt = lead.created_at;
+  try {
+    const tableCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='leads'").get();
+    if (tableCheck) {
+      const cleanDigits = (lead.phone_number || '').replace(/\D/g, '');
+      const botLead = db.prepare(`
+        SELECT first_contact_at, created_at
+        FROM leads
+        WHERE phone_number = ? OR phone_number = ? OR phone_number = ?
+        LIMIT 1
+      `).get(cleanDigits, lead.phone_number, '+' + cleanDigits);
+      if (botLead && (botLead.first_contact_at || botLead.created_at)) {
+        firstContactAt = botLead.first_contact_at || botLead.created_at;
+      }
+    }
+  } catch (err) {
+    // fallback to lead.created_at
+  }
+
+  const callHistory = db.prepare(`
+    SELECT l.*, c.name AS caller_name
+    FROM crm_call_logs l
+    LEFT JOIN crm_callers c ON l.caller_id = c.id
+    WHERE l.lead_id = ?
+    ORDER BY l.created_at DESC, l.rowid DESC
+  `).all(leadId);
+
+  const notes = getLeadNotes(db, leadId);
+
+  return {
+    lead,
+    first_contact_at: firstContactAt,
+    call_history: callHistory,
+    notes
+  };
+}
+
 function getSetting(db, key, defaultValue = null) {
   const row = db.prepare('SELECT value FROM crm_settings WHERE key = ?').get(key);
   return row ? row.value : defaultValue;
@@ -123,6 +200,9 @@ module.exports = {
   updateCallerStatus,
   insertLead,
   getLeadById,
+  addLeadNote,
+  getLeadNotes,
+  getLeadHistory,
   getSetting,
   setSetting
 };

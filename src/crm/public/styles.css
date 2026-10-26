@@ -527,3 +527,197 @@ body {
 .btn-submit-disposition:active {
   background: #1d4ed8;
 }
+
+/* Lead History & Timestamped Notes */
+.lead-meta-full {
+  grid-column: span 2;
+}
+
+.lead-section {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-color);
+}
+
+.section-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.section-title {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.section-badge {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--card-bg-elevated);
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  font-weight: 600;
+}
+
+.history-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  border: 1px dashed var(--border-color);
+  text-align: center;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.history-item {
+  background: var(--card-bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.history-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.history-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.chip-connected { background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); }
+.chip-callback { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+.chip-ringing { background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); }
+.chip-busy { background: rgba(249, 115, 22, 0.15); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.3); }
+.chip-won { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+.chip-lost { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
+
+.history-time {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.history-notes {
+  color: #e2e8f0;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-word;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.note-input-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.new-note-textarea {
+  width: 100%;
+  background: var(--card-bg-elevated);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 56px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.new-note-textarea:focus {
+  border-color: #60a5fa;
+}
+
+.btn-save-note {
+  background: #2563eb;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  height: 48px;
+  min-height: 48px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: background-color 0.15s;
+}
+
+.btn-save-note:active {
+  background: #1d4ed8;
+}
+
+.btn-save-note:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.notes-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.note-card {
+  background: var(--card-bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px 12px;
+  border-left: 3px solid #3b82f6;
+}
+
+.note-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.note-card-caller {
+  font-weight: 600;
+  color: #93c5fd;
+}
+
+.note-card-text {
+  font-size: 13px;
+  color: var(--text-main);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.4;
+}

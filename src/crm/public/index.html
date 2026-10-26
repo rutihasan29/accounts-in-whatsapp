@@ -49,7 +49,40 @@
           Retries
           <strong id="lead-retry-count">0</strong>
         </div>
+        <div class="lead-meta-item lead-meta-full">
+          First Contact Time
+          <strong id="lead-first-contact">---</strong>
+        </div>
       </div>
+
+      <!-- Lead Call History Section -->
+      <section class="lead-section">
+        <div class="section-title-row">
+          <span class="section-title">📞 Call History</span>
+          <span id="call-history-count" class="section-badge">0 calls</span>
+        </div>
+        <div id="call-history-empty" class="history-empty">No past calls logged for this lead.</div>
+        <div id="call-history-list" class="history-list" style="display: none;"></div>
+      </section>
+
+      <!-- Timestamped Notes Section -->
+      <section class="lead-section">
+        <div class="section-title-row">
+          <span class="section-title">📝 Note History</span>
+          <span id="notes-count" class="section-badge">0 notes</span>
+        </div>
+
+        <!-- Add Note Box (Preserves history & saves new note with timestamp) -->
+        <div class="note-input-container">
+          <textarea id="new-note-text" class="new-note-textarea" placeholder="Write a note... Every entry is saved with its own timestamp" rows="2"></textarea>
+          <button id="btn-save-note" type="button" class="btn-save-note">
+            <span>💾</span> Save Note
+          </button>
+        </div>
+
+        <div id="notes-empty" class="history-empty">No notes yet. Add the first note above!</div>
+        <div id="notes-list" class="notes-feed" style="display: none;"></div>
+      </section>
     </div>
 
     <!-- Empty Queue State -->

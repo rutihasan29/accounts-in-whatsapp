@@ -5,7 +5,9 @@ const {
   getLeadById,
   createCaller,
   getCallerById,
-  updateCallerStatus
+  updateCallerStatus,
+  addLeadNote,
+  getLeadHistory
 } = require('./db');
 const {
   assignFreshLead,
@@ -169,7 +171,48 @@ async function handleCrmRequest(req, res, db) {
       return true;
     }
 
-    // 4. GET /api/crm/callers/:id/queue - Prioritized caller queue
+    // 4. POST /api/crm/leads/:id/notes - Save timestamped note
+    const notesMatch = pathname.match(/^\/api\/crm\/leads\/([^/]+)\/notes$/);
+    if (method === 'POST' && notesMatch) {
+      const leadId = notesMatch[1];
+      const body = await parseRequestBody(req);
+      const note = addLeadNote(db, {
+        leadId,
+        callerId: body.caller_id || body.callerId || null,
+        note: body.note
+      });
+
+      sendJson(res, 201, {
+        success: true,
+        note
+      });
+      return true;
+    }
+
+    // 5. GET /api/crm/leads/:id/history - Lead first contact, call history & notes
+    const historyMatch = pathname.match(/^\/api\/crm\/leads\/([^/]+)\/history$/);
+    if (method === 'GET' && historyMatch) {
+      const leadId = historyMatch[1];
+      const history = getLeadHistory(db, leadId);
+      if (!history) {
+        sendJson(res, 404, {
+          success: false,
+          error: 'Lead not found'
+        });
+        return true;
+      }
+
+      sendJson(res, 200, {
+        success: true,
+        first_contact_at: history.first_contact_at,
+        call_history: history.call_history,
+        notes: history.notes,
+        lead: history.lead
+      });
+      return true;
+    }
+
+    // 6. GET /api/crm/callers/:id/queue - Prioritized caller queue
     const queueMatch = pathname.match(/^\/api\/crm\/callers\/([^/]+)\/queue$/);
     if (method === 'GET' && queueMatch) {
       const callerId = queueMatch[1];
@@ -183,7 +226,7 @@ async function handleCrmRequest(req, res, db) {
       return true;
     }
 
-    // 5. POST /api/crm/callers/:id/status - Update duty status
+    // 7. POST /api/crm/callers/:id/status - Update duty status
     const statusMatch = pathname.match(/^\/api\/crm\/callers\/([^/]+)\/status$/);
     if (method === 'POST' && statusMatch) {
       const callerId = statusMatch[1];
@@ -197,7 +240,7 @@ async function handleCrmRequest(req, res, db) {
       return true;
     }
 
-    // 6. GET /api/crm/callers - List all callers
+    // 8. GET /api/crm/callers - List all callers
     if (method === 'GET' && pathname === '/api/crm/callers') {
       const callers = db.prepare('SELECT * FROM crm_callers ORDER BY created_at ASC').all();
       sendJson(res, 200, {
@@ -207,7 +250,7 @@ async function handleCrmRequest(req, res, db) {
       return true;
     }
 
-    // 7. POST /api/crm/callers - Create new caller
+    // 9. POST /api/crm/callers - Create new caller
     if (method === 'POST' && pathname === '/api/crm/callers') {
       const body = await parseRequestBody(req);
       const callerId = body.id || 'caller_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);

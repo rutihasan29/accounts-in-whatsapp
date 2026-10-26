@@ -208,4 +208,66 @@ describe('CRM HTTP API', () => {
     assert.ok(res.data.includes('playChime'));
     assert.ok(res.data.includes('loadQueue'));
   });
+
+  test('POST /api/crm/leads/:id/notes saves timestamped note and returns it', async () => {
+    db.prepare("INSERT INTO crm_leads (id, name, phone_number, status) VALUES ('l_note', 'Note Lead', '8801999', 'fresh')").run();
+
+    const req = mockRequest('POST', '/api/crm/leads/l_note/notes', {
+      caller_id: 'c1',
+      note: 'Customer wants a demo tomorrow at 4 PM'
+    });
+    const res = mockResponse();
+
+    await handleCrmRequest(req, res, db);
+
+    assert.equal(res.statusCode, 201);
+    const body = JSON.parse(res.data);
+    assert.equal(body.success, true);
+    assert.equal(body.note.lead_id, 'l_note');
+    assert.equal(body.note.caller_id, 'c1');
+    assert.equal(body.note.note, 'Customer wants a demo tomorrow at 4 PM');
+    assert.ok(body.note.created_at);
+  });
+
+  test('GET /api/crm/leads/:id/history returns first contact time, call logs, and notes', async () => {
+    db.prepare("INSERT INTO crm_leads (id, name, phone_number, status, created_at) VALUES ('l_hist', 'Hist Lead', '+8801711223344', 'in_progress', '2026-10-15 12:30:00')").run();
+
+    // Log call disposition
+    const dispReq = mockRequest('POST', '/api/crm/leads/l_hist/disposition', {
+      caller_id: 'c1',
+      disposition: 'ringing_no_answer',
+      notes: 'No answer on first attempt'
+    });
+    await handleCrmRequest(dispReq, mockResponse(), db);
+
+    // Add note 1
+    const noteReq1 = mockRequest('POST', '/api/crm/leads/l_hist/notes', {
+      caller_id: 'c1',
+      note: 'First note: Sent product brochure'
+    });
+    await handleCrmRequest(noteReq1, mockResponse(), db);
+
+    // Add note 2
+    const noteReq2 = mockRequest('POST', '/api/crm/leads/l_hist/notes', {
+      caller_id: 'c1',
+      note: 'Second note: Followed up with pricing'
+    });
+    await handleCrmRequest(noteReq2, mockResponse(), db);
+
+    const req = mockRequest('GET', '/api/crm/leads/l_hist/history');
+    const res = mockResponse();
+
+    await handleCrmRequest(req, res, db);
+
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.data);
+    assert.equal(body.success, true);
+    assert.ok(body.first_contact_at.includes('2026-10-15'));
+    assert.equal(body.call_history.length, 1);
+    assert.equal(body.call_history[0].disposition, 'ringing_no_answer');
+    assert.equal(body.call_history[0].call_notes, 'No answer on first attempt');
+    assert.equal(body.notes.length, 2);
+    assert.equal(body.notes[0].note, 'Second note: Followed up with pricing');
+    assert.equal(body.notes[1].note, 'First note: Sent product brochure');
+  });
 });
