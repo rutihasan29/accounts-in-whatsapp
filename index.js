@@ -1,17 +1,17 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const { DB_PATH, AUTH_DATA_PATH, PORT } = require('./src/config');
-const { initDb } = require('./src/db');
+const { initDb, recoverUngracefulShutdown, recordBotState } = require('./src/db');
 const { setupBotHandlers } = require('./src/bot');
 const { startWebServer } = require('./src/server');
+const { startNgrokTunnel, stopNgrokTunnel } = require('./src/tunnel');
 
 console.log('🚀 Starting WhatsApp Business Ledger Bot...');
 console.log(`📁 Database path: ${DB_PATH}`);
 console.log(`📁 Auth storage: ${AUTH_DATA_PATH}`);
 
 const db = initDb(DB_PATH);
-
-// Start the official paper-styled mobile web dashboard
-const server = startWebServer({ db, port: PORT });
+recoverUngracefulShutdown(db);
+recordBotState(db, 'OFFLINE', 'SERVER_STARTUP');
 
 const client = new Client({
   authStrategy: new LocalAuth({
@@ -19,9 +19,21 @@ const client = new Client({
   }),
   puppeteer: {
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu'
+    ]
   }
 });
+
+// Start the official paper-styled mobile web dashboard
+const server = startWebServer({ db, client, port: PORT });
+
+// Automatically open ngrok public tunnel on bot startup
+startNgrokTunnel({ port: PORT, db }).catch(() => {});
 
 setupBotHandlers({ client, db });
 
@@ -30,6 +42,12 @@ const handleShutdown = async (signal) => {
   if (isShuttingDown) return;
   isShuttingDown = true;
   console.log(`\nGracefully shutting down (${signal})...`);
+  try {
+    await stopNgrokTunnel();
+  } catch {}
+  try {
+    recordBotState(db, 'OFFLINE', 'SERVER_SHUTDOWN');
+  } catch {}
   try {
     server.close();
   } catch {}
