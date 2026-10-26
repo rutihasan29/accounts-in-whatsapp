@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0b0f19">
+  <title>Telecaller CRM Dialer</title>
+  <link rel="stylesheet" href="/crm/styles.css">
+</head>
+<body>
+  <!-- Sticky Header / Caller Bar -->
+  <header class="top-bar">
+    <div class="caller-info">
+      <span class="caller-title">Telecaller</span>
+      <span id="caller-name" class="caller-name">Caller</span>
+    </div>
+    <div class="status-controls">
+      <select id="status-select" class="status-select" aria-label="Caller Status">
+        <option value="active">🟢 On Duty</option>
+        <option value="break">🟡 On Break</option>
+        <option value="offline">⚪ Offline</option>
+      </select>
+    </div>
+  </header>
+
+  <!-- Main View Area -->
+  <main class="main-content">
+    <div class="queue-header">
+      <span>Priority Calling Queue</span>
+      <span id="queue-count" class="queue-badge">0 in queue</span>
+    </div>
+
+    <!-- Active Lead Card -->
+    <div id="lead-container" class="lead-card" style="display: none;">
+      <div class="sla-banner">
+        <span id="lead-status-badge" class="badge badge-fresh">🔥 FRESH LEAD</span>
+        <span id="timer-display" class="countdown-timer timer-safe">00:20s</span>
+      </div>
+
+      <h1 id="lead-name" class="lead-name">Loading...</h1>
+      <div id="lead-phone" class="phone-display">---</div>
+
+      <div class="lead-meta">
+        <div class="lead-meta-item">
+          Source
+          <strong id="lead-source">WHATSAPP</strong>
+        </div>
+        <div class="lead-meta-item">
+          Retries
+          <strong id="lead-retry-count">0</strong>
+        </div>
+      </div>
+    </div>
+
+    <!-- Empty Queue State -->
+    <div id="empty-container" class="empty-queue">
+      <div class="empty-queue-icon">🎉</div>
+      <h3>Queue Cleared!</h3>
+      <p>No pending calls in your queue right now. Fresh leads will appear here automatically.</p>
+      <button id="btn-refresh-queue" class="btn-refresh">
+        🔄 Check For Fresh Leads
+      </button>
+    </div>
+  </main>
+
+  <!-- Ergonomic Thumb-Zone Sticky Action Bar -->
+  <footer class="sticky-bottom-bar">
+    <a id="btn-call" href="#" class="btn-whatsapp-call disabled">
+      📞 CALL ON WHATSAPP
+    </a>
+    <a id="btn-web-fallback" href="#" target="_blank" class="btn-secondary-action" title="Open via Web" style="text-decoration:none; display:flex; align-items:center; justify-content:center;">
+      🌐 Web
+    </a>
+    <button id="btn-open-sheet" class="btn-secondary-action" aria-label="Open Dispositions Sheet">
+      📋 Log
+    </button>
+  </footer>
+
+  <!-- Slide-Up Bottom Sheet Modal for Call Disposition -->
+  <div id="sheet-backdrop" class="sheet-backdrop"></div>
+  <div id="disposition-sheet" class="bottom-sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+      <h3 id="sheet-title">Call Outcome</h3>
+      <button id="btn-close-sheet" class="btn-sheet-close" aria-label="Close sheet">✕</button>
+    </div>
+
+    <div class="disposition-grid">
+      <button class="btn-disposition" onclick="selectDisposition('connected_interested', this)">
+        ✅ Connected
+      </button>
+      <button class="btn-disposition" onclick="selectDisposition('callback_requested', this)">
+        ⏰ Callback
+      </button>
+      <button class="btn-disposition" onclick="selectDisposition('ringing_no_answer', this)">
+        📳 Ringing
+      </button>
+      <button class="btn-disposition" onclick="selectDisposition('busy_declined', this)">
+        📵 Busy
+      </button>
+      <button class="btn-disposition" onclick="selectDisposition('order_won', this)">
+        🏆 Deal Won
+      </button>
+      <button class="btn-disposition" onclick="selectDisposition('not_interested', this)">
+        ❌ Not Interested
+      </button>
+    </div>
+
+    <!-- Callback DateTime Picker (Visible when Callback is selected) -->
+    <div id="callback-picker-group" class="callback-picker-group">
+      <label for="callback-time">Next Callback Schedule:</label>
+      <input type="datetime-local" id="callback-time" class="callback-input">
+    </div>
+
+    <textarea id="call-notes" class="notes-input" placeholder="Add call notes or customer feedback..."></textarea>
+
+    <button id="btn-submit-disposition" class="btn-submit-disposition">
+      Submit Disposition
+    </button>
+  </div>
+
+  <script src="/crm/dialer.js"></script>
+</body>
+</html>

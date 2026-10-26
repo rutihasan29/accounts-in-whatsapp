@@ -24,6 +24,9 @@ const {
 const { PORT } = require('./config');
 const { syncExistingInboxContacts } = require('./sync');
 const { resolveCustomerPhone } = require('./bot');
+const { handleCrmRequest } = require('./crm/api');
+const { checkAndEscalateTimeouts } = require('./crm/routing');
+const { createCaller, updateCallerStatus } = require('./crm/db');
 
 const DASHBOARD_HTML_PATH = path.join(__dirname, 'dashboard.html');
 
@@ -281,6 +284,12 @@ function startWebServer({ db, client = null, port = PORT }) {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ status: 'ok', time: new Date().toISOString() }));
       return;
+    }
+
+    // Telecaller CRM Routes & Static Assets (/crm*, /api/crm/*)
+    if (pathname && (pathname.startsWith('/crm') || pathname.startsWith('/api/crm'))) {
+      const handled = await handleCrmRequest(req, res, db);
+      if (handled) return;
     }
 
     // API: Inbox Sync - POST trigger scan & sync
@@ -548,6 +557,37 @@ function startWebServer({ db, client = null, port = PORT }) {
     // 404
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Not Found');
+  });
+
+  // Seed default callers if none exist
+  try {
+    const callersCount = db.prepare('SELECT COUNT(*) as count FROM crm_callers').get()?.count || 0;
+    if (callersCount === 0) {
+      const fullWeekShift = JSON.stringify({
+        mon: [{ start: '00:00', end: '23:59' }],
+        tue: [{ start: '00:00', end: '23:59' }],
+        wed: [{ start: '00:00', end: '23:59' }],
+        thu: [{ start: '00:00', end: '23:59' }],
+        fri: [{ start: '00:00', end: '23:59' }],
+        sat: [{ start: '00:00', end: '23:59' }],
+        sun: [{ start: '00:00', end: '23:59' }]
+      });
+      createCaller(db, { id: 'caller_1', name: 'Caller 1 (Tanvir)', pin: '1234', shift_schedule_json: fullWeekShift });
+      updateCallerStatus(db, 'caller_1', 'active');
+      createCaller(db, { id: 'caller_2', name: 'Caller 2 (Agent)', pin: '5678', shift_schedule_json: fullWeekShift });
+      updateCallerStatus(db, 'caller_2', 'active');
+    }
+  } catch {}
+
+  // Periodic background escalation check for CRM every 5s
+  const escalationInterval = setInterval(() => {
+    try {
+      checkAndEscalateTimeouts(db);
+    } catch {}
+  }, 5000);
+
+  server.on('close', () => {
+    clearInterval(escalationInterval);
   });
 
   server.listen(port, () => {

@@ -48,6 +48,8 @@ const {
   getPendingConfirmation,
   restorePendingConfirmations
 } = require('./dispatch');
+const { insertLead: insertCrmLead } = require('./crm/db');
+const { assignFreshLead } = require('./crm/routing');
 const qrcode = require('qrcode-terminal');
 
 let MessageMedia = null;
@@ -1422,6 +1424,23 @@ async function handleMessageCreate({
         const leadRes = recordLead(db, { phone, name: contactName });
         if (leadRes?.status === 'NEW_LEAD') {
           console.log(`[LEAD] New lead recorded: +${phone}${contactName ? ` (${contactName})` : ''}`);
+
+          // Automatically register fresh lead into Telecaller CRM & assign via Round-Robin
+          try {
+            const formattedPhone = phone.startsWith('+') ? phone : `+${phone}`;
+            const crmLeadId = 'lead_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+            const crmLead = insertCrmLead(db, {
+              id: crmLeadId,
+              name: contactName || 'WhatsApp Contact',
+              phone_number: formattedPhone,
+              source: 'whatsapp_bot'
+            });
+            const crmAssignment = assignFreshLead(db, crmLead.id);
+            console.log(`[CRM] Auto-assigned fresh lead ${formattedPhone} to caller: ${crmAssignment?.assigned_caller_id || 'UNASSIGNED'}`);
+          } catch (crmErr) {
+            console.error('[CRM] Error auto-registering lead in CRM:', crmErr.message);
+          }
+
           const targetChat = (phone ? `${phone}@c.us` : null) || msg.id?.remote || msg.from;
           let welcomeResult = null;
           const welcomeDemoEnabled = getBotSetting(db, 'welcome_demo_enabled', true);

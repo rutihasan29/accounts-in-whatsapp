@@ -1,6 +1,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
+const { initCrmDb } = require('./crm/db');
 
 const STATEMENTS = {
   getCustomerSummary: `
@@ -238,6 +239,13 @@ function initDb(dbPath) {
     }
   } catch (err) {
     console.error('Error ensuring columns/indexes in SQLite:', err);
+  }
+
+  // Initialize CRM subsystem tables
+  try {
+    initCrmDb(db);
+  } catch (crmInitErr) {
+    console.error('Error initializing CRM database schema:', crmInitErr);
   }
 
   // Initialize prepared statement cache
