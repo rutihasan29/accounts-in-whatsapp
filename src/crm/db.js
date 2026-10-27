@@ -181,6 +181,37 @@ function getLeadHistory(db, leadId) {
   };
 }
 
+function getCrmAdminOverview(db) {
+  const kpis = db.prepare(`
+    SELECT
+      COUNT(*) AS total_leads,
+      COALESCE(SUM(CASE WHEN status = 'fresh' THEN 1 ELSE 0 END), 0) AS fresh_leads,
+      COALESCE(SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END), 0) AS in_progress_leads,
+      COALESCE(SUM(CASE WHEN status = 'callback_set' AND (next_callback_at <= datetime('now') OR next_callback_at IS NULL) THEN 1 ELSE 0 END), 0) AS callback_due_leads,
+      COALESCE(SUM(CASE WHEN status = 'won' THEN 1 ELSE 0 END), 0) AS won_leads,
+      COALESCE(SUM(CASE WHEN status IN ('lost', 'unreachable') THEN 1 ELSE 0 END), 0) AS lost_leads
+    FROM crm_leads
+  `).get() || { total_leads: 0, fresh_leads: 0, in_progress_leads: 0, callback_due_leads: 0, won_leads: 0, lost_leads: 0 };
+
+  const callers = db.prepare(`
+    SELECT c.*,
+      (SELECT COUNT(*) FROM crm_call_logs l WHERE l.caller_id = c.id AND date(l.created_at) = date('now')) AS today_calls
+    FROM crm_callers c
+    ORDER BY c.created_at ASC
+  `).all();
+
+  const recentCalls = db.prepare(`
+    SELECT l.*, c.name AS caller_name, lead.phone_number, lead.name AS lead_name
+    FROM crm_call_logs l
+    LEFT JOIN crm_callers c ON l.caller_id = c.id
+    LEFT JOIN crm_leads lead ON l.lead_id = lead.id
+    ORDER BY l.created_at DESC, l.rowid DESC
+    LIMIT 20
+  `).all();
+
+  return { kpis, callers, recent_calls: recentCalls };
+}
+
 function getSetting(db, key, defaultValue = null) {
   const row = db.prepare('SELECT value FROM crm_settings WHERE key = ?').get(key);
   return row ? row.value : defaultValue;
@@ -203,6 +234,7 @@ module.exports = {
   addLeadNote,
   getLeadNotes,
   getLeadHistory,
+  getCrmAdminOverview,
   getSetting,
   setSetting
 };

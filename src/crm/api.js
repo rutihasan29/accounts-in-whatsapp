@@ -7,7 +7,8 @@ const {
   getCallerById,
   updateCallerStatus,
   addLeadNote,
-  getLeadHistory
+  getLeadHistory,
+  getCrmAdminOverview
 } = require('./db');
 const {
   assignFreshLead,
@@ -113,6 +114,16 @@ async function handleCrmRequest(req, res, db) {
   }
 
   try {
+    // 0. GET /api/crm/admin/overview - Aggregated CRM pipeline KPIs, callers, and recent calls
+    if (method === 'GET' && pathname === '/api/crm/admin/overview') {
+      const overview = getCrmAdminOverview(db);
+      sendJson(res, 200, {
+        success: true,
+        ...overview
+      });
+      return true;
+    }
+
     // 1. POST /api/crm/leads - Ingest lead & assign round-robin
     if (method === 'POST' && pathname === '/api/crm/leads') {
       const body = await parseRequestBody(req);
