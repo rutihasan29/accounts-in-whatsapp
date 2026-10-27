@@ -3339,11 +3339,11 @@
           if (el) el.innerText = toBengaliDigits(val || 0);
         };
         setKpi('crm-kpi-total', kpis.total_leads);
-        setKpi('crm-kpi-fresh', kpis.fresh);
-        setKpi('crm-kpi-progress', kpis.in_progress);
-        setKpi('crm-kpi-callback', kpis.callbacks_due_today);
-        setKpi('crm-kpi-won', kpis.won);
-        setKpi('crm-kpi-lost', kpis.lost);
+        setKpi('crm-kpi-fresh', kpis.fresh_leads ?? kpis.fresh ?? 0);
+        setKpi('crm-kpi-progress', kpis.in_progress_leads ?? kpis.in_progress ?? 0);
+        setKpi('crm-kpi-callback', kpis.callback_due_leads ?? kpis.callbacks_due_today ?? 0);
+        setKpi('crm-kpi-won', kpis.won_leads ?? kpis.won ?? 0);
+        setKpi('crm-kpi-lost', kpis.lost_leads ?? kpis.lost ?? 0);
 
         // Update Caller Filter dropdown
         const callerFilter = document.getElementById('crm-filter-caller');
@@ -3373,8 +3373,10 @@
       }
 
       tbody.innerHTML = callers.map(c => {
-        const duty = c.duty_status || 'offline';
+        const duty = c.duty_status || c.status || 'offline';
         const shift = `${escapeHtml(c.shift_start || '10:00')} - ${escapeHtml(c.shift_end || '19:00')}`;
+        const callsCount = c.today_calls ?? c.calls_today ?? 0;
+        const pendingCount = c.pending_leads ?? 0;
         return `
           <tr>
             <td><strong>${escapeHtml(c.name)}</strong><br><small style="color:var(--muted);">${escapeHtml(c.id)} &bull; PIN: ${escapeHtml(c.pin || '****')}</small></td>
@@ -3386,8 +3388,8 @@
                 <option value="offline" ${duty === 'offline' ? 'selected' : ''}>⚪ অফলাইন (Offline)</option>
               </select>
             </td>
-            <td><strong>${toBengaliDigits(c.calls_today || 0)}</strong> টি</td>
-            <td>${toBengaliDigits(c.pending_leads || 0)} টি</td>
+            <td><strong>${toBengaliDigits(callsCount)}</strong> টি</td>
+            <td>${toBengaliDigits(pendingCount)} টি</td>
             <td>
               <a href="/crm?caller_id=${encodeURIComponent(c.id)}" target="_blank" class="btn-dialer-link" title="ওপেন ডায়ালার">
                 📞 ডায়ালার খুলুন
@@ -3419,19 +3421,22 @@
         const timeStr = c.created_at ? new Date(c.created_at).toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit', hour12: true }) : '';
         const dateStr = c.created_at ? new Date(c.created_at).toLocaleDateString('bn-BD', { month: 'short', day: 'numeric' }) : '';
         const callerName = c.caller_name ? `${c.caller_name}` : (c.caller_id || 'অজানা');
-        const outcome = outcomeLabels[c.outcome] || c.outcome || 'সম্পন্ন';
+        const rawOutcome = c.disposition || c.outcome || 'সম্পন্ন';
+        const outcome = outcomeLabels[rawOutcome] || rawOutcome;
+        const phone = c.phone_number || c.lead_phone || '';
+        const notes = c.call_notes || c.notes || '';
         return `
           <div class="crm-call-item">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
               <div>
-                <strong>${escapeHtml(c.lead_name || 'গ্রাহক')}</strong> (${escapeHtml(c.lead_phone || '')}) &bull; 
+                <strong>${escapeHtml(c.lead_name || 'গ্রাহক')}</strong> (${escapeHtml(phone)}) &bull; 
                 <span style="color: var(--muted);">কলার: ${escapeHtml(callerName)}</span>
               </div>
               <div style="font-size: 11px; color: var(--muted);">${dateStr} ${timeStr}</div>
             </div>
             <div style="display: flex; gap: 8px; align-items: center;">
               <span class="crm-badge" style="background: #f3f4f6;">${escapeHtml(outcome)}</span>
-              ${c.notes ? `<span style="color: #4b5563; font-style: italic; font-size: 11px;">"${escapeHtml(c.notes)}"</span>` : ''}
+              ${notes ? `<span style="color: #4b5563; font-style: italic; font-size: 11px;">"${escapeHtml(notes)}"</span>` : ''}
             </div>
           </div>
         `;
