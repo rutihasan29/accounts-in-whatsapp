@@ -212,6 +212,63 @@ function getCrmAdminOverview(db) {
   return { kpis, callers, recent_calls: recentCalls };
 }
 
+function getAdminLeads(db, { search = '', status = '', caller_id = '', limit = 50, offset = 0 } = {}) {
+  let whereClauses = [];
+  let params = [];
+
+  if (search && String(search).trim()) {
+    whereClauses.push('(l.phone_number LIKE ? OR l.name LIKE ?)');
+    params.push(`%${String(search).trim()}%`, `%${String(search).trim()}%`);
+  }
+  if (status && status !== 'all') {
+    whereClauses.push('l.status = ?');
+    params.push(status);
+  }
+  if (caller_id && caller_id !== 'all') {
+    if (caller_id === 'unassigned') {
+      whereClauses.push('l.assigned_caller_id IS NULL');
+    } else {
+      whereClauses.push('l.assigned_caller_id = ?');
+      params.push(caller_id);
+    }
+  }
+
+  const whereSql = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';
+
+  const countRow = db.prepare(`SELECT COUNT(*) as total FROM crm_leads l ${whereSql}`).get(...params);
+  const total = countRow ? countRow.total : 0;
+
+  const leads = db.prepare(`
+    SELECT l.*, c.name AS caller_name
+    FROM crm_leads l
+    LEFT JOIN crm_callers c ON l.assigned_caller_id = c.id
+    ${whereSql}
+    ORDER BY l.created_at DESC
+    LIMIT ? OFFSET ?
+  `).all(...params, Number(limit) || 50, Number(offset) || 0);
+
+  return { leads, total };
+}
+
+function reassignLead(db, leadId, newCallerId) {
+  db.prepare(`
+    UPDATE crm_leads
+    SET assigned_caller_id = ?,
+        status = CASE WHEN status = 'fresh' THEN 'fresh' ELSE 'in_progress' END
+    WHERE id = ?
+  `).run(newCallerId || null, leadId);
+
+  if (newCallerId) {
+    const assignId = 'assign_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    db.prepare(`
+      INSERT INTO crm_lead_assignments (id, lead_id, caller_id, status)
+      VALUES (?, ?, ?, 'assigned')
+    `).run(assignId, leadId, newCallerId);
+  }
+
+  return getLeadById(db, leadId);
+}
+
 function getSetting(db, key, defaultValue = null) {
   const row = db.prepare('SELECT value FROM crm_settings WHERE key = ?').get(key);
   return row ? row.value : defaultValue;
@@ -235,6 +292,8 @@ module.exports = {
   getLeadNotes,
   getLeadHistory,
   getCrmAdminOverview,
+  getAdminLeads,
+  reassignLead,
   getSetting,
   setSetting
 };

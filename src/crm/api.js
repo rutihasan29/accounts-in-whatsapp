@@ -8,7 +8,9 @@ const {
   updateCallerStatus,
   addLeadNote,
   getLeadHistory,
-  getCrmAdminOverview
+  getCrmAdminOverview,
+  getAdminLeads,
+  reassignLead
 } = require('./db');
 const {
   assignFreshLead,
@@ -120,6 +122,36 @@ async function handleCrmRequest(req, res, db) {
       sendJson(res, 200, {
         success: true,
         ...overview
+      });
+      return true;
+    }
+
+    // 0.1 GET /api/crm/admin/leads - Search & filter lead pipeline
+    if (method === 'GET' && pathname === '/api/crm/admin/leads') {
+      const urlObj = new URL(rawUrl, 'http://localhost');
+      const search = urlObj.searchParams.get('search') || '';
+      const status = urlObj.searchParams.get('status') || '';
+      const caller_id = urlObj.searchParams.get('caller_id') || '';
+      const limit = parseInt(urlObj.searchParams.get('limit'), 10) || 50;
+      const offset = parseInt(urlObj.searchParams.get('offset'), 10) || 0;
+
+      const results = getAdminLeads(db, { search, status, caller_id, limit, offset });
+      sendJson(res, 200, {
+        success: true,
+        ...results
+      });
+      return true;
+    }
+
+    // 0.2 POST /api/crm/admin/leads/:id/reassign - Reassign lead to caller
+    const reassignMatch = pathname.match(/^\/api\/crm\/admin\/leads\/([^/]+)\/reassign$/);
+    if (method === 'POST' && reassignMatch) {
+      const leadId = reassignMatch[1];
+      const body = await parseRequestBody(req);
+      const lead = reassignLead(db, leadId, body.caller_id || null);
+      sendJson(res, 200, {
+        success: true,
+        lead
       });
       return true;
     }
