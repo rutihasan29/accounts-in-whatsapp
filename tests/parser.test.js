@@ -78,6 +78,98 @@ describe('Parser Module', () => {
       assert.deepStrictEqual(res, { type: 'COMMAND_DUE', rawText: '!DUE' });
     });
 
+    it('parses video commands (add, remove, list)', () => {
+      assert.deepStrictEqual(parseMessage('video add 8801700000000 Daily sports video'), {
+        type: 'COMMAND_VIDEO',
+        subAction: 'add',
+        phone: '8801700000000',
+        note: 'Daily sports video',
+        rawText: 'video add 8801700000000 Daily sports video'
+      });
+
+      assert.deepStrictEqual(parseMessage('!video add +8801711223344'), {
+        type: 'COMMAND_VIDEO',
+        subAction: 'add',
+        phone: '8801711223344',
+        note: null,
+        rawText: '!video add +8801711223344'
+      });
+
+      assert.deepStrictEqual(parseMessage('video remove 8801700000000'), {
+        type: 'COMMAND_VIDEO',
+        subAction: 'remove',
+        phone: '8801700000000',
+        note: null,
+        rawText: 'video remove 8801700000000'
+      });
+
+      assert.deepStrictEqual(parseMessage('video list'), {
+        type: 'COMMAND_VIDEO',
+        subAction: 'list',
+        phone: null,
+        note: null,
+        rawText: 'video list'
+      });
+
+      assert.deepStrictEqual(parseMessage('video'), {
+        type: 'COMMAND_VIDEO',
+        subAction: 'list',
+        phone: null,
+        note: null,
+        rawText: 'video'
+      });
+
+      assert.deepStrictEqual(parseMessage('ভিডিও'), {
+        type: 'COMMAND_VIDEO',
+        subAction: 'list',
+        phone: null,
+        note: null,
+        rawText: 'ভিডিও'
+      });
+
+      assert.deepStrictEqual(parseMessage('!VIDEO LIST'), {
+        type: 'COMMAND_VIDEO',
+        subAction: 'list',
+        phone: null,
+        note: null,
+        rawText: '!VIDEO LIST'
+      });
+    });
+
+    it('parses self-chat help commands', () => {
+      assert.deepStrictEqual(parseMessage('help'), { type: 'COMMAND_HELP', rawText: 'help' });
+      assert.deepStrictEqual(parseMessage('!help'), { type: 'COMMAND_HELP', rawText: '!help' });
+      assert.deepStrictEqual(parseMessage('menu'), { type: 'COMMAND_HELP', rawText: 'menu' });
+      assert.deepStrictEqual(parseMessage('commands'), { type: 'COMMAND_HELP', rawText: 'commands' });
+      assert.deepStrictEqual(parseMessage('সাহায্য'), { type: 'COMMAND_HELP', rawText: 'সাহায্য' });
+      assert.deepStrictEqual(parseMessage('হেল্প'), { type: 'COMMAND_HELP', rawText: 'হেল্প' });
+    });
+
+    it('parses self-chat status commands', () => {
+      assert.deepStrictEqual(parseMessage('status'), { type: 'COMMAND_STATUS', rawText: 'status' });
+      assert.deepStrictEqual(parseMessage('!status'), { type: 'COMMAND_STATUS', rawText: '!status' });
+      assert.deepStrictEqual(parseMessage('ping'), { type: 'COMMAND_STATUS', rawText: 'ping' });
+      assert.deepStrictEqual(parseMessage('uptime'), { type: 'COMMAND_STATUS', rawText: 'uptime' });
+      assert.deepStrictEqual(parseMessage('স্ট্যাটাস'), { type: 'COMMAND_STATUS', rawText: 'স্ট্যাটাস' });
+    });
+
+    it('parses self-chat stats commands', () => {
+      assert.deepStrictEqual(parseMessage('stats'), { type: 'COMMAND_STATS', rawText: 'stats' });
+      assert.deepStrictEqual(parseMessage('!stats'), { type: 'COMMAND_STATS', rawText: '!stats' });
+      assert.deepStrictEqual(parseMessage('report'), { type: 'COMMAND_STATS', rawText: 'report' });
+      assert.deepStrictEqual(parseMessage('summary'), { type: 'COMMAND_STATS', rawText: 'summary' });
+      assert.deepStrictEqual(parseMessage('হিসাব'), { type: 'COMMAND_STATS', rawText: 'হিসাব' });
+      assert.deepStrictEqual(parseMessage('রিপোর্ট'), { type: 'COMMAND_STATS', rawText: 'রিপোর্ট' });
+    });
+
+    it('parses Bengali and English variations of due command', () => {
+      assert.deepStrictEqual(parseMessage('due'), { type: 'COMMAND_DUE', rawText: 'due' });
+      assert.deepStrictEqual(parseMessage('dues'), { type: 'COMMAND_DUE', rawText: 'dues' });
+      assert.deepStrictEqual(parseMessage('baki'), { type: 'COMMAND_DUE', rawText: 'baki' });
+      assert.deepStrictEqual(parseMessage('বকেয়া'), { type: 'COMMAND_DUE', rawText: 'বকেয়া' });
+      assert.deepStrictEqual(parseMessage('বকেয়া তালিকা'), { type: 'COMMAND_DUE', rawText: 'বকেয়া তালিকা' });
+    });
+
     it('parses Bengali set due message (বকেয়া ২৩০০ টাকা)', () => {
       const res = parseMessage('বকেয়া ২৩০০ টাকা');
       assert.deepStrictEqual(res, { type: 'SET_DUE', amount: 2300, rawText: 'বকেয়া ২৩০০ টাকা' });

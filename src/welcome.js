@@ -1,4 +1,4 @@
-const path = require('path');
+﻿const path = require('path');
 const fs = require('fs');
 
 let MessageMedia = null;
@@ -36,10 +36,6 @@ const DEFAULT_WELCOME_MESSAGES = [
   {
     type: 'text',
     text: 'উপরের স্যাম্পলগুলো শুনে দেখুন, তারপর বিস্তারিত কথা হবে ইন শা আল্লাহ'
-  },
-  {
-    type: 'link',
-    url: 'https://www.facebook.com/share/v/18nczkKmZC/'
   }
 ];
 
@@ -113,7 +109,7 @@ async function sendWelcomeDemo({
           } else {
             const b64data = fs.readFileSync(filePath, { encoding: 'base64' });
             const ext = path.extname(filePath).toLowerCase();
-            const mimeType = ext === '.mp3' ? 'audio/mp3' : (ext === '.wav' ? 'audio/wav' : 'audio/ogg');
+            const mimeType = ext === '.mp3' ? 'audio/mpeg' : (ext === '.wav' ? 'audio/wav' : 'audio/ogg');
             media = {
               mimetype: mimeType,
               data: b64data,
@@ -123,11 +119,13 @@ async function sendWelcomeDemo({
 
           let sentMediaRes = null;
           try {
-            // Send as playable audio voice note
-            sentMediaRes = await client.sendMessage(targetChat, media, { sendAudioAsVoice: true });
-          } catch (voiceErr) {
-            console.warn(`[WELCOME_DEMO] sendAudioAsVoice fallback to regular audio for ${path.basename(filePath)}:`, voiceErr.message);
-            sentMediaRes = await client.sendMessage(targetChat, media, { sendMediaAsDocument: false });
+            // Send as playable audio file (NOT voice recording / PTT, NOT generic document)
+            sentMediaRes = await client.sendMessage(targetChat, media, {
+              sendAudioAsVoice: false,
+              sendMediaAsDocument: false
+            });
+          } catch (audioErr) {
+            console.error(`[WELCOME_DEMO] Error sending audio for ${path.basename(filePath)}:`, audioErr.message);
           }
           sentResults.push({ type: 'audio', res: sentMediaRes });
         } else {
