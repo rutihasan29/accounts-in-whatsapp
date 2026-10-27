@@ -28,5 +28,6 @@ module.exports = {
   LLM_PROVIDER: process.env.LLM_PROVIDER || 'gemini',
   VA2_PHONE: process.env.VA2_PHONE || '8801307760509',
   VE3_PHONE: process.env.VE3_PHONE || '8801831366604',
-  SCRIPT_TIMEOUT_MS: process.env.SCRIPT_TIMEOUT_MS ? parseInt(process.env.SCRIPT_TIMEOUT_MS, 10) : 5 * 60 * 1000
+  SCRIPT_TIMEOUT_MS: process.env.SCRIPT_TIMEOUT_MS ? parseInt(process.env.SCRIPT_TIMEOUT_MS, 10) : 5 * 60 * 1000,
+  DASHBOARD_PIN: process.env.DASHBOARD_PIN || '6700'
 };

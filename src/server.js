@@ -21,7 +21,7 @@ const {
   setBotSetting,
   DEFAULT_BOT_SETTINGS
 } = require('./db');
-const { PORT } = require('./config');
+const { PORT, DASHBOARD_PIN } = require('./config');
 const { syncExistingInboxContacts } = require('./sync');
 const { resolveCustomerPhone } = require('./bot');
 const { handleCrmRequest } = require('./crm/api');
@@ -283,6 +283,25 @@ function startWebServer({ db, client = null, port = PORT }) {
     if (pathname === '/health' || pathname === '/ping') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ status: 'ok', time: new Date().toISOString() }));
+      return;
+    }
+
+    // API: Verify Admin PIN
+    if (pathname === '/api/auth/verify-pin' && method === 'POST') {
+      try {
+        const body = await readJsonBody(req);
+        const expectedPin = String(DASHBOARD_PIN || '6700').trim();
+        if (body.pin !== undefined && String(body.pin).trim() === expectedPin) {
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ success: true }));
+        } else {
+          res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ success: false, error: 'Incorrect PIN' }));
+        }
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ success: false, error: 'Invalid request' }));
+      }
       return;
     }
 
