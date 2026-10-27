@@ -1111,6 +1111,212 @@
         border: 1px solid #000 !important;
       }
     }
+
+    /* Lock Button in Header */
+    .lock-btn {
+      position: absolute;
+      top: 0;
+      right: 36px;
+      width: 28px;
+      height: 28px;
+      line-height: 24px;
+      border-radius: 50%;
+      border: 2px solid var(--border);
+      background: #FFF;
+      color: #000;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+      box-shadow: 1px 1px 0 #000;
+      padding: 0;
+    }
+    .lock-btn:hover {
+      background: #000;
+      color: #FFF;
+    }
+
+    /* PIN Lock Overlay */
+    #pin-lock-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.94);
+      color: #FFFFFF;
+      z-index: 999999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-mono);
+      backdrop-filter: blur(4px);
+    }
+    .pin-card {
+      border: 3px solid #FFFFFF;
+      padding: 34px 28px;
+      max-width: 360px;
+      width: 90%;
+      text-align: center;
+      background: #000000;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+    }
+    .pin-input {
+      width: 200px;
+      font-size: 32px;
+      letter-spacing: 14px;
+      text-align: center;
+      background: #111111;
+      color: #FFFFFF;
+      border: 2px solid #FFFFFF;
+      padding: 10px 14px;
+      margin: 18px 0 12px 0;
+      outline: none;
+      font-family: var(--font-mono);
+      border-radius: 4px;
+    }
+    .pin-input:focus {
+      border-color: #60a5fa;
+    }
+    .btn-unlock {
+      width: 100%;
+      background: #FFFFFF;
+      color: #000000;
+      font-weight: 900;
+      font-size: 14px;
+      padding: 12px;
+      border: 2px solid #FFFFFF;
+      cursor: pointer;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      font-family: var(--font-mono);
+      transition: all 0.15s;
+      min-height: 48px;
+    }
+    .btn-unlock:hover {
+      background: #000000;
+      color: #FFFFFF;
+    }
+
+    /* CRM Admin Hub Styles */
+    .crm-kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .crm-kpi-card {
+      border: 1px solid var(--border);
+      padding: 10px 8px;
+      text-align: center;
+      background: #FFF;
+    }
+    .crm-kpi-card .kpi-num {
+      font-size: 20px;
+      font-weight: 900;
+      color: #000;
+      font-variant-numeric: tabular-nums;
+    }
+    .crm-kpi-card .kpi-lbl {
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 2px;
+    }
+    .crm-section-box {
+      border: 1px solid var(--border);
+      padding: 12px;
+      margin-bottom: 16px;
+      background: #FFF;
+    }
+    .crm-section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .crm-section-title {
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .crm-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .crm-table th, .crm-table td {
+      border: 1px solid var(--border);
+      padding: 6px 8px;
+      text-align: left;
+    }
+    .crm-table th {
+      background: var(--paper-gray);
+      font-weight: 800;
+    }
+    .crm-badge {
+      display: inline-block;
+      padding: 2px 6px;
+      font-size: 10px;
+      font-weight: 800;
+      border: 1px solid #000;
+      text-transform: uppercase;
+    }
+    .badge-fresh-crm { background: #fee2e2; color: #991b1b; }
+    .badge-progress-crm { background: #fef3c7; color: #92400e; }
+    .badge-callback-crm { background: #e0e7ff; color: #3730a3; }
+    .badge-won-crm { background: #dcfce7; color: #166534; }
+    .badge-lost-crm { background: #f3f4f6; color: #4b5563; }
+
+    .btn-dialer-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: #000;
+      color: #FFF;
+      text-decoration: none;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 4px 8px;
+      border: 1px solid #000;
+      border-radius: 2px;
+    }
+    .btn-dialer-link:hover {
+      background: #FFF;
+      color: #000;
+    }
+    .crm-filter-bar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+    .crm-filter-select, .crm-search-input {
+      font-family: inherit;
+      font-size: 12px;
+      padding: 6px 8px;
+      border: 1px solid var(--border);
+      background: #FFF;
+      outline: none;
+    }
+    .crm-search-input {
+      flex: 1;
+      min-width: 180px;
+    }
+    .crm-call-item {
+      border-bottom: 1px dashed var(--border-light);
+      padding: 8px 0;
+      font-size: 12px;
+    }
+    .crm-call-item:last-child {
+      border-bottom: none;
+    }
+
   </style>
 </head>
 <body>
@@ -1118,6 +1324,7 @@
   <div class="doc-sheet">
     <!-- Official Document Header -->
     <div class="doc-header" style="position: relative;">
+      <button id="lock-btn" class="lock-btn" onclick="lockDashboard()" title="লক করুন (Lock Dashboard)">🔒</button>
       <button id="about-btn" class="help-btn" onclick="openAboutModal()" title="সিস্টেম পরিচিতি ও ব্যবহার নির্দেশিকা">?</button>
       <h1>NEWS VOICE &bull; লেজার খাতা</h1>
       <div class="sub">VOICE &amp; AUDIO DISPATCH LEDGER &bull; AUDIT SYSTEM</div>
@@ -1496,6 +1703,7 @@
         <button class="tab-btn" data-tab="all" onclick="setTab('all')">সকল ক্লায়েন্ট (<span id="count-all">০</span>)</button>
         <button class="tab-btn" data-tab="paid" onclick="setTab('paid')">পরিশোধিত</button>
         <button class="tab-btn" data-tab="toggles" onclick="setTab('toggles')">⚙️ ফিচার কন্ট্রোল</button>
+        <button class="tab-btn" data-tab="crm" onclick="setTab('crm')">📞 টেলি-কলার CRM</button>
       </div>
     </div>
 
@@ -1614,6 +1822,126 @@
           <div class="toggle-card-desc">
             স্ক্রিপ্ট বাদে অন্য যেকোনো সাধারণ প্রশ্ন, অনুসন্ধান বা আন-আনসার্ড স্ক্রিপ্ট থাকলে VE3 এডিটরকে হোয়াটসঅ্যাপে অ্যালার্ট পাঠায়। বন্ধ রাখলে VE3-কে কোনো অটো অ্যালার্ট পাঠানো হবে না।
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Telecaller CRM Admin Hub Panel -->
+    <div id="crm-panel" class="crm-panel" style="display: none;">
+      <div class="toggles-header" style="margin-bottom: 16px;">
+        <h2>📞 টেলি-কলার CRM ও লিড অ্যাডমিন হাব (TELECALLER CRM CONTROL)</h2>
+        <div class="sub">টেলিকলারদের রিয়েল-টাইম পারফরম্যান্স, ডিউটি স্ট্যাটাস, লিড পাইপলাইন মনিটরিং এবং কলার রি-অ্যাসাইনমেন্ট প্যানেল।</div>
+      </div>
+
+      <!-- KPI Overview Cards -->
+      <div class="crm-kpi-grid">
+        <div class="crm-kpi-card">
+          <div class="kpi-num" id="crm-kpi-total">০</div>
+          <div class="kpi-lbl">মোট লিড (Total)</div>
+        </div>
+        <div class="crm-kpi-card" style="border-top: 3px solid #ef4444;">
+          <div class="kpi-num" id="crm-kpi-fresh" style="color: #b91c1c;">০</div>
+          <div class="kpi-lbl">নতুন লিড (Fresh)</div>
+        </div>
+        <div class="crm-kpi-card" style="border-top: 3px solid #f59e0b;">
+          <div class="kpi-num" id="crm-kpi-progress" style="color: #b45309;">০</div>
+          <div class="kpi-lbl">চলমান (In Progress)</div>
+        </div>
+        <div class="crm-kpi-card" style="border-top: 3px solid #6366f1;">
+          <div class="kpi-num" id="crm-kpi-callback" style="color: #4338ca;">০</div>
+          <div class="kpi-lbl">কলব্যাক ডিউ (Callback Due)</div>
+        </div>
+        <div class="crm-kpi-card" style="border-top: 3px solid #22c55e;">
+          <div class="kpi-num" id="crm-kpi-won" style="color: #15803d;">০</div>
+          <div class="kpi-lbl">সফল (Won)</div>
+        </div>
+        <div class="crm-kpi-card" style="border-top: 3px solid #6b7280;">
+          <div class="kpi-num" id="crm-kpi-lost" style="color: #4b5563;">০</div>
+          <div class="kpi-lbl">ব্যর্থ/বাতিল (Lost)</div>
+        </div>
+      </div>
+
+      <!-- Section: Telecaller Team -->
+      <div class="crm-section-box">
+        <div class="crm-section-header">
+          <span class="crm-section-title">👥 টেলি-কলার টিম ও আজকের কল হিসেব</span>
+          <button type="button" class="btn-dialer-link" onclick="openAddCallerModal()" style="cursor: pointer;">+ নতুন কলার যোগ করুন</button>
+        </div>
+        <div style="overflow-x: auto;">
+          <table class="crm-table">
+            <thead>
+              <tr>
+                <th>আইডি ও নাম</th>
+                <th>ফোন / শিফট</th>
+                <th>ডিউটি স্ট্যাটাস</th>
+                <th>আজকের কল</th>
+                <th>পেন্ডিং লিড</th>
+                <th>ডায়ালার অ্যাকশন</th>
+              </tr>
+            </thead>
+            <tbody id="crm-callers-tbody">
+              <tr><td colspan="6" style="text-align:center; padding: 12px; color: var(--muted);">লোড হচ্ছে...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Section: Lead Pipeline Explorer & Reassignment -->
+      <div class="crm-section-box">
+        <div class="crm-section-header">
+          <span class="crm-section-title">📋 লিড পাইপলাইন এক্সপ্লোরার ও রি-অ্যাসাইন</span>
+          <div style="font-size: 11px; color: var(--muted);">মোট লিড: <strong id="crm-leads-total-count">0</strong></div>
+        </div>
+        <div class="crm-filter-bar">
+          <input type="text" id="crm-search-lead" class="crm-search-input" placeholder="ফোন নম্বর বা নাম দিয়ে খুঁজুন..." oninput="debounceCrmSearch()">
+          <select id="crm-filter-status" class="crm-filter-select" onchange="loadCrmAdminLeads(0)">
+            <option value="all">সকল স্ট্যাটাস</option>
+            <option value="fresh">Fresh (নতুন)</option>
+            <option value="in_progress">In Progress (চলমান)</option>
+            <option value="callback_scheduled">Callback Scheduled</option>
+            <option value="won">Won (সফল)</option>
+            <option value="lost">Lost (ব্যর্থ)</option>
+          </select>
+          <select id="crm-filter-caller" class="crm-filter-select" onchange="loadCrmAdminLeads(0)">
+            <option value="all">সকল কলার</option>
+            <option value="unassigned">আন-অ্যাসাইনড (Unassigned)</option>
+          </select>
+          <button type="button" class="btn-dialer-link" style="padding: 6px 12px; cursor: pointer;" onclick="loadCrmAdminLeads(0)">🔄 রিফ্রেশ</button>
+        </div>
+        <div style="overflow-x: auto;">
+          <table class="crm-table">
+            <thead>
+              <tr>
+                <th>ফোন নম্বর</th>
+                <th>নাম</th>
+                <th>স্ট্যাটাস</th>
+                <th>বর্তমান কলার</th>
+                <th>কল সংখ্যা</th>
+                <th>তৈরির সময়</th>
+                <th>কলার রি-অ্যাসাইন</th>
+              </tr>
+            </thead>
+            <tbody id="crm-leads-tbody">
+              <tr><td colspan="7" style="text-align:center; padding: 12px; color: var(--muted);">লোড হচ্ছে...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 12px;">
+          <div id="crm-page-info">পেজ ১</div>
+          <div style="display: flex; gap: 6px;">
+            <button type="button" id="crm-prev-btn" class="btn-dialer-link" style="cursor: pointer;" onclick="changeCrmPage(-1)">« পূর্ববর্তী</button>
+            <button type="button" id="crm-next-btn" class="btn-dialer-link" style="cursor: pointer;" onclick="changeCrmPage(1)">পরবর্তী »</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section: Recent Calls Stream -->
+      <div class="crm-section-box">
+        <div class="crm-section-header">
+          <span class="crm-section-title">📡 সাম্প্রতিক কল হিস্ট্রি লাইভ ফিড (Recent 20 Calls)</span>
+        </div>
+        <div id="crm-recent-calls-list">
+          <div style="text-align: center; color: var(--muted); padding: 10px;">কোনো কল লগ নেই</div>
         </div>
       </div>
     </div>
@@ -1938,7 +2266,7 @@
       }
     }
 
-    function setTab(tab) {
+        function setTab(tab) {
       currentTab = tab;
       document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.tab === tab);
@@ -1947,16 +2275,26 @@
       const searchBox = document.getElementById('search-box');
       const custContainer = document.getElementById('customer-container');
       const togglesPanel = document.getElementById('toggles-panel');
+      const crmPanel = document.getElementById('crm-panel');
 
       if (tab === 'toggles') {
         if (searchBox) searchBox.style.display = 'none';
         if (custContainer) custContainer.style.display = 'none';
+        if (crmPanel) crmPanel.style.display = 'none';
         if (togglesPanel) togglesPanel.style.display = 'block';
         renderBotToggles();
+      } else if (tab === 'crm') {
+        if (searchBox) searchBox.style.display = 'none';
+        if (custContainer) custContainer.style.display = 'none';
+        if (togglesPanel) togglesPanel.style.display = 'none';
+        if (crmPanel) crmPanel.style.display = 'block';
+        loadCrmAdminOverview();
+        loadCrmAdminLeads(0);
       } else {
         if (searchBox) searchBox.style.display = 'block';
         if (custContainer) custContainer.style.display = 'block';
         if (togglesPanel) togglesPanel.style.display = 'none';
+        if (crmPanel) crmPanel.style.display = 'none';
         renderCustomerList();
       }
     }
@@ -2915,6 +3253,439 @@
         }
       }
     }, 1000);
+
+    /* -------------------------------------------------------------
+       DASHBOARD PIN AUTH & LOCK ENGINE
+       ------------------------------------------------------------- */
+    function checkDashboardAuth() {
+      const isAuth = sessionStorage.getItem('dashboard_auth') === 'true';
+      const overlay = document.getElementById('pin-lock-overlay');
+      if (!isAuth) {
+        if (overlay) overlay.style.display = 'flex';
+        const input = document.getElementById('input-admin-pin');
+        if (input) setTimeout(() => input.focus(), 100);
+      } else {
+        if (overlay) overlay.style.display = 'none';
+      }
+    }
+
+    async function handlePinSubmit(e) {
+      if (e) e.preventDefault();
+      const input = document.getElementById('input-admin-pin');
+      const errEl = document.getElementById('pin-error-msg');
+      const pin = input ? input.value.trim() : '';
+
+      try {
+        const res = await fetch('/api/auth/verify-pin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin })
+        });
+        const data = await res.json();
+        if (data && data.success) {
+          sessionStorage.setItem('dashboard_auth', 'true');
+          const overlay = document.getElementById('pin-lock-overlay');
+          if (overlay) overlay.style.display = 'none';
+          if (input) input.value = '';
+          if (errEl) errEl.style.display = 'none';
+        } else {
+          if (errEl) {
+            errEl.textContent = (data && data.error) ? data.error : 'INCORRECT PIN';
+            errEl.style.display = 'block';
+          }
+          if (input) {
+            input.value = '';
+            input.focus();
+          }
+        }
+      } catch (err) {
+        if (errEl) {
+          errEl.textContent = 'NETWORK ERROR';
+          errEl.style.display = 'block';
+        }
+      }
+    }
+
+    function lockDashboard() {
+      sessionStorage.removeItem('dashboard_auth');
+      checkDashboardAuth();
+    }
+
+    /* -------------------------------------------------------------
+       TELECALLER CRM ADMIN HUB LOGIC
+       ------------------------------------------------------------- */
+    let crmAdminData = {
+      overview: null,
+      callers: [],
+      leads: [],
+      leadsTotal: 0,
+      currentPage: 0,
+      pageSize: 50,
+      searchDebounceTimer: null
+    };
+
+    async function loadCrmAdminOverview() {
+      try {
+        const res = await fetch('/api/crm/admin/overview');
+        if (!res.ok) return;
+        const data = await res.json();
+        crmAdminData.overview = data;
+        crmAdminData.callers = data.callers || [];
+
+        // Update KPIs
+        const kpis = data.kpis || {};
+        const setKpi = (id, val) => {
+          const el = document.getElementById(id);
+          if (el) el.innerText = toBengaliDigits(val || 0);
+        };
+        setKpi('crm-kpi-total', kpis.total_leads);
+        setKpi('crm-kpi-fresh', kpis.fresh);
+        setKpi('crm-kpi-progress', kpis.in_progress);
+        setKpi('crm-kpi-callback', kpis.callbacks_due_today);
+        setKpi('crm-kpi-won', kpis.won);
+        setKpi('crm-kpi-lost', kpis.lost);
+
+        // Update Caller Filter dropdown
+        const callerFilter = document.getElementById('crm-filter-caller');
+        if (callerFilter) {
+          const curVal = callerFilter.value;
+          let opts = '<option value="all">সকল কলার</option><option value="unassigned">আন-অ্যাসাইনড (Unassigned)</option>';
+          crmAdminData.callers.forEach(c => {
+            opts += `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)} (${escapeHtml(c.id)})</option>`;
+          });
+          callerFilter.innerHTML = opts;
+          if (curVal) callerFilter.value = curVal;
+        }
+
+        renderCrmCallersTable(crmAdminData.callers);
+        renderCrmRecentCalls(data.recent_calls || []);
+      } catch (err) {
+        console.error('Failed to load CRM admin overview:', err);
+      }
+    }
+
+    function renderCrmCallersTable(callers) {
+      const tbody = document.getElementById('crm-callers-tbody');
+      if (!tbody) return;
+      if (!callers || callers.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 12px; color: var(--muted);">কোনো টেলি-কলার পাওয়া যায়নি।</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = callers.map(c => {
+        const duty = c.duty_status || 'offline';
+        const shift = `${escapeHtml(c.shift_start || '10:00')} - ${escapeHtml(c.shift_end || '19:00')}`;
+        return `
+          <tr>
+            <td><strong>${escapeHtml(c.name)}</strong><br><small style="color:var(--muted);">${escapeHtml(c.id)} &bull; PIN: ${escapeHtml(c.pin || '****')}</small></td>
+            <td>${escapeHtml(c.phone || '-')}<br><small style="color:var(--muted);">${shift}</small></td>
+            <td>
+              <select class="crm-filter-select" style="padding: 3px 6px; font-size: 11px;" onchange="handleCallerStatusChange('${escapeHtml(c.id)}', this.value)">
+                <option value="active" ${duty === 'active' ? 'selected' : ''}>🟢 অন-ডিউটি (Active)</option>
+                <option value="break" ${duty === 'break' ? 'selected' : ''}>🟡 ব্রেকে (Break)</option>
+                <option value="offline" ${duty === 'offline' ? 'selected' : ''}>⚪ অফলাইন (Offline)</option>
+              </select>
+            </td>
+            <td><strong>${toBengaliDigits(c.calls_today || 0)}</strong> টি</td>
+            <td>${toBengaliDigits(c.pending_leads || 0)} টি</td>
+            <td>
+              <a href="/crm?caller_id=${encodeURIComponent(c.id)}" target="_blank" class="btn-dialer-link" title="ওপেন ডায়ালার">
+                📞 ডায়ালার খুলুন
+              </a>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderCrmRecentCalls(calls) {
+      const container = document.getElementById('crm-recent-calls-list');
+      if (!container) return;
+      if (!calls || calls.length === 0) {
+        container.innerHTML = '<div style="text-align: center; color: var(--muted); padding: 10px;">সাম্প্রতিক কোনো কল হিস্ট্রি নেই।</div>';
+        return;
+      }
+
+      const outcomeLabels = {
+        interested: 'আগ্রহী (Interested)',
+        not_interested: 'আগ্রহী নয় (Not Interested)',
+        callback_requested: 'কলব্যাক করতে বলেছে',
+        switched_off: 'বন্ধ / নট রিচেবল',
+        no_answer: 'রিসিভ করেনি',
+        wrong_number: 'ভুল নম্বর'
+      };
+
+      container.innerHTML = calls.map(c => {
+        const timeStr = c.created_at ? new Date(c.created_at).toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit', hour12: true }) : '';
+        const dateStr = c.created_at ? new Date(c.created_at).toLocaleDateString('bn-BD', { month: 'short', day: 'numeric' }) : '';
+        const callerName = c.caller_name ? `${c.caller_name}` : (c.caller_id || 'অজানা');
+        const outcome = outcomeLabels[c.outcome] || c.outcome || 'সম্পন্ন';
+        return `
+          <div class="crm-call-item">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+              <div>
+                <strong>${escapeHtml(c.lead_name || 'গ্রাহক')}</strong> (${escapeHtml(c.lead_phone || '')}) &bull; 
+                <span style="color: var(--muted);">কলার: ${escapeHtml(callerName)}</span>
+              </div>
+              <div style="font-size: 11px; color: var(--muted);">${dateStr} ${timeStr}</div>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <span class="crm-badge" style="background: #f3f4f6;">${escapeHtml(outcome)}</span>
+              ${c.notes ? `<span style="color: #4b5563; font-style: italic; font-size: 11px;">"${escapeHtml(c.notes)}"</span>` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function handleCallerStatusChange(callerId, status) {
+      try {
+        const res = await fetch(`/api/crm/callers/${encodeURIComponent(callerId)}/status`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ duty_status: status })
+        });
+        if (res.ok) {
+          loadCrmAdminOverview();
+        } else {
+          alert('স্ট্যাটাস আপডেট ব্যর্থ হয়েছে');
+        }
+      } catch (err) {
+        alert('নেটওয়ার্ক ত্রুটি');
+      }
+    }
+
+    function debounceCrmSearch() {
+      clearTimeout(crmAdminData.searchDebounceTimer);
+      crmAdminData.searchDebounceTimer = setTimeout(() => {
+        loadCrmAdminLeads(0);
+      }, 300);
+    }
+
+    async function loadCrmAdminLeads(page = 0) {
+      crmAdminData.currentPage = page;
+      if (!crmAdminData.callers || crmAdminData.callers.length === 0) {
+        try {
+          const cRes = await fetch('/api/crm/callers');
+          if (cRes.ok) {
+            const cData = await cRes.json();
+            crmAdminData.callers = cData.callers || [];
+          }
+        } catch (_) {}
+      }
+
+      const search = (document.getElementById('crm-search-lead')?.value || '').trim();
+      const status = document.getElementById('crm-filter-status')?.value || 'all';
+      const caller_id = document.getElementById('crm-filter-caller')?.value || 'all';
+      const limit = crmAdminData.pageSize;
+      const offset = page * limit;
+
+      const tbody = document.getElementById('crm-leads-tbody');
+      if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 12px; color: var(--muted);">লোড হচ্ছে...</td></tr>';
+
+      try {
+        const params = new URLSearchParams({
+          search,
+          status,
+          caller_id,
+          limit: limit.toString(),
+          offset: offset.toString()
+        });
+        const res = await fetch(`/api/crm/admin/leads?${params.toString()}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        crmAdminData.leads = data.leads || [];
+        crmAdminData.leadsTotal = data.total || 0;
+
+        renderCrmLeadsTable(crmAdminData.leads);
+
+        // Update count and pagination
+        const countEl = document.getElementById('crm-leads-total-count');
+        if (countEl) countEl.innerText = toBengaliDigits(crmAdminData.leadsTotal);
+
+        const pageInfo = document.getElementById('crm-page-info');
+        const totalPages = Math.ceil(crmAdminData.leadsTotal / limit) || 1;
+        if (pageInfo) pageInfo.innerText = `পেজ ${toBengaliDigits(page + 1)} / ${toBengaliDigits(totalPages)} (মোট ${toBengaliDigits(crmAdminData.leadsTotal)})`;
+
+        const prevBtn = document.getElementById('crm-prev-btn');
+        const nextBtn = document.getElementById('crm-next-btn');
+        if (prevBtn) prevBtn.disabled = (page <= 0);
+        if (nextBtn) nextBtn.disabled = (page >= totalPages - 1);
+      } catch (err) {
+        if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 12px; color: red;">লোড করতে ব্যর্থ হয়েছে।</td></tr>';
+      }
+    }
+
+    function changeCrmPage(dir) {
+      const newPage = crmAdminData.currentPage + dir;
+      const totalPages = Math.ceil(crmAdminData.leadsTotal / crmAdminData.pageSize) || 1;
+      if (newPage >= 0 && newPage < totalPages) {
+        loadCrmAdminLeads(newPage);
+      }
+    }
+
+    function renderCrmLeadsTable(leads) {
+      const tbody = document.getElementById('crm-leads-tbody');
+      if (!tbody) return;
+      if (!leads || leads.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 12px; color: var(--muted);">কোনো লিড পাওয়া যায়নি।</td></tr>';
+        return;
+      }
+
+      const statusBadges = {
+        fresh: '<span class="crm-badge badge-fresh-crm">FRESH</span>',
+        in_progress: '<span class="crm-badge badge-progress-crm">IN PROGRESS</span>',
+        callback_scheduled: '<span class="crm-badge badge-callback-crm">CALLBACK</span>',
+        won: '<span class="crm-badge badge-won-crm">WON</span>',
+        lost: '<span class="crm-badge badge-lost-crm">LOST</span>'
+      };
+
+      tbody.innerHTML = leads.map(l => {
+        const badge = statusBadges[l.status] || `<span class="crm-badge">${escapeHtml(l.status)}</span>`;
+        const dateStr = l.created_at ? new Date(l.created_at).toLocaleDateString('bn-BD', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
+        
+        let callerOpts = `<option value="">-- আন-অ্যাসাইনড --</option>`;
+        (crmAdminData.callers || []).forEach(c => {
+          callerOpts += `<option value="${escapeHtml(c.id)}" ${l.assigned_caller_id === c.id ? 'selected' : ''}>${escapeHtml(c.name)}</option>`;
+        });
+
+        return `
+          <tr>
+            <td><strong>${escapeHtml(l.phone_number)}</strong></td>
+            <td>${escapeHtml(l.name || '-')}</td>
+            <td>${badge}</td>
+            <td>${escapeHtml(l.caller_name || 'আন-অ্যাসাইনড')}</td>
+            <td>${toBengaliDigits(l.call_count || 0)} বার</td>
+            <td style="font-size: 11px; color: var(--muted);">${dateStr}</td>
+            <td>
+              <select class="crm-filter-select" style="padding: 3px 6px; font-size: 11px;" onchange="handleReassignLead('${escapeHtml(l.id)}', this.value)">
+                ${callerOpts}
+              </select>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    async function handleReassignLead(leadId, newCallerId) {
+      try {
+        const res = await fetch(`/api/crm/admin/leads/${encodeURIComponent(leadId)}/reassign`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ caller_id: newCallerId || null })
+        });
+        if (res.ok) {
+          loadCrmAdminLeads(crmAdminData.currentPage);
+          loadCrmAdminOverview();
+        } else {
+          alert('রি-অ্যাসাইন ব্যর্থ হয়েছে');
+        }
+      } catch (err) {
+        alert('নেটওয়ার্ক ত্রুটি');
+      }
+    }
+
+    function openAddCallerModal() {
+      const modal = document.getElementById('crm-add-caller-modal');
+      const err = document.getElementById('add-caller-error');
+      if (err) err.style.display = 'none';
+      if (modal) modal.classList.add('open');
+      const idInput = document.getElementById('new-caller-id');
+      if (idInput) setTimeout(() => idInput.focus(), 100);
+    }
+
+    function closeAddCallerModal() {
+      const modal = document.getElementById('crm-add-caller-modal');
+      if (modal) modal.classList.remove('open');
+    }
+
+    async function handleAddCallerSubmit(e) {
+      if (e) e.preventDefault();
+      const id = document.getElementById('new-caller-id')?.value.trim();
+      const name = document.getElementById('new-caller-name')?.value.trim();
+      const phone = document.getElementById('new-caller-phone')?.value.trim();
+      const pin = document.getElementById('new-caller-pin')?.value.trim();
+      const errEl = document.getElementById('add-caller-error');
+
+      if (!id || !name) {
+        if (errEl) { errEl.textContent = 'আইডি এবং নাম আবশ্যক'; errEl.style.display = 'block'; }
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/crm/callers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, name, phone, pin: pin || '1234' })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          closeAddCallerModal();
+          document.getElementById('new-caller-id').value = '';
+          document.getElementById('new-caller-name').value = '';
+          document.getElementById('new-caller-phone').value = '';
+          loadCrmAdminOverview();
+        } else {
+          if (errEl) { errEl.textContent = data.error || 'কলার যোগ করতে ব্যর্থ হয়েছে'; errEl.style.display = 'block'; }
+        }
+      } catch (err) {
+        if (errEl) { errEl.textContent = 'নেটওয়ার্ক ত্রুটি'; errEl.style.display = 'block'; }
+      }
+    }
+
+    document.getElementById('crm-add-caller-modal')?.addEventListener('click', (e) => {
+      if (e.target.id === 'crm-add-caller-modal') closeAddCallerModal();
+    });
+
+    checkDashboardAuth();
   </script>
+
+  <!-- Add Caller Modal -->
+  <div id="crm-add-caller-modal" class="modal-overlay">
+    <div class="statement-sheet" style="max-width: 440px; padding: 20px;">
+      <div class="doc-header" style="text-align: center; margin-bottom: 16px;">
+        <h2 style="font-size: 16px; margin: 0 0 4px 0;">+ নতুন কলার যোগ করুন</h2>
+        <div class="sub">টেলি-কলার অ্যাকাউন্ট তৈরি করুন</div>
+      </div>
+      <form onsubmit="handleAddCallerSubmit(event)">
+        <div style="margin-bottom: 12px; text-align: left;">
+          <label style="display: block; font-size: 11px; font-weight: 800; margin-bottom: 4px;">কলার আইডি (ID, e.g. caller_3):</label>
+          <input type="text" id="new-caller-id" class="crm-search-input" style="width: 100%; box-sizing: border-box;" required placeholder="caller_3">
+        </div>
+        <div style="margin-bottom: 12px; text-align: left;">
+          <label style="display: block; font-size: 11px; font-weight: 800; margin-bottom: 4px;">নাম (Full Name):</label>
+          <input type="text" id="new-caller-name" class="crm-search-input" style="width: 100%; box-sizing: border-box;" required placeholder="e.g. নাসরিন আক্তার">
+        </div>
+        <div style="margin-bottom: 12px; text-align: left;">
+          <label style="display: block; font-size: 11px; font-weight: 800; margin-bottom: 4px;">ফোন নম্বর:</label>
+          <input type="text" id="new-caller-phone" class="crm-search-input" style="width: 100%; box-sizing: border-box;" placeholder="017xxxxxxxx">
+        </div>
+        <div style="margin-bottom: 16px; text-align: left;">
+          <label style="display: block; font-size: 11px; font-weight: 800; margin-bottom: 4px;">৪-ডিজিট লগইন পিন (PIN):</label>
+          <input type="text" id="new-caller-pin" class="crm-search-input" style="width: 100%; box-sizing: border-box;" maxlength="4" placeholder="1234" value="1234">
+        </div>
+        <div id="add-caller-error" style="color: #ef4444; font-size: 12px; margin-bottom: 10px; display: none;"></div>
+        <div style="display: flex; gap: 8px; justify-content: flex-end;">
+          <button type="button" class="btn-dialer-link" style="background: #e5e7eb; color: #000; border-color: #d1d5db; cursor: pointer;" onclick="closeAddCallerModal()">বাতিল (Cancel)</button>
+          <button type="submit" class="btn-dialer-link" style="cursor: pointer;">সংরক্ষণ করুন (Save)</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- PIN Lock Overlay -->
+  <div id="pin-lock-overlay" style="display: none;">
+    <div class="pin-card">
+      <div style="font-size: 32px; margin-bottom: 8px;">🔒</div>
+      <h2 style="font-size: 15px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; color: #fff;">MUNNI SOFT LEDGER</h2>
+      <p style="font-size: 12px; color: #AAA; margin-bottom: 12px;">ENTER 4-DIGIT ADMIN PIN TO ACCESS</p>
+      <form onsubmit="handlePinSubmit(event)">
+        <input type="password" id="input-admin-pin" class="pin-input" maxlength="4" pattern="[0-9]*" inputmode="numeric" placeholder="••••" required autofocus autocomplete="off">
+        <div id="pin-error-msg" style="color: #ff6b6b; font-size: 12px; margin-bottom: 12px; display: none;">INCORRECT PIN</div>
+        <button type="submit" id="btn-unlock-dashboard" class="btn-unlock">UNLOCK DASHBOARD</button>
+      </form>
+    </div>
+  </div>
+
 </body>
 </html>
