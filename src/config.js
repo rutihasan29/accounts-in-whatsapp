@@ -2,8 +2,12 @@ const path = require('path');
 
 if (typeof process.loadEnvFile === 'function') {
   try {
-    process.loadEnvFile();
-  } catch {}
+    process.loadEnvFile(path.join(__dirname, '..', '.env'));
+  } catch {
+    try {
+      process.loadEnvFile();
+    } catch {}
+  }
 }
 
 const rawAudioKeys = process.env.GEMINI_AUDIO_API_KEYS || process.env.GEMINI_AUDIO_API_KEY || process.env.GEMINI_API_KEY || '';

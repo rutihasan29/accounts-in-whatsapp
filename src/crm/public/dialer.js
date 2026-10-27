@@ -1,3 +1,21 @@
+// Automatically inject ngrok skip browser warning header to all fetch requests
+if (typeof window !== 'undefined' && window.fetch) {
+  const _origFetch = window.fetch;
+  window.fetch = function (url, opts = {}) {
+    opts.headers = opts.headers || {};
+    if (opts.headers instanceof Headers) {
+      if (!opts.headers.has('ngrok-skip-browser-warning')) {
+        opts.headers.append('ngrok-skip-browser-warning', 'true');
+      }
+    } else if (Array.isArray(opts.headers)) {
+      opts.headers.push(['ngrok-skip-browser-warning', 'true']);
+    } else {
+      opts.headers['ngrok-skip-browser-warning'] = 'true';
+    }
+    return _origFetch.call(this, url, opts);
+  };
+}
+
 // Telecaller CRM Mobile-First Dialer Logic
 let currentLead = null;
 let lastAlertedLeadId = null;

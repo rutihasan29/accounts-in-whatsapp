@@ -34,7 +34,7 @@ describe('CRM HTTP API', () => {
       id: 'c1',
       name: 'Tanvir',
       pin: '1234',
-      shift_schedule_json: '{"mon":[{"start":"00:00","end":"23:59"}]}'
+      shift_schedule_json: JSON.stringify(['sun','mon','tue','wed','thu','fri','sat'].reduce((acc, d) => { acc[d] = [{ start: '00:00', end: '23:59' }]; return acc; }, {}))
     });
     updateCallerStatus(db, 'c1', 'active');
   });

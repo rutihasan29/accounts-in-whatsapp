@@ -6,6 +6,22 @@
   <meta name="theme-color" content="#0b0f19">
   <title>Telecaller CRM Dialer</title>
   <link rel="stylesheet" href="/crm/styles.css">
+  <script>
+    if (window.fetch) {
+      const _orig = window.fetch;
+      window.fetch = function(u, o = {}) {
+        o.headers = o.headers || {};
+        if (o.headers instanceof Headers) {
+          if (!o.headers.has('ngrok-skip-browser-warning')) o.headers.append('ngrok-skip-browser-warning', 'true');
+        } else if (Array.isArray(o.headers)) {
+          o.headers.push(['ngrok-skip-browser-warning', 'true']);
+        } else {
+          o.headers['ngrok-skip-browser-warning'] = 'true';
+        }
+        return _orig.call(this, u, o);
+      };
+    }
+  </script>
 </head>
 <body>
   <!-- Sticky Header / Caller Bar -->

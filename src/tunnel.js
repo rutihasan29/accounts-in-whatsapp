@@ -17,7 +17,8 @@ async function startNgrokTunnel({ port = 3000, authtoken = null, domain = null, 
   try {
     const forwardOptions = {
       addr: port,
-      authtoken: token
+      authtoken: token,
+      request_header_add: ['ngrok-skip-browser-warning:true']
     };
 
     if (customDomain) {

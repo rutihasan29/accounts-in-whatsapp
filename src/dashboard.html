@@ -4,6 +4,22 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>OFFICIAL BUSINESS LEDGER &bull; NEWS VOICE</title>
+  <script>
+    if (window.fetch) {
+      const _orig = window.fetch;
+      window.fetch = function(u, o = {}) {
+        o.headers = o.headers || {};
+        if (o.headers instanceof Headers) {
+          if (!o.headers.has('ngrok-skip-browser-warning')) o.headers.append('ngrok-skip-browser-warning', 'true');
+        } else if (Array.isArray(o.headers)) {
+          o.headers.push(['ngrok-skip-browser-warning', 'true']);
+        } else {
+          o.headers['ngrok-skip-browser-warning'] = 'true';
+        }
+        return _orig.call(this, u, o);
+      };
+    }
+  </script>
   <style>
     /* -------------------------------------------------------------
        OFFICIAL PRINTED DOCUMENT / PAPER LEDGER STYLING
