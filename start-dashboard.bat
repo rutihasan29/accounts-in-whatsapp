@@ -1,9 +1,9 @@
 @echo off
-title Munni Soft - Official Ledger Dashboard
+title News Voice - Official Ledger Dashboard
 cd /d "%~dp0"
 
 echo ====================================================
-echo       Munni Soft - Official Ledger Web Dashboard
+echo       News Voice - Official Ledger Web Dashboard
 echo ====================================================
 echo.
 

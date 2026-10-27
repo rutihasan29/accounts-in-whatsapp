@@ -1321,6 +1321,28 @@
 </head>
 <body>
 
+  <!-- PIN Lock Overlay (Guaranteed first element rendered on page) -->
+  <div id="pin-lock-overlay">
+    <div class="pin-card">
+      <div style="font-size: 32px; margin-bottom: 8px;">🔒</div>
+      <h2 style="font-size: 15px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; color: #fff;">NEWS VOICE LEDGER</h2>
+      <p style="font-size: 12px; color: #AAA; margin-bottom: 12px;">ENTER 4-DIGIT ADMIN PIN TO ACCESS</p>
+      <form onsubmit="handlePinSubmit(event)">
+        <input type="password" id="input-admin-pin" class="pin-input" maxlength="4" pattern="[0-9]*" inputmode="numeric" placeholder="••••" required autofocus autocomplete="off">
+        <div id="pin-error-msg" style="color: #ff6b6b; font-size: 12px; margin-bottom: 12px; display: none;">INCORRECT PIN</div>
+        <button type="submit" id="btn-unlock-dashboard" class="btn-unlock">UNLOCK DASHBOARD</button>
+      </form>
+    </div>
+  </div>
+  <script>
+    // Immediate verification check on first parse
+    try {
+      if (sessionStorage.getItem('dashboard_auth') === 'true') {
+        document.getElementById('pin-lock-overlay').style.display = 'none';
+      }
+    } catch (_) {}
+  </script>
+
   <div class="doc-sheet">
     <!-- Official Document Header -->
     <div class="doc-header" style="position: relative;">
@@ -2083,6 +2105,39 @@
       <div class="modal-actions" style="margin-top: 14px;">
         <button class="btn btn-solid" style="flex: 1;" onclick="closeAboutModal()">✕ বন্ধ করুন (CLOSE)</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Add Caller Modal -->
+  <div id="crm-add-caller-modal" class="modal-overlay">
+    <div class="statement-sheet" style="max-width: 440px; padding: 20px;">
+      <div class="doc-header" style="text-align: center; margin-bottom: 16px;">
+        <h2 style="font-size: 16px; margin: 0 0 4px 0;">+ নতুন কলার যোগ করুন</h2>
+        <div class="sub">টেলি-কলার অ্যাকাউন্ট তৈরি করুন</div>
+      </div>
+      <form onsubmit="handleAddCallerSubmit(event)">
+        <div style="margin-bottom: 12px; text-align: left;">
+          <label style="display: block; font-size: 11px; font-weight: 800; margin-bottom: 4px;">কলার আইডি (ID, e.g. caller_3):</label>
+          <input type="text" id="new-caller-id" class="crm-search-input" style="width: 100%; box-sizing: border-box;" required placeholder="caller_3">
+        </div>
+        <div style="margin-bottom: 12px; text-align: left;">
+          <label style="display: block; font-size: 11px; font-weight: 800; margin-bottom: 4px;">নাম (Full Name):</label>
+          <input type="text" id="new-caller-name" class="crm-search-input" style="width: 100%; box-sizing: border-box;" required placeholder="e.g. নাসরিন আক্তার">
+        </div>
+        <div style="margin-bottom: 12px; text-align: left;">
+          <label style="display: block; font-size: 11px; font-weight: 800; margin-bottom: 4px;">ফোন নম্বর:</label>
+          <input type="text" id="new-caller-phone" class="crm-search-input" style="width: 100%; box-sizing: border-box;" placeholder="017xxxxxxxx">
+        </div>
+        <div style="margin-bottom: 16px; text-align: left;">
+          <label style="display: block; font-size: 11px; font-weight: 800; margin-bottom: 4px;">৪-ডিজিট লগইন পিন (PIN):</label>
+          <input type="text" id="new-caller-pin" class="crm-search-input" style="width: 100%; box-sizing: border-box;" maxlength="4" placeholder="1234" value="1234">
+        </div>
+        <div id="add-caller-error" style="color: #ef4444; font-size: 12px; margin-bottom: 10px; display: none;"></div>
+        <div style="display: flex; gap: 8px; justify-content: flex-end;">
+          <button type="button" class="btn-dialer-link" style="background: #e5e7eb; color: #000; border-color: #d1d5db; cursor: pointer;" onclick="closeAddCallerModal()">বাতিল (Cancel)</button>
+          <button type="submit" class="btn-dialer-link" style="cursor: pointer;">সংরক্ষণ করুন (Save)</button>
+        </div>
+      </form>
     </div>
   </div>
 
@@ -3644,53 +3699,5 @@
 
     checkDashboardAuth();
   </script>
-
-  <!-- Add Caller Modal -->
-  <div id="crm-add-caller-modal" class="modal-overlay">
-    <div class="statement-sheet" style="max-width: 440px; padding: 20px;">
-      <div class="doc-header" style="text-align: center; margin-bottom: 16px;">
-        <h2 style="font-size: 16px; margin: 0 0 4px 0;">+ নতুন কলার যোগ করুন</h2>
-        <div class="sub">টেলি-কলার অ্যাকাউন্ট তৈরি করুন</div>
-      </div>
-      <form onsubmit="handleAddCallerSubmit(event)">
-        <div style="margin-bottom: 12px; text-align: left;">
-          <label style="display: block; font-size: 11px; font-weight: 800; margin-bottom: 4px;">কলার আইডি (ID, e.g. caller_3):</label>
-          <input type="text" id="new-caller-id" class="crm-search-input" style="width: 100%; box-sizing: border-box;" required placeholder="caller_3">
-        </div>
-        <div style="margin-bottom: 12px; text-align: left;">
-          <label style="display: block; font-size: 11px; font-weight: 800; margin-bottom: 4px;">নাম (Full Name):</label>
-          <input type="text" id="new-caller-name" class="crm-search-input" style="width: 100%; box-sizing: border-box;" required placeholder="e.g. নাসরিন আক্তার">
-        </div>
-        <div style="margin-bottom: 12px; text-align: left;">
-          <label style="display: block; font-size: 11px; font-weight: 800; margin-bottom: 4px;">ফোন নম্বর:</label>
-          <input type="text" id="new-caller-phone" class="crm-search-input" style="width: 100%; box-sizing: border-box;" placeholder="017xxxxxxxx">
-        </div>
-        <div style="margin-bottom: 16px; text-align: left;">
-          <label style="display: block; font-size: 11px; font-weight: 800; margin-bottom: 4px;">৪-ডিজিট লগইন পিন (PIN):</label>
-          <input type="text" id="new-caller-pin" class="crm-search-input" style="width: 100%; box-sizing: border-box;" maxlength="4" placeholder="1234" value="1234">
-        </div>
-        <div id="add-caller-error" style="color: #ef4444; font-size: 12px; margin-bottom: 10px; display: none;"></div>
-        <div style="display: flex; gap: 8px; justify-content: flex-end;">
-          <button type="button" class="btn-dialer-link" style="background: #e5e7eb; color: #000; border-color: #d1d5db; cursor: pointer;" onclick="closeAddCallerModal()">বাতিল (Cancel)</button>
-          <button type="submit" class="btn-dialer-link" style="cursor: pointer;">সংরক্ষণ করুন (Save)</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- PIN Lock Overlay -->
-  <div id="pin-lock-overlay" style="display: none;">
-    <div class="pin-card">
-      <div style="font-size: 32px; margin-bottom: 8px;">🔒</div>
-      <h2 style="font-size: 15px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; color: #fff;">MUNNI SOFT LEDGER</h2>
-      <p style="font-size: 12px; color: #AAA; margin-bottom: 12px;">ENTER 4-DIGIT ADMIN PIN TO ACCESS</p>
-      <form onsubmit="handlePinSubmit(event)">
-        <input type="password" id="input-admin-pin" class="pin-input" maxlength="4" pattern="[0-9]*" inputmode="numeric" placeholder="••••" required autofocus autocomplete="off">
-        <div id="pin-error-msg" style="color: #ff6b6b; font-size: 12px; margin-bottom: 12px; display: none;">INCORRECT PIN</div>
-        <button type="submit" id="btn-unlock-dashboard" class="btn-unlock">UNLOCK DASHBOARD</button>
-      </form>
-    </div>
-  </div>
-
 </body>
 </html>

@@ -1,9 +1,9 @@
 @echo off
-title Munni Soft - Ngrok Mobile Public Tunnel
+title News Voice - Ngrok Mobile Public Tunnel
 cd /d "%~dp0"
 
 echo ====================================================
-echo         Munni Soft - Ngrok Public Mobile Tunnel
+echo         News Voice - Ngrok Public Mobile Tunnel
 echo ====================================================
 echo.
 echo Starting Ngrok tunnel for port 3000...

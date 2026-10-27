@@ -1,9 +1,9 @@
 @echo off
-title Munni Soft - Cloudflare Public Mobile Tunnel
+title News Voice - Cloudflare Public Mobile Tunnel
 cd /d "%~dp0"
 
 echo ====================================================
-echo       Munni Soft - Cloudflare Public Mobile Tunnel
+echo       News Voice - Cloudflare Public Mobile Tunnel
 echo ====================================================
 echo.
 echo Starting secure public HTTPS tunnel for port 3000...
