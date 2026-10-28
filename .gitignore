@@ -8,3 +8,5 @@ data/*.db-shm
 npm-debug.log*
 cloudflared.exe
 ngrok.exe
+*.zip
+aircheck_-voiceover-mistake-&-retake-remover*

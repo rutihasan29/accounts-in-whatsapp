@@ -1,0 +1,8 @@
+node_modules
+.git
+.wwebjs_auth
+.wwebjs_cache
+data
+tests
+*.bat
+cloudflared.exe
