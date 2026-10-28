@@ -1,19 +1,16 @@
 services:
-  munnisoft-bot:
+  news-voice-bot:
     build: .
-    container_name: munnisoft-bot
+    container_name: news-voice-bot
     restart: unless-stopped
     ports:
-      # Map container port 3000 to an unused port on the host (e.g. 3050)
-      # to prevent any port collision with your friend's existing websites
-      - "3050:3000"
+      - "3000:3000"
     volumes:
-      # Keep database and WhatsApp session persistent in project directory
+      # Persistent SQLite ledger database and WhatsApp Web authentication session
       - ./data:/app/data
       - ./.wwebjs_auth:/app/.wwebjs_auth
     env_file:
       - .env
-    # RAM safety limit: Protects your friend's programs from memory starvation
     deploy:
       resources:
         limits:
