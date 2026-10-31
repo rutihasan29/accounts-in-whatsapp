@@ -53,6 +53,7 @@ const {
 } = require('./dispatch');
 const { insertLead: insertCrmLead } = require('./crm/db');
 const { assignFreshLead } = require('./crm/routing');
+const { sendSystemAlertToPreenan, startUiHealthWatchdog } = require('./alerts');
 const qrcode = require('qrcode-terminal');
 
 let MessageMedia = null;
@@ -2674,6 +2675,30 @@ function setupBotHandlers({ client, db }) {
     } catch (e) {
       console.warn('[CATCHUP] Error processing offline customer messages on ready:', e.message);
     }
+
+    // Start continuous WhatsApp Web UI Health Watchdog
+    try {
+      startUiHealthWatchdog({ client, db, intervalMs: 120000 });
+      console.log('[WATCHDOG] WhatsApp Web UI Health Watchdog started (alerts routed to Preenan).');
+    } catch (watchErr) {
+      console.warn('[WATCHDOG] Could not initialize UI health watchdog:', watchErr.message);
+    }
+
+    // Monitor in-page Puppeteer crashes
+    try {
+      if (client?.pupPage && typeof client.pupPage.on === 'function') {
+        client.pupPage.on('error', (pageErr) => {
+          console.error('[PUP_PAGE] Page crashed or unhandled error:', pageErr);
+          sendSystemAlertToPreenan({
+            client,
+            db,
+            context: 'Puppeteer Page Crash (Possible UI change / DOM error)',
+            error: pageErr.message,
+            logs: pageErr.stack
+          }).catch(() => {});
+        });
+      }
+    } catch {}
   });
 
   client.on('authenticated', () => {
@@ -2702,6 +2727,12 @@ function setupBotHandlers({ client, db }) {
     try {
       recordBotState(db, 'OFFLINE', typeof reason === 'string' ? reason : 'DISCONNECTED');
     } catch {}
+    sendSystemAlertToPreenan({
+      client,
+      db,
+      context: 'WhatsApp Web Disconnected',
+      error: typeof reason === 'string' ? reason : 'DISCONNECTED'
+    }).catch(() => {});
   });
 
   client.on('auth_failure', (msg) => {
@@ -2710,6 +2741,13 @@ function setupBotHandlers({ client, db }) {
     try {
       recordBotState(db, 'OFFLINE', typeof msg === 'string' ? msg : 'AUTH_FAILURE');
     } catch {}
+    sendSystemAlertToPreenan({
+      client,
+      db,
+      context: 'WhatsApp Authentication Failure',
+      error: typeof msg === 'string' ? msg : 'AUTH_FAILURE',
+      force: true
+    }).catch(() => {});
   });
 
   client.on('message_create', async (msg) => {
@@ -2717,6 +2755,13 @@ function setupBotHandlers({ client, db }) {
       await handleMessageCreate({ msg, client, db });
     } catch (err) {
       console.error('Error handling message_create event:', err);
+      sendSystemAlertToPreenan({
+        client,
+        db,
+        context: 'Unhandled Exception in message_create',
+        error: err.message,
+        logs: { stack: err.stack, msgId: msg?.id?._serialized, fromMe: msg?.fromMe, type: msg?.type }
+      }).catch(() => {});
     }
   });
 

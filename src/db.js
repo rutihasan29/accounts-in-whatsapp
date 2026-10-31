@@ -205,6 +205,19 @@ function initDb(dbPath) {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS system_alerts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      alert_type TEXT NOT NULL,
+      context TEXT,
+      error_message TEXT,
+      log_details TEXT,
+      recipient TEXT,
+      sent_status TEXT DEFAULT 'SENT',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_alerts_created_at ON system_alerts(created_at);
+
     CREATE INDEX IF NOT EXISTS idx_transactions_phone ON transactions(phone_number);
     CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type);
     CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
@@ -1426,6 +1439,37 @@ function getAllCachedStaffLids(db) {
   }
 }
 
+function recordSystemAlert(db, { alertType, context, errorMessage, logDetails, recipient, sentStatus = 'SENT' } = {}) {
+  if (!db) return null;
+  try {
+    const stmt = db.prepare(`
+      INSERT INTO system_alerts (alert_type, context, error_message, log_details, recipient, sent_status)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    const res = stmt.run(
+      alertType || 'SYSTEM_ERROR',
+      context || null,
+      errorMessage ? String(errorMessage).slice(0, 1000) : null,
+      logDetails ? String(logDetails).slice(0, 4000) : null,
+      recipient || null,
+      sentStatus
+    );
+    return { id: res.lastInsertRowid };
+  } catch (err) {
+    console.warn('[DB] Failed recording system alert:', err.message);
+    return null;
+  }
+}
+
+function getRecentSystemAlerts(db, limit = 20) {
+  if (!db) return [];
+  try {
+    return db.prepare('SELECT * FROM system_alerts ORDER BY id DESC LIMIT ?').all(limit);
+  } catch {
+    return [];
+  }
+}
+
 module.exports = {
   initDb,
   recordTransaction,
@@ -1471,5 +1515,7 @@ module.exports = {
   getAllPendingConfirmationsFromDb,
   cacheStaffLid,
   getCachedStaffLid,
-  getAllCachedStaffLids
+  getAllCachedStaffLids,
+  recordSystemAlert,
+  getRecentSystemAlerts
 };

@@ -30,6 +30,7 @@ module.exports = {
   VA3_PHONE: process.env.VA3_PHONE || '8801844674843',
   VA_PHONES: (process.env.VA_PHONES || '8801307760509,8801844674843,8801568618636').split(/[,;\n]/).map(p => p.trim()).filter(Boolean),
   VE3_PHONE: process.env.VE3_PHONE || '8801831366604',
+  PREENAN_PHONE: process.env.PREENAN_PHONE || '8801534323811',
   SCRIPT_TIMEOUT_MS: process.env.SCRIPT_TIMEOUT_MS ? parseInt(process.env.SCRIPT_TIMEOUT_MS, 10) : 5 * 60 * 1000,
   DASHBOARD_PIN: process.env.DASHBOARD_PIN || '6700'
 };

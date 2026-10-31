@@ -554,6 +554,23 @@ async function resolveAudioDuration({ msg, client }) {
     return fallbackDuration;
   }
 
+  // 5. If all attempts failed (direct metadata, in-page query, downloadMedia, and filename parsing):
+  console.warn(`[AUDIO] Failed to resolve duration for "${filename || 'audio'}" across all methods.`);
+  try {
+    const { sendSystemAlertToPreenan } = require('./alerts');
+    sendSystemAlertToPreenan({
+      client,
+      context: 'Audio Duration Failure (Possible UI/DOM Change)',
+      error: `Could not extract audio duration for "${filename || 'audio'}". Webpack or media element structure may have changed.`,
+      logs: {
+        filename,
+        stanzaId: msg.id?.id,
+        mimetype: msg.mimetype || msg._data?.mimetype,
+        type: msg.type
+      }
+    }).catch(() => {});
+  } catch {}
+
   return null;
 }
 
