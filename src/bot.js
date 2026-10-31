@@ -134,6 +134,7 @@ async function sendAndRecordAudioBill({
 
   pendingAutoBills.push({
     targetChat: destinationJid,
+    targetChatDigits: String(destinationJid).replace(/\D/g, ''),
     phone: cleanPhone,
     amount: billAmount,
     time: Date.now()
@@ -141,6 +142,9 @@ async function sendAndRecordAudioBill({
 
   if (audioMsgId) {
     billedAudioMsgIds.add(audioMsgId);
+    if (typeof audioMsgId === 'string' && audioMsgId.includes('_')) {
+      billedAudioMsgIds.add(audioMsgId.split('_').pop());
+    }
   }
 
   let sent = false;
@@ -168,6 +172,9 @@ async function sendAndRecordAudioBill({
 
   if (sentMsg?.id?._serialized) {
     sentAutoBillMsgIds.add(sentMsg.id._serialized);
+    if (typeof sentMsg.id._serialized === 'string' && sentMsg.id._serialized.includes('_')) {
+      sentAutoBillMsgIds.add(sentMsg.id._serialized.split('_').pop());
+    }
   }
   if (sentMsg?.id?.id) {
     sentAutoBillMsgIds.add(sentMsg.id.id);
@@ -210,6 +217,7 @@ function isBotSystemMessage(text) {
          text.includes('[সহায়তা প্রয়োজন / Customer Escalation]') ||
          text.includes('[গ্রাহকের বার্তা / Customer Message]') ||
          text.includes('[ভিডিও গ্রাহকের বার্তা / Video Customer Message]') ||
+         text.startsWith('✅ অর্ডার #') ||
          /\[নতুন\s*ভয়েস\s*অর্ডার(?:\s*#[^\]]+)?\]/i.test(text);
 }
 
@@ -1387,6 +1395,12 @@ async function handleMessageCreate({
           const sentMediaId = sentMediaMsg?.id?._serialized || sentMediaMsg?.id?.id;
           if (sentMediaId) {
             billedAudioMsgIds.add(sentMediaId);
+            if (sentMediaMsg?.id?.id) {
+              billedAudioMsgIds.add(sentMediaMsg.id.id);
+            }
+            if (typeof sentMediaId === 'string' && sentMediaId.includes('_')) {
+              billedAudioMsgIds.add(sentMediaId.split('_').pop());
+            }
           }
 
           let billResult = null;
@@ -1555,6 +1569,12 @@ async function handleMessageCreate({
           const sentMediaId = sentCustomerMedia?.id?._serialized || sentCustomerMedia?.id?.id;
           if (sentMediaId) {
             billedAudioMsgIds.add(sentMediaId);
+            if (sentCustomerMedia?.id?.id) {
+              billedAudioMsgIds.add(sentCustomerMedia.id.id);
+            }
+            if (typeof sentMediaId === 'string' && sentMediaId.includes('_')) {
+              billedAudioMsgIds.add(sentMediaId.split('_').pop());
+            }
           }
 
           const va2Jid = `${cleanVa2}@c.us`;
@@ -1653,20 +1673,6 @@ async function handleMessageCreate({
             cleanDurationSeconds: durationFromText,
             aircheckModelUsed: 'VA_DURATION_TEXT'
           });
-
-          // Confirm back to the VA
-          const billAmount = calculateAudioBill(durationFromText);
-          const confirmText = `✅ অর্ডার #${order.order_id} এর বিল (${formatBillMessage(billAmount)}) কাস্টমারকে পাঠানো হয়েছে।`;
-          if (client && typeof client.sendMessage === 'function') {
-            try {
-              const vaChat = msg.id?.remote || msg.from;
-              await client.sendMessage(vaChat, confirmText, {
-                quotedMessageId: msg.id?._serialized || msg.id?.id
-              });
-            } catch (replyErr) {
-              console.warn('[VA_DURATION_TEXT] Could not reply confirmation to VA:', replyErr.message);
-            }
-          }
 
           return {
             action: 'DELIVERED_VA_DURATION_TEXT',
@@ -1974,10 +1980,41 @@ async function handleMessageCreate({
 
   // Handle audio document sent from our side
   if (msg.fromMe && !isSelf && isAudioDocumentMessage(msg)) {
-    const audioMsgId = msg.id?._serialized || msg.id?.id;
-    if (audioMsgId && billedAudioMsgIds.has(audioMsgId)) {
-      console.log(`[AUDIO] Audio ${audioMsgId} already billed. Skipping duplicate billing.`);
+    const serializedId = msg.id?._serialized;
+    const stanzaId = msg.id?.id;
+    const audioMsgId = serializedId || stanzaId;
+    const stanzaFromSerialized = typeof serializedId === 'string' && serializedId.includes('_') ? serializedId.split('_').pop() : null;
+
+    if (
+      (serializedId && billedAudioMsgIds.has(serializedId)) ||
+      (stanzaId && billedAudioMsgIds.has(stanzaId)) ||
+      (stanzaFromSerialized && billedAudioMsgIds.has(stanzaFromSerialized))
+    ) {
+      console.log(`[AUDIO] Audio ${serializedId || stanzaId} already billed. Skipping duplicate billing.`);
       return { action: 'IGNORED_ALREADY_BILLED' };
+    }
+
+    // Safeguard against duplicate billing of bot-forwarded VA audio:
+    // If an order for this customer was delivered within the last 45 seconds with this exact audio filename, skip!
+    const checkFilename = msg.filename || msg._data?.filename || msg._data?.title || '';
+    if (db && checkFilename) {
+      try {
+        const targetChat = msg.id?.remote || msg.to || msg.from;
+        const rawRecipient = recipient || targetChat;
+        const phone = await resolveCustomerPhone({ client, recipient: rawRecipient, msg });
+        const cleanPhone = phone || (rawRecipient ? rawRecipient.split('@')[0].replace(/\D/g, '') : null);
+        if (cleanPhone) {
+          const recentOrder = db.prepare(`
+            SELECT * FROM voice_job_orders 
+            WHERE customer_phone = ? AND status = 'DELIVERED'
+            ORDER BY updated_at DESC LIMIT 1
+          `).get(cleanPhone);
+          if (recentOrder && (recentOrder.va2_audio_filename === checkFilename || recentOrder.final_audio_filename === checkFilename)) {
+            console.log(`[AUDIO] Audio "${checkFilename}" matches just-delivered order ${recentOrder.order_id} for +${cleanPhone}. Skipping duplicate billing.`);
+            return { action: 'IGNORED_ALREADY_BILLED' };
+          }
+        }
+      } catch (safeguardErr) {}
     }
 
     try {
@@ -2047,13 +2084,18 @@ async function handleMessageCreate({
   }
 
   // Check if message is an echo of an auto-sent bill message
-  if (msg.id?._serialized && sentAutoBillMsgIds.has(msg.id._serialized)) {
-    sentAutoBillMsgIds.delete(msg.id._serialized);
-    if (msg.id?.id) sentAutoBillMsgIds.delete(msg.id.id);
-    return { action: 'IGNORED_ECHO_AUTO_BILL' };
-  }
-  if (msg.id?.id && sentAutoBillMsgIds.has(msg.id.id)) {
-    sentAutoBillMsgIds.delete(msg.id.id);
+  const billSerialized = msg.id?._serialized;
+  const billStanza = msg.id?.id;
+  const billStanzaFromSerialized = typeof billSerialized === 'string' && billSerialized.includes('_') ? billSerialized.split('_').pop() : null;
+
+  if (
+    (billSerialized && sentAutoBillMsgIds.has(billSerialized)) ||
+    (billStanza && sentAutoBillMsgIds.has(billStanza)) ||
+    (billStanzaFromSerialized && sentAutoBillMsgIds.has(billStanzaFromSerialized))
+  ) {
+    if (billSerialized) sentAutoBillMsgIds.delete(billSerialized);
+    if (billStanza) sentAutoBillMsgIds.delete(billStanza);
+    if (billStanzaFromSerialized) sentAutoBillMsgIds.delete(billStanzaFromSerialized);
     return { action: 'IGNORED_ECHO_AUTO_BILL' };
   }
 
@@ -2067,17 +2109,22 @@ async function handleMessageCreate({
   if (!isSelf && (parsed.type === 'BILL' || parsed.type === 'PAYMENT')) {
     if (parsed.type === 'BILL') {
       const now = Date.now();
-      const targetChat = msg.id?.remote || msg.to || msg.from;
-      const cleanPhone = recipient.replace(/@c\.us$/, '').replace(/\D/g, '');
-      const pendingIndex = pendingAutoBills.findIndex(p =>
-        (p.targetChat === recipient ||
-         p.targetChat === targetChat ||
-         p.phone === cleanPhone) &&
-        p.amount === parsed.amount &&
-        (now - p.time < 30000)
-      );
+      const targetChat = msg.id?.remote || msg.to || msg.from || '';
+      const resolvedCustPhone = await resolveCustomerPhone({ client, recipient: targetChat || recipient, msg });
+      const cleanPhone = (resolvedCustPhone || recipient || targetChat).replace(/@c\.us$/, '').replace(/\D/g, '');
+      const targetDigits = String(targetChat).replace(/\D/g, '');
+
+      const pendingIndex = pendingAutoBills.findIndex(p => {
+        const isMatch = p.targetChat === recipient ||
+                        p.targetChat === targetChat ||
+                        (cleanPhone && p.phone === cleanPhone) ||
+                        (targetDigits && (p.targetChatDigits === targetDigits || p.phone === targetDigits));
+        return isMatch && p.amount === parsed.amount && (now - p.time < 60000);
+      });
+
       if (pendingIndex !== -1) {
         pendingAutoBills.splice(pendingIndex, 1);
+        console.log(`[AUDIO_BILL] Ignored echo of auto-sent bill (${parsed.amount} BDT) for +${cleanPhone || targetChat}`);
         return { action: 'IGNORED_ECHO_AUTO_BILL' };
       }
     }

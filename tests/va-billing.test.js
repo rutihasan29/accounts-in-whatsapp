@@ -119,10 +119,9 @@ describe('Voice Artist Recognition & Automated Billing Suite', () => {
     assert.ok(customerBillMsg, 'Bill message must be sent to customer');
     assert.strictEqual(customerBillMsg.content, 'বিল ৭৫ টাকা');
 
-    // Verify confirmation was sent to VA3
+    // Verify NO message was sent to VA3 (VA must NEVER receive customer bill confirmations or pricing)
     const vaConfirmMsg = sentMessages.find(m => m.jid === '8801844674843@c.us');
-    assert.ok(vaConfirmMsg, 'Confirmation must be sent to VA');
-    assert.ok(vaConfirmMsg.content.includes('৭৫ টাকা'));
+    assert.strictEqual(vaConfirmMsg, undefined, 'VA must NOT receive any bill confirmation or message');
 
     // Verify transaction in DB
     const txs = getCustomerTransactions(db, '8801914934383');
@@ -348,6 +347,100 @@ describe('Voice Artist Recognition & Automated Billing Suite', () => {
     const billMsg = sentMessages.find(m => m.jid === '12345678901234@lid');
     assert.ok(billMsg, 'Bill message must be sent to the LID chat');
     assert.strictEqual(billMsg.content, 'বিল ১০০ টাকা');
+
+    db.close();
+  });
+
+  it('prevents duplicate billing when automated bill echo or forwarded audio arrives via message_create', async () => {
+    const db = initDb(':memory:');
+    const sentMessages = [];
+    const mockClient = {
+      info: { wid: { user: '8801340517587' } },
+      getContactById: async (jid) => {
+        return {
+          id: { _serialized: '8801984926697@c.us' },
+          number: '8801984926697',
+          name: 'South Bangla Times'
+        };
+      },
+      sendMessage: async (jid, content, options) => {
+        sentMessages.push({ jid, content, options });
+        return { id: { _serialized: `msg-${Date.now()}` } };
+      }
+    };
+
+    // 1. First: audio file is sent to customer via LID chat
+    const outgoingAudio = {
+      id: {
+        _serialized: 'true_158931724828876@lid_3EB0CCE9EEA04AD7E639B0',
+        id: '3EB0CCE9EEA04AD7E639B0',
+        remote: '158931724828876@lid'
+      },
+      fromMe: true,
+      from: '8801340517587@c.us',
+      to: '158931724828876@lid',
+      hasMedia: true,
+      type: 'document',
+      filename: 'মেহেন্দীগঞ্জের ২.৪৬ .wav',
+      mimetype: 'audio/wav'
+    };
+
+    const firstRes = await handleMessageCreate({
+      msg: outgoingAudio,
+      client: mockClient,
+      db
+    });
+    assert.strictEqual(firstRes.action, 'SENT_AUDIO_BILL');
+    assert.strictEqual(firstRes.details.billAmount, 150);
+
+    // 2. Second: identical audio or echo arrives from multi-device sync
+    const echoAudio = {
+      id: {
+        _serialized: 'true_158931724828876@lid_3EB0CCE9EEA04AD7E639B0',
+        id: '3EB0CCE9EEA04AD7E639B0',
+        remote: '158931724828876@lid'
+      },
+      fromMe: true,
+      from: '8801340517587@c.us',
+      to: '158931724828876@lid',
+      hasMedia: true,
+      type: 'document',
+      filename: 'মেহেন্দীগঞ্জের ২.৪৬ .wav',
+      mimetype: 'audio/wav'
+    };
+
+    const secondRes = await handleMessageCreate({
+      msg: echoAudio,
+      client: mockClient,
+      db
+    });
+    assert.strictEqual(secondRes.action, 'IGNORED_ALREADY_BILLED');
+
+    // 3. Third: echo of the automated bill message "বিল ১৫০ টাকা" arrives from multi-device sync
+    const billEcho = {
+      id: {
+        _serialized: 'true_158931724828876@lid_3EB0E92215537DBEEDBA92',
+        id: '3EB0E92215537DBEEDBA92',
+        remote: '158931724828876@lid'
+      },
+      fromMe: true,
+      from: '8801340517587@c.us',
+      to: '158931724828876@lid',
+      body: 'বিল ১৫০ টাকা',
+      type: 'chat'
+    };
+
+    const thirdRes = await handleMessageCreate({
+      msg: billEcho,
+      client: mockClient,
+      db
+    });
+    assert.strictEqual(thirdRes.action, 'IGNORED_ECHO_AUTO_BILL');
+
+    // Verify only ONE transaction exists in DB for this customer
+    const txs = getCustomerTransactions(db, '8801984926697');
+    assert.strictEqual(txs.length, 1);
+    assert.strictEqual(txs[0].amount, 150);
 
     db.close();
   });
