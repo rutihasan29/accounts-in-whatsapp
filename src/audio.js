@@ -307,6 +307,17 @@ async function resolveAudioDuration({ msg, client }) {
     if (!isNaN(d) && d >= 0) return d;
   }
 
+  // Instant duration extraction from filename or body/caption (e.g. "(1m 23s)", "জামালপুরে ১.৪  .wav", "পরকীয়া ৪৫", "১ মিনিট ৯ সেকেন্ড")
+  const directFallbackDuration = extractDurationFromFilename(filename) ||
+    extractDurationFromFilename(msg.filename) ||
+    extractDurationFromFilename(msg._data?.filename) ||
+    extractDurationFromFilename(msg._data?.title) ||
+    extractDurationFromText(msg.body);
+  if (directFallbackDuration !== null && directFallbackDuration > 0) {
+    console.log(`[AUDIO] Immediately extracted duration ${directFallbackDuration}s from filename/text "${filename || msg.body}"`);
+    return directFallbackDuration;
+  }
+
   // Gather direct media keys from msg._data if available
   const directMediaParams = {
     directPath: msg._data?.directPath || msg.directPath,

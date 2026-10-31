@@ -245,4 +245,110 @@ describe('Voice Artist Recognition & Automated Billing Suite', () => {
 
     db.close();
   });
+
+  it('when owner sends audio file from mobile device (with device LID author), it is NOT dropped as a group message', async () => {
+    const db = initDb(':memory:');
+    const order = createVoiceJobOrder(db, {
+      customerPhone: '8801914934383',
+      customerName: 'Mobile Send Test',
+      customerScriptMsgId: 'script-msg-mobile-01',
+      va2ForwardMsgId: 'fwd-mobile-01',
+      scriptText: 'মোবাইল থেকে পাঠানো স্ক্রিপ্ট',
+      headline: 'মোবাইল টেস্ট'
+    });
+
+    const sentMessages = [];
+    const mockClient = {
+      info: { wid: { user: '8801340517587' } },
+      sendMessage: async (jid, content, options) => {
+        sentMessages.push({ jid, content, options });
+        return { id: { _serialized: `msg-${Date.now()}` } };
+      }
+    };
+
+    // Realistic WhatsApp Multi-Device message sent from linked mobile phone
+    const outgoingFromMobile = {
+      id: {
+        _serialized: 'true_8801914934383@c.us_3EB01234567890ABCDEF',
+        id: '3EB01234567890ABCDEF',
+        remote: '8801914934383@c.us',
+        participant: '96950900789260@lid'
+      },
+      fromMe: true,
+      from: '8801340517587@c.us',
+      to: '8801914934383@c.us',
+      author: '96950900789260@lid',
+      hasMedia: true,
+      type: 'document',
+      filename: 'জামালপুরে ১.৪  .wav',
+      mimetype: 'audio/wav'
+      // note: duration property intentionally omitted to test filename extraction!
+    };
+
+    const res = await handleMessageCreate({
+      msg: outgoingFromMobile,
+      client: mockClient,
+      db
+    });
+
+    assert.notStrictEqual(res.action, 'IGNORED_GROUP', 'Must not be classified as a group message!');
+    assert.strictEqual(res.action, 'SENT_AUDIO_BILL');
+    assert.strictEqual(res.details.billAmount, 50);
+    assert.strictEqual(res.details.duration, 64);
+
+    // Verify bill was sent to customer
+    const billMsg = sentMessages.find(m => m.jid === '8801914934383@c.us');
+    assert.ok(billMsg, 'Bill message must be sent to customer chat');
+    assert.strictEqual(billMsg.content, 'বিল ৫০ টাকা');
+
+    // Verify order was marked delivered
+    const updatedOrder = getVoiceJobOrder(db, order.order_id);
+    assert.strictEqual(updatedOrder.status, 'DELIVERED');
+    assert.strictEqual(updatedOrder.clean_duration_seconds, 64);
+
+    db.close();
+  });
+
+  it('when owner sends audio file to customer using LID chat, sends bill directly to LID chat', async () => {
+    const db = initDb(':memory:');
+    const sentMessages = [];
+    const mockClient = {
+      info: { wid: { user: '8801340517587' } },
+      sendMessage: async (jid, content, options) => {
+        sentMessages.push({ jid, content, options });
+        return { id: { _serialized: `msg-${Date.now()}` } };
+      }
+    };
+
+    const outgoingToLid = {
+      id: {
+        _serialized: 'true_12345678901234@lid_3EB0999999999999',
+        id: '3EB0999999999999',
+        remote: '12345678901234@lid'
+      },
+      fromMe: true,
+      from: '8801340517587@c.us',
+      to: '12345678901234@lid',
+      hasMedia: true,
+      type: 'document',
+      filename: 'ভয়েস ১.২৫ .mp3',
+      mimetype: 'audio/mp3'
+    };
+
+    const res = await handleMessageCreate({
+      msg: outgoingToLid,
+      client: mockClient,
+      db
+    });
+
+    assert.strictEqual(res.action, 'SENT_AUDIO_BILL');
+    assert.strictEqual(res.details.billAmount, 100); // 1.25 -> 85s -> 2 min -> 100 BDT
+    assert.strictEqual(res.details.targetChat, '12345678901234@lid');
+
+    const billMsg = sentMessages.find(m => m.jid === '12345678901234@lid');
+    assert.ok(billMsg, 'Bill message must be sent to the LID chat');
+    assert.strictEqual(billMsg.content, 'বিল ১০০ টাকা');
+
+    db.close();
+  });
 });

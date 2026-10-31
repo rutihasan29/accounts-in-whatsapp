@@ -109,11 +109,11 @@ async function sendAndRecordAudioBill({
 
   const billText = formatBillMessage(billAmount);
   const cleanPhone = String(customerPhone).replace(/\D/g, '');
-  const destinationJid = (targetChat && targetChat.endsWith('@c.us')) ? targetChat : `${cleanPhone}@c.us`;
+  const destinationJid = targetChat || (cleanPhone ? `${cleanPhone}@c.us` : null);
 
   let contactName = null;
   try {
-    if (client && typeof client.getContactById === 'function') {
+    if (client && typeof client.getContactById === 'function' && destinationJid) {
       const contact = await client.getContactById(destinationJid);
       contactName = contact?.name || contact?.pushname || null;
     }
@@ -145,15 +145,15 @@ async function sendAndRecordAudioBill({
 
   let sent = false;
   let sentMsg = null;
-  if (client && typeof client.sendMessage === 'function') {
+  if (client && typeof client.sendMessage === 'function' && destinationJid) {
     try {
       sentMsg = await client.sendMessage(destinationJid, billText);
       sent = true;
     } catch (err) {
       console.warn(`[AUDIO_BILL] sendMessage to ${destinationJid} failed:`, err.message);
-      if (targetChat && targetChat !== destinationJid) {
+      if (cleanPhone && `${cleanPhone}@c.us` !== destinationJid) {
         try {
-          sentMsg = await client.sendMessage(targetChat, billText);
+          sentMsg = await client.sendMessage(`${cleanPhone}@c.us`, billText);
           sent = true;
         } catch {}
       }
@@ -830,7 +830,6 @@ function isGroupMessage(msg, chat = null) {
   const rawRemote = String(msg.id?.remote || '');
   const rawFrom = String(msg.from || '');
   const rawTo = String(msg.to || '');
-  const rawAuthor = String(msg.author || msg.id?.participant || '');
 
   // 1. Any domain indicating group, broadcast, or newsletter
   if (
@@ -845,22 +844,35 @@ function isGroupMessage(msg, chat = null) {
     return true;
   }
 
-  // 2. Author / participant is ONLY present in WhatsApp group messages
-  if (rawAuthor && rawAuthor !== rawFrom && (rawAuthor.includes('@c.us') || rawAuthor.includes('@lid') || rawAuthor.includes('@s.whatsapp.net'))) {
-    return true;
-  }
-
-  // 3. Flags from wwebjs message or chat
+  // 2. Flags from wwebjs message or chat
   if (msg.isGroup === true || chat?.isGroup === true || msg.broadcast === true) {
     return true;
   }
 
-  // 4. Meta's modern group ID prefix is 120363
+  // 3. If remote is explicitly 1-on-1 (@c.us or @lid), it is strictly NOT a group
+  if (rawRemote.endsWith('@c.us') || rawRemote.endsWith('@lid') || rawRemote.endsWith('@s.whatsapp.net')) {
+    return false;
+  }
+
+  // 4. If remote is not explicitly 1-on-1, check recipient
+  if (!rawRemote && (rawTo.endsWith('@c.us') || rawTo.endsWith('@lid') || rawTo.endsWith('@s.whatsapp.net'))) {
+    return false;
+  }
+
+  // 5. Meta's modern group ID prefix is 120363
   const fromDigits = rawFrom.split('@')[0].split(':')[0].replace(/\D/g, '');
   const remoteDigits = rawRemote.split('@')[0].split(':')[0].replace(/\D/g, '');
   const toDigits = rawTo.split('@')[0].split(':')[0].replace(/\D/g, '');
   if (fromDigits.startsWith('120363') || remoteDigits.startsWith('120363') || toDigits.startsWith('120363')) {
     return true;
+  }
+
+  // 6. Author / participant check for incoming messages only when remote is NOT a 1-on-1 chat
+  if (!msg.fromMe) {
+    const rawAuthor = String(msg.author || msg.id?.participant || '');
+    if (rawAuthor && rawAuthor !== rawFrom && (rawAuthor.includes('@c.us') || rawAuthor.includes('@lid') || rawAuthor.includes('@s.whatsapp.net'))) {
+      return true;
+    }
   }
 
   return false;
@@ -1044,6 +1056,13 @@ async function handleMessageCreate({
   if (msg.id?.id && sentSelfBotMsgIds.has(msg.id.id)) {
     sentSelfBotMsgIds.delete(msg.id.id);
     return { action: 'IGNORED_SELF_BOT_ECHO' };
+  }
+
+  const msgType = msg.type || msg._data?.type || 'chat';
+  const remoteChat = msg.id?.remote || msg.to || msg.from || '';
+  const msgFilename = msg.filename || msg._data?.filename || msg._data?.title || '';
+  if (msg.fromMe) {
+    console.log(`[MSG_CREATE:OUTGOING] type=${msgType}, remote=${remoteChat}${msgFilename ? `, filename="${msgFilename}"` : ''}, body="${(msg.body || '').slice(0, 40)}"`);
   }
 
   // 0. Completely ignore any messages from WhatsApp groups, broadcast lists, or newsletters.
