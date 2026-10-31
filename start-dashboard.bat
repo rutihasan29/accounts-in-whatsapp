@@ -1,12 +1,13 @@
 @echo off
-title News Voice - Official Ledger Dashboard
+title News Voice - Complete System (Bot, CRM, Dashboard & Tunnel)
 cd /d "%~dp0"
 
 echo ====================================================
-echo       News Voice - Official Ledger Web Dashboard
+echo       News Voice - Complete System Starter
+echo    (WhatsApp Bot + CRM + Web Dashboard + Tunnel)
 echo ====================================================
 echo.
 
-node src/server.js
+node index.js
 
 pause

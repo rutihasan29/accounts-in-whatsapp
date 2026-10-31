@@ -1,9 +1,9 @@
 @echo off
-title WhatsApp Business Ledger Bot
+title News Voice - Complete System (Bot, CRM, Dashboard & Tunnel)
 cd /d "%~dp0"
 
 echo ====================================================
-echo       WhatsApp Business Ledger Bot Starter
+echo       News Voice - Complete System Starter
 echo ====================================================
 echo.
 
@@ -28,12 +28,12 @@ if not exist "node_modules\" (
     )
 )
 
-echo [INFO] Starting WhatsApp Business Ledger Bot...
-echo [INFO] Press Ctrl+C anytime to stop the bot.
+echo [INFO] Starting News Voice WhatsApp Bot, Dashboard, and Ngrok Tunnel...
+echo [INFO] Press Ctrl+C anytime to stop.
 echo.
 
-call npm start
+node index.js
 
 echo.
-echo [INFO] Bot process terminated.
+echo [INFO] Process terminated.
 pause
