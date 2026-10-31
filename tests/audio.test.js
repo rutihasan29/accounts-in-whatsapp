@@ -122,6 +122,57 @@ describe('Audio Module', () => {
       assert.strictEqual(isAudioDocumentMessage(msg), true);
     });
 
+    it('returns true for real whatsapp-web.js Message with filename and mimetype in _data', () => {
+      const msg = {
+        hasMedia: true,
+        type: 'document',
+        isVoice: false,
+        _data: {
+          mimetype: 'audio/mpeg',
+          filename: 'voice.mp3'
+        }
+      };
+      assert.strictEqual(isAudioDocumentMessage(msg), true);
+    });
+
+    it('returns true for real whatsapp-web.js Message with type audio and mimetype in _data', () => {
+      const msg = {
+        hasMedia: true,
+        type: 'audio',
+        isVoice: false,
+        _data: {
+          type: 'audio',
+          mimetype: 'audio/ogg; codecs=opus'
+        }
+      };
+      assert.strictEqual(isAudioDocumentMessage(msg), true);
+    });
+
+    it('returns true for audio documents with m4a, wav, aac, flac in _data', () => {
+      const m4aMsg = {
+        hasMedia: true,
+        type: 'document',
+        _data: {
+          filename: 'news_report.m4a',
+          mimetype: 'audio/mp4'
+        }
+      };
+      assert.strictEqual(isAudioDocumentMessage(m4aMsg), true);
+    });
+
+    it('returns false for voice note with isVoice: true in _data', () => {
+      const pttMsg = {
+        hasMedia: true,
+        type: 'audio',
+        _data: {
+          isVoice: true,
+          type: 'ptt',
+          mimetype: 'audio/ogg; codecs=opus'
+        }
+      };
+      assert.strictEqual(isAudioDocumentMessage(pttMsg), false);
+    });
+
     it('returns true for .wav document file', () => {
       const msg = {
         hasMedia: true,

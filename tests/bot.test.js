@@ -1436,6 +1436,83 @@ describe('Bot Message Router', () => {
       db.close();
     });
 
+    it('VA2 audio reply with Bengali filename forwards audio AND immediately sends bill and records ledger transaction', async () => {
+      const db = initDb(':memory:');
+      const order = createVoiceJobOrder(db, {
+        customerPhone: '8801755443322',
+        customerName: 'Rahim Direct',
+        customerScriptMsgId: 'cust-script-msg-direct-1',
+        va2ForwardMsgId: 'va2-fwd-msg-direct-2',
+        scriptText: 'ভয়েস স্ক্রিপ্ট টেস্ট',
+        headline: 'ভয়েস স্ক্রিপ্ট'
+      });
+
+      const sentMessages = [];
+      const mockClient = {
+        sendMessage: async (jid, content, options) => {
+          sentMessages.push({ jid, content, options });
+          return { id: { _serialized: `sent-${Date.now()}` } };
+        }
+      };
+
+      const va2Msg = {
+        id: { _serialized: 'va2-direct-audio-msg-1', id: 'va2-direct-audio-msg-1' },
+        fromMe: false,
+        from: '8801307760509@c.us',
+        to: '8801999999999@c.us',
+        body: '',
+        filename: 'হরিপুর ইউনিয়ন চেয়ারম্যান (55s).mp3',
+        hasMedia: true,
+        hasQuotedMsg: true,
+        _data: {
+          quotedStanzaId: 'va2-fwd-msg-direct-2',
+          mimetype: 'audio/mpeg',
+          filename: 'হরিপুর ইউনিয়ন চেয়ারম্যান (55s).mp3'
+        },
+        getQuotedMessage: async () => ({
+          id: { _serialized: 'va2-fwd-msg-direct-2', id: 'va2-fwd-msg-direct-2' },
+          body: `[নতুন ভয়েস অর্ডার #${order.order_id}]\n\nস্ক্রিপ্ট:\nভয়েস স্ক্রিপ্ট টেস্ট`
+        }),
+        downloadMedia: async () => ({
+          data: Buffer.from('mock-audio-content').toString('base64'),
+          mimetype: 'audio/mpeg',
+          filename: 'হরিপুর ইউনিয়ন চেয়ারম্যান (55s).mp3'
+        })
+      };
+
+      const res = await handleMessageCreate({
+        msg: va2Msg,
+        client: mockClient,
+        db,
+        getAudioDurationFromBufferFn: async () => 55 // 55s -> 50 BDT
+      });
+
+      assert.strictEqual(res.action, 'DELIVERED_VA2_AUDIO_DIRECT');
+      assert.strictEqual(res.details.durationSeconds, 55);
+      assert.ok(res.details.billResult, 'Bill result should exist');
+      assert.strictEqual(res.details.billResult.details.billAmount, 50);
+      assert.strictEqual(res.details.billResult.details.billText, 'বিল ৫০ টাকা');
+
+      // Forwarded audio (msg 0) + Automated bill (msg 1)
+      assert.strictEqual(sentMessages.length, 2);
+      assert.strictEqual(sentMessages[0].jid, '8801755443322@c.us');
+      assert.strictEqual(sentMessages[0].content.filename, 'হরিপুর ইউনিয়ন চেয়ারম্যান (55s).mp3');
+
+      assert.strictEqual(sentMessages[1].jid, '8801755443322@c.us');
+      assert.strictEqual(sentMessages[1].content, 'বিল ৫০ টাকা');
+
+      // Verify ledger transaction & due amount
+      const dueList = getDueList(db);
+      const customerDue = dueList.find(c => c.phone_number === '8801755443322');
+      assert.ok(customerDue, 'Customer due should exist');
+      assert.strictEqual(customerDue.due_amount, 50);
+
+      const updatedOrder = getVoiceJobOrder(db, order.order_id);
+      assert.strictEqual(updatedOrder.clean_duration_seconds, 55);
+      assert.strictEqual(updatedOrder.status, 'DELIVERED');
+      db.close();
+    });
+
     it('VA2 audio reply with English filename runs AirCheck, renames with headline + duration, and delivers quoted reply to both customer and VA2', async () => {
       const db = initDb(':memory:');
       const order = createVoiceJobOrder(db, {
@@ -1498,8 +1575,8 @@ describe('Bot Message Router', () => {
       assert.strictEqual(res.details.durationSeconds, 83);
       assert.strictEqual(res.details.cutsCount, 1);
 
-      // Check dual delivery
-      assert.strictEqual(sentMessages.length, 2);
+      // Check delivery (Customer audio + VA2 audio + Customer bill)
+      assert.strictEqual(sentMessages.length, 3);
 
       // Delivery 1: To Customer quoting cust-script-msg-505
       assert.strictEqual(sentMessages[0].jid, '8801799887766@c.us');
@@ -1512,6 +1589,16 @@ describe('Bot Message Router', () => {
       assert.strictEqual(sentMessages[1].options.quotedMessageId, 'va2-fwd-msg-606');
       assert.strictEqual(sentMessages[1].options.sendMediaAsDocument, true);
       assert.strictEqual(sentMessages[1].content.filename, 'স্পেশাল কাচ্চি অফার (1m 23s).wav');
+
+      // Delivery 3: Bill to Customer
+      assert.strictEqual(sentMessages[2].jid, '8801799887766@c.us');
+      assert.strictEqual(sentMessages[2].content, 'বিল ১০০ টাকা');
+
+      // Verify customer due recorded in ledger
+      const dueList = getDueList(db);
+      const customerDue = dueList.find(c => c.phone_number === '8801799887766');
+      assert.ok(customerDue, 'Customer due should exist in ledger');
+      assert.strictEqual(customerDue.due_amount, 100);
 
       // Verify DB update
       const updatedOrder = db.prepare('SELECT * FROM voice_job_orders WHERE order_id = ?').get(order.order_id);

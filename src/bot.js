@@ -73,6 +73,128 @@ const sentAutoBillMsgIds = new Set();
 const pendingAutoBills = [];
 const recentOutboundJobTypes = new Map();
 const sentSelfBotMsgIds = new Set();
+const billedAudioMsgIds = new Set();
+
+/**
+ * Reusable helper to record an audio bill in the database and send the bill message to customer.
+ */
+async function sendAndRecordAudioBill({
+  client,
+  db,
+  customerPhone,
+  durationSeconds,
+  audioMsgId = null,
+  targetChat = null,
+  audioFilename = '',
+  msg = null
+} = {}) {
+  if (!customerPhone || durationSeconds === null || durationSeconds === undefined || isNaN(durationSeconds) || durationSeconds <= 0) {
+    return { action: 'IGNORED_INVALID_DURATION' };
+  }
+
+  const autoBillingEnabled = getBotSetting(db, 'auto_audio_billing_enabled', true);
+  if (!autoBillingEnabled) {
+    console.log('[AUDIO_BILLING] Auto audio billing disabled via bot settings. Skipping billing.');
+    return { action: 'AUDIO_BILLING_DISABLED' };
+  }
+
+  const billAmount = calculateAudioBill(durationSeconds);
+  if (!billAmount || billAmount <= 0) {
+    console.log(`[AUDIO_BILLING] Bill amount is 0 for duration ${durationSeconds}s. Skipping billing.`);
+    return { action: 'ZERO_BILL_AMOUNT' };
+  }
+
+  const billText = formatBillMessage(billAmount);
+  const cleanPhone = String(customerPhone).replace(/\D/g, '');
+  const destinationJid = (targetChat && targetChat.endsWith('@c.us')) ? targetChat : `${cleanPhone}@c.us`;
+
+  let contactName = null;
+  try {
+    if (client && typeof client.getContactById === 'function') {
+      const contact = await client.getContactById(destinationJid);
+      contactName = contact?.name || contact?.pushname || null;
+    }
+  } catch {}
+
+  const record = recordTransaction(db, {
+    phone: cleanPhone,
+    name: contactName,
+    type: 'BILL',
+    amount: billAmount,
+    rawText: billText,
+    messageId: audioMsgId || null,
+    jobType: 'voice',
+    durationSeconds: Math.round(durationSeconds)
+  });
+
+  console.log(`[AUDIO_BILL] Recorded voice job (${Math.round(durationSeconds)}s) bill ${billAmount} BDT for +${cleanPhone}${contactName ? ` (${contactName})` : ''}. Current due: ${record.dueAmount} BDT`);
+
+  pendingAutoBills.push({
+    targetChat: destinationJid,
+    phone: cleanPhone,
+    amount: billAmount,
+    time: Date.now()
+  });
+
+  if (audioMsgId) {
+    billedAudioMsgIds.add(audioMsgId);
+  }
+
+  let sent = false;
+  let sentMsg = null;
+  if (client && typeof client.sendMessage === 'function') {
+    try {
+      sentMsg = await client.sendMessage(destinationJid, billText);
+      sent = true;
+    } catch (err) {
+      console.warn(`[AUDIO_BILL] sendMessage to ${destinationJid} failed:`, err.message);
+      if (targetChat && targetChat !== destinationJid) {
+        try {
+          sentMsg = await client.sendMessage(targetChat, billText);
+          sent = true;
+        } catch {}
+      }
+    }
+  }
+
+  if (!sent && msg && typeof msg.reply === 'function') {
+    try {
+      sentMsg = await msg.reply(billText);
+    } catch {}
+  }
+
+  if (sentMsg?.id?._serialized) {
+    sentAutoBillMsgIds.add(sentMsg.id._serialized);
+  }
+  if (sentMsg?.id?.id) {
+    sentAutoBillMsgIds.add(sentMsg.id.id);
+  }
+
+  const sentMessageId = sentMsg?.id?._serialized || sentMsg?.id?.id || (typeof sentMsg?.id === 'string' ? sentMsg.id : null);
+  if (sentMessageId && record?.transactionId) {
+    try {
+      updateTransactionMessageId(db, record.transactionId, sentMessageId);
+    } catch {}
+  }
+
+  console.log(`[AUDIO_BILL] Sent bill (${billText}) to ${destinationJid}`);
+
+  return {
+    action: 'SENT_AUDIO_BILL',
+    details: {
+      duration: durationSeconds,
+      billAmount,
+      billText,
+      phone: cleanPhone,
+      dueAmount: record.dueAmount,
+      targetChat: destinationJid,
+      messageId: sentMessageId,
+      jobType: 'voice',
+      durationSeconds: Math.round(durationSeconds),
+      audioFilename
+    }
+  };
+}
 
 function isBotSystemMessage(text) {
   if (!text || typeof text !== 'string') return false;
@@ -837,8 +959,10 @@ async function handleMessageCreate({
   db,
   classifierFn = null,
   dispatchFn = null,
-  cleanVoiceoverAudioFn = null
+  cleanVoiceoverAudioFn = null,
+  getAudioDurationFromBufferFn = null
 } = {}) {
+  const resolveBufferDuration = getAudioDurationFromBufferFn || getAudioDurationFromBuffer;
   // Ignore echo of bot's own self-chat replies
   if (msg.id?._serialized && sentSelfBotMsgIds.has(msg.id._serialized)) {
     sentSelfBotMsgIds.delete(msg.id._serialized);
@@ -1153,20 +1277,53 @@ async function handleMessageCreate({
         const hasBengali = hasBengaliCharacters(rawFilename);
 
         if (hasBengali) {
+          let directDuration = null;
+          if (media?.data) {
+            try {
+              const audioBuffer = Buffer.from(media.data, 'base64');
+              directDuration = await resolveBufferDuration(audioBuffer, media.mimetype || msg.mimetype || msg._data?.mimetype, rawFilename);
+            } catch (durErr) {
+              console.warn('[VA2_AUDIO] Failed to get direct audio duration from buffer:', durErr.message);
+            }
+          }
+
+          let sentMediaMsg = null;
           if (media) {
             const customerJid = `${order.customer_phone}@c.us`;
             if (client && typeof client.sendMessage === 'function') {
               try {
-                await client.sendMessage(customerJid, media, {
+                sentMediaMsg = await client.sendMessage(customerJid, media, {
                   quotedMessageId: order.customer_script_msg_id,
                   sendMediaAsDocument: true
                 });
               } catch (sendErr) {
                 console.warn('[VA2_AUDIO] Quoted send to customer failed, trying unquoted:', sendErr.message);
                 try {
-                  await client.sendMessage(customerJid, media, { sendMediaAsDocument: true });
+                  sentMediaMsg = await client.sendMessage(customerJid, media, { sendMediaAsDocument: true });
                 } catch {}
               }
+            }
+          }
+
+          const sentMediaId = sentMediaMsg?.id?._serialized || sentMediaMsg?.id?.id;
+          if (sentMediaId) {
+            billedAudioMsgIds.add(sentMediaId);
+          }
+
+          let billResult = null;
+          if (directDuration && directDuration > 0) {
+            try {
+              billResult = await sendAndRecordAudioBill({
+                client,
+                db,
+                customerPhone: order.customer_phone,
+                durationSeconds: directDuration,
+                audioMsgId: sentMediaId || null,
+                targetChat: `${order.customer_phone}@c.us`,
+                audioFilename: rawFilename
+              });
+            } catch (billErr) {
+              console.error('[VA2_AUDIO] Error generating bill for direct audio:', billErr);
             }
           }
 
@@ -1175,7 +1332,7 @@ async function handleMessageCreate({
             va2AudioMsgId,
             va2AudioFilename: rawFilename,
             finalAudioFilename: rawFilename,
-            cleanDuration: null,
+            cleanDuration: directDuration,
             cutsCount: 0,
             modelUsed: 'DIRECT_FORWARD'
           });
@@ -1186,7 +1343,9 @@ async function handleMessageCreate({
             details: {
               orderId: order.order_id,
               customerPhone: order.customer_phone,
-              filename: rawFilename
+              filename: rawFilename,
+              durationSeconds: directDuration,
+              billResult
             }
           };
         } else {
@@ -1299,18 +1458,24 @@ async function handleMessageCreate({
           );
 
           const customerJid = `${order.customer_phone}@c.us`;
+          let sentCustomerMedia = null;
           if (client && typeof client.sendMessage === 'function') {
             try {
-              await client.sendMessage(customerJid, cleanMedia, {
+              sentCustomerMedia = await client.sendMessage(customerJid, cleanMedia, {
                 quotedMessageId: order.customer_script_msg_id,
                 sendMediaAsDocument: true
               });
             } catch (custErr) {
               console.warn('[VA2_AUDIO] Quoted send to customer failed, trying unquoted:', custErr.message);
               try {
-                await client.sendMessage(customerJid, cleanMedia, { sendMediaAsDocument: true });
+                sentCustomerMedia = await client.sendMessage(customerJid, cleanMedia, { sendMediaAsDocument: true });
               } catch {}
             }
+          }
+
+          const sentMediaId = sentCustomerMedia?.id?._serialized || sentCustomerMedia?.id?.id;
+          if (sentMediaId) {
+            billedAudioMsgIds.add(sentMediaId);
           }
 
           const va2Jid = `${cleanVa2}@c.us`;
@@ -1325,6 +1490,23 @@ async function handleMessageCreate({
               try {
                 await client.sendMessage(va2Jid, cleanMedia, { sendMediaAsDocument: true });
               } catch {}
+            }
+          }
+
+          let billResult = null;
+          if (aircheckRes?.durationSeconds && aircheckRes.durationSeconds > 0) {
+            try {
+              billResult = await sendAndRecordAudioBill({
+                client,
+                db,
+                customerPhone: order.customer_phone,
+                durationSeconds: aircheckRes.durationSeconds,
+                audioMsgId: sentMediaId || null,
+                targetChat: customerJid,
+                audioFilename: finalFilename
+              });
+            } catch (billErr) {
+              console.error('[VA2_AUDIO] Error generating bill for aircheck audio:', billErr);
             }
           }
 
@@ -1346,7 +1528,8 @@ async function handleMessageCreate({
               customerPhone: order.customer_phone,
               finalFilename,
               durationSeconds: aircheckRes.durationSeconds,
-              cutsCount: aircheckRes.cutsCount
+              cutsCount: aircheckRes.cutsCount,
+              billResult
             }
           };
         }
@@ -1637,6 +1820,12 @@ async function handleMessageCreate({
 
   // Handle audio document sent from our side
   if (msg.fromMe && !isSelf && isAudioDocumentMessage(msg)) {
+    const audioMsgId = msg.id?._serialized || msg.id?.id;
+    if (audioMsgId && billedAudioMsgIds.has(audioMsgId)) {
+      console.log(`[AUDIO] Audio ${audioMsgId} already billed. Skipping duplicate billing.`);
+      return { action: 'IGNORED_ALREADY_BILLED' };
+    }
+
     try {
       const autoBillingEnabled = getBotSetting(db, 'auto_audio_billing_enabled', true);
       if (!autoBillingEnabled) {
@@ -1647,21 +1836,9 @@ async function handleMessageCreate({
       const duration = await resolveAudioDuration({ msg, client });
 
       if (duration !== null && duration !== undefined && duration >= 0) {
-        const billAmount = calculateAudioBill(duration);
-        const billText = formatBillMessage(billAmount);
         const targetChat = msg.id?.remote || msg.to || msg.from;
         const rawRecipient = recipient || targetChat;
         const phone = await resolveCustomerPhone({ client, recipient: rawRecipient, msg });
-
-        let contactName = null;
-        try {
-          if (typeof client.getContactById === 'function') {
-            const contact = await client.getContactById(rawRecipient);
-            contactName = contact?.name || contact?.pushname || null;
-          }
-        } catch {
-          // Non-fatal if contact info cannot be fetched
-        }
 
         // Auto-migrate previous transactions stored under raw recipient / LID if phone resolved to a different number
         if (phone && phone !== rawRecipient) {
@@ -1672,71 +1849,19 @@ async function handleMessageCreate({
           }
         }
 
-        const record = recordTransaction(db, {
-          phone,
-          name: contactName,
-          type: 'BILL',
-          amount: billAmount,
-          rawText: billText,
-          messageId: msg.id?._serialized || null,
-          jobType: 'voice',
-          durationSeconds: Math.round(duration)
-        });
-
-        console.log(`[AUDIO_BILL] Recorded voice job (${Math.round(duration)}s) bill ${billAmount} BDT for +${phone}${contactName ? ` (${contactName})` : ''}. Current due: ${record.dueAmount} BDT`);
-
-        // Record pending auto-bill to prevent double-recording when message_create echoes
-        pendingAutoBills.push({
+        const cleanPhone = phone || (rawRecipient ? rawRecipient.split('@')[0].replace(/\D/g, '') : null);
+        const billRes = await sendAndRecordAudioBill({
+          client,
+          db,
+          customerPhone: cleanPhone,
+          durationSeconds: duration,
+          audioMsgId,
           targetChat,
-          phone,
-          amount: billAmount,
-          time: Date.now()
+          audioFilename: msg.filename || msg._data?.filename || msg._data?.title || msg.body || '',
+          msg
         });
 
-        let sent = false;
-        let sentMsg = null;
-
-        if (client && typeof client.sendMessage === 'function' && targetChat) {
-          try {
-            sentMsg = await client.sendMessage(targetChat, billText);
-            sent = true;
-          } catch (err) {
-            console.warn('client.sendMessage failed, falling back to msg.reply:', err.message);
-          }
-        }
-
-        if (!sent && typeof msg.reply === 'function') {
-          sentMsg = await msg.reply(billText);
-        }
-
-        if (sentMsg?.id?._serialized) {
-          sentAutoBillMsgIds.add(sentMsg.id._serialized);
-        }
-        if (sentMsg?.id?.id) {
-          sentAutoBillMsgIds.add(sentMsg.id.id);
-        }
-
-        const sentMessageId = sentMsg?.id?._serialized || sentMsg?.id?.id || (typeof sentMsg?.id === 'string' ? sentMsg.id : null);
-        if (sentMessageId && record?.transactionId) {
-          updateTransactionMessageId(db, record.transactionId, sentMessageId);
-        }
-
-        console.log(`[AUDIO] Sent bill (${billText}) to ${targetChat}`);
-
-        return {
-          action: 'SENT_AUDIO_BILL',
-          details: {
-            duration,
-            billAmount,
-            billText,
-            phone,
-            dueAmount: record.dueAmount,
-            targetChat,
-            messageId: sentMessageId,
-            jobType: 'voice',
-            durationSeconds: Math.round(duration)
-          }
-        };
+        return billRes;
       } else {
         console.warn('[AUDIO] Could not determine audio duration for message media');
         return { action: 'IGNORED_AUDIO_NO_DURATION' };
@@ -2389,6 +2514,8 @@ module.exports = {
   syncExistingInboxContacts,
   sentAutoBillMsgIds,
   pendingAutoBills,
+  billedAudioMsgIds,
+  sendAndRecordAudioBill,
   isTestEnv,
   createMedia,
   isPhoneMatch,

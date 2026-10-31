@@ -87,46 +87,44 @@ function formatBillMessage(amount) {
 }
 
 function isAudioDocumentMessage(msg) {
-  if (!msg || !msg.hasMedia) return false;
+  if (!msg) return false;
+  const hasMedia = Boolean(msg.hasMedia || msg._data?.directPath || msg._data?.mediaKey);
+  if (!hasMedia) return false;
 
   // Strictly exclude voice notes / PTT
-  if (msg.isVoice === true || msg.type === 'ptt') {
+  if (msg.isVoice === true || msg.type === 'ptt' || msg._data?.isVoice === true || msg._data?.type === 'ptt') {
     return false;
   }
 
-  const filename = (msg.filename || msg.body || '').toLowerCase();
-  const mimetype = (msg.mimetype || '').toLowerCase();
+  const rawFilename = msg.filename || msg._data?.filename || msg._data?.title || msg.body || '';
+  const filename = String(rawFilename).toLowerCase();
+  const mimetype = String(msg.mimetype || msg._data?.mimetype || '').toLowerCase();
+  const type = String(msg.type || msg._data?.type || '').toLowerCase();
 
-  const isAudioExt = filename.endsWith('.mp3') || filename.endsWith('.wav');
-  const isAudioMime = (
-    mimetype.startsWith('audio/mpeg') ||
-    mimetype.startsWith('audio/mp3') ||
-    mimetype.startsWith('audio/wav') ||
-    mimetype.startsWith('audio/x-wav') ||
-    mimetype.startsWith('audio/wave')
-  );
+  if (type === 'audio') {
+    return true;
+  }
+
+  const isAudioExt = /\.(mp3|wav|m4a|ogg|opus|aac|flac|wma)$/i.test(filename);
+  const isAudioMime = mimetype.startsWith('audio/') || mimetype.includes('audio');
 
   return isAudioExt || isAudioMime;
 }
 
 function isVideoDocumentMessage(msg) {
-  if (!msg || !msg.hasMedia) return false;
+  if (!msg) return false;
+  const hasMedia = Boolean(msg.hasMedia || msg._data?.directPath || msg._data?.mediaKey);
+  if (!hasMedia) return false;
 
-  const filename = (msg.filename || msg.body || '').toLowerCase();
-  const mimetype = (msg.mimetype || '').toLowerCase();
+  const rawFilename = msg.filename || msg._data?.filename || msg._data?.title || msg.body || '';
+  const filename = String(rawFilename).toLowerCase();
+  const mimetype = String(msg.mimetype || msg._data?.mimetype || '').toLowerCase();
+  const type = String(msg.type || msg._data?.type || '').toLowerCase();
 
-  const isVideoExt = (
-    filename.endsWith('.mp4') ||
-    filename.endsWith('.mov') ||
-    filename.endsWith('.mkv') ||
-    filename.endsWith('.avi') ||
-    filename.endsWith('.webm') ||
-    filename.endsWith('.3gp')
-  );
-
+  const isVideoExt = /\.(mp4|mov|mkv|avi|webm|3gp|m4v)$/i.test(filename);
   const isVideoMime = mimetype.startsWith('video/');
 
-  return (msg.type === 'video' || msg.type === 'document') && (isVideoExt || isVideoMime);
+  return type === 'video' || ((type === 'document' || !type) && (isVideoExt || isVideoMime));
 }
 
 /**
@@ -222,7 +220,7 @@ async function resolveAudioDuration({ msg, client }) {
 
   const stanzaId = msg.id?.id;
   const targetId = msg.id?._serialized;
-  const filename = msg.filename;
+  const filename = msg.filename || msg._data?.filename || msg._data?.title || '';
   const targetChat = msg.id?.remote || msg.to || msg.from;
 
   console.log(`[AUDIO] Resolving duration for "${filename || 'audio'}" (stanzaId: ${stanzaId}, to: ${targetChat})...`);
@@ -438,7 +436,7 @@ async function resolveAudioDuration({ msg, client }) {
     }
     if (inPageResult?.data) {
       const buf = Buffer.from(inPageResult.data, 'base64');
-      const d = await getAudioDurationFromBuffer(buf, inPageResult.mimetype || msg.mimetype, filename);
+      const d = await getAudioDurationFromBuffer(buf, inPageResult.mimetype || msg.mimetype || msg._data?.mimetype, filename);
       if (d !== null && d >= 0) return d;
     }
     if (inPageResult?.err) {
@@ -451,7 +449,7 @@ async function resolveAudioDuration({ msg, client }) {
         const media = await msg.downloadMedia();
         if (media && media.data) {
           const buf = Buffer.from(media.data, 'base64');
-          const d = await getAudioDurationFromBuffer(buf, media.mimetype || msg.mimetype, filename);
+          const d = await getAudioDurationFromBuffer(buf, media.mimetype || msg.mimetype || msg._data?.mimetype, filename);
           if (d !== null && d >= 0) return d;
         }
       } catch (dmErr) {
