@@ -25,7 +25,8 @@ const {
   updateVoiceJobDelivered,
   getBotSetting,
   cacheStaffLid,
-  getCachedStaffLid
+  getCachedStaffLid,
+  getAllCachedStaffLids
 } = require('./db');
 const {
   isAudioDocumentMessage,
@@ -36,7 +37,9 @@ const {
   formatBillMessage,
   resolveAudioDuration,
   hasBengaliCharacters,
-  buildCleanVoiceFilename
+  buildCleanVoiceFilename,
+  extractDurationFromFilename,
+  extractDurationFromText
 } = require('./audio');
 const { cleanVoiceoverAudio } = require('./aircheck');
 const { sendWelcomeDemo } = require('./welcome');
@@ -694,6 +697,72 @@ function getMyLidUser(client) {
   );
 }
 
+function getVoiceArtistPhones() {
+  const list = [];
+  if (config.VA2_PHONE) list.push(config.VA2_PHONE);
+  if (config.VA3_PHONE) list.push(config.VA3_PHONE);
+  if (Array.isArray(config.VA_PHONES)) {
+    list.push(...config.VA_PHONES);
+  }
+  list.push('8801307760509', '8801844674843', '8801568618636');
+  return [...new Set(list.map(p => String(p).replace(/\D/g, '')).filter(Boolean))];
+}
+
+function isVaPhoneMatch(phone) {
+  if (!phone) return false;
+  const clean = String(phone).replace(/\D/g, '');
+  if (!clean) return false;
+  const vaPhones = getVoiceArtistPhones();
+  return vaPhones.some(vp => isPhoneMatch(clean, vp));
+}
+
+function getCachedVaLids(db) {
+  if (!db) return [];
+  try {
+    const rows = getAllCachedStaffLids(db);
+    return rows
+      .filter(r => r.staff_role && r.staff_role.toUpperCase().startsWith('VA') && r.lid)
+      .map(r => String(r.lid).trim());
+  } catch {
+    return [];
+  }
+}
+
+async function isVoiceArtistMessage({ msg, rawSender, cleanSender, client, db }) {
+  const raw = String(rawSender || msg?.from || msg?.id?.remote || '').trim();
+  const clean = cleanSender || raw.split('@')[0].split(':')[0].replace(/\D/g, '');
+
+  if (isVaPhoneMatch(clean)) return true;
+
+  if (db) {
+    const vaLids = getCachedVaLids(db);
+    if (vaLids.some(lid => raw.includes(lid) || String(msg?.from || '').includes(lid) || String(msg?.id?.remote || '').includes(lid) || String(msg?.author || '').includes(lid))) {
+      return true;
+    }
+  }
+
+  if (raw.endsWith('@lid') || msg?.from?.endsWith?.('@lid') || msg?.id?.remote?.endsWith?.('@lid')) {
+    try {
+      const resolved = await resolveCustomerPhone({ client, recipient: raw, msg });
+      if (isVaPhoneMatch(resolved)) {
+        if (db) cacheStaffLid(db, 'VA', resolved, raw);
+        return true;
+      }
+    } catch {}
+  }
+
+  if (db && clean) {
+    try {
+      const lead = db.prepare('SELECT name FROM leads WHERE phone_number = ?').get(clean);
+      if (lead?.name && /^VA(?:\d|\b|_|\s)/i.test(lead.name.trim())) {
+        return true;
+      }
+    } catch {}
+  }
+
+  return false;
+}
+
 function isSelfChat(msg, client) {
   const myUser = getMyUser(client);
   const myLid = getMyLid(client);
@@ -709,13 +778,16 @@ function isSelfChat(msg, client) {
     return false;
   }
 
-  // Never treat messages to or from staff/editors (VE3, VA2) as self-chat
+  // Never treat messages to or from staff/editors (VE3, VA) as self-chat
   const cleanVe3 = String(config.VE3_PHONE || '8801831366604').replace(/\D/g, '');
-  const cleanVa2 = String(config.VA2_PHONE || '8801307760509').replace(/\D/g, '');
+  const vaPhones = getVoiceArtistPhones();
   const remoteUser = extractUser(rawRemote);
   const fromUser = extractUser(rawFrom);
   const toUser = extractUser(rawTo);
-  if (remoteUser === cleanVe3 || remoteUser === cleanVa2 || toUser === cleanVe3 || toUser === cleanVa2) {
+  if (
+    remoteUser === cleanVe3 || toUser === cleanVe3 ||
+    vaPhones.some(vp => remoteUser === vp || toUser === vp || isPhoneMatch(remoteUser, vp) || isPhoneMatch(toUser, vp))
+  ) {
     return false;
   }
 
@@ -1187,34 +1259,15 @@ async function handleMessageCreate({
 
     const cleanSender = String(msg.from || msg.id?.remote || '').split('@')[0].split(':')[0].replace(/\D/g, '');
     const cleanVa2 = String(config.VA2_PHONE || '8801307760509').replace(/\D/g, '');
-    let isVa2 = isPhoneMatch(cleanSender, cleanVa2);
+    let isVa = await isVoiceArtistMessage({ msg, rawSender, cleanSender, client, db });
 
-    const cachedVa2Lid = getCachedStaffLid(db, 'VA2');
-    if (!isVa2 && cachedVa2Lid) {
-      if (
-        rawSender.includes(cachedVa2Lid) ||
-        String(msg.from || '').includes(cachedVa2Lid) ||
-        String(msg.id?.remote || '').includes(cachedVa2Lid) ||
-        String(msg.author || '').includes(cachedVa2Lid)
-      ) {
-        isVa2 = true;
-      }
-    }
-
-    if (!isVa2 && (rawSender.endsWith('@lid') || msg.from?.endsWith?.('@lid') || msg.id?.remote?.endsWith?.('@lid'))) {
-      try {
-        const resolved = await resolveCustomerPhone({ client, recipient: rawSender, msg });
-        if (isPhoneMatch(resolved, cleanVa2)) {
-          isVa2 = true;
-          cacheStaffLid(db, 'VA2', cleanVa2, rawSender);
-        }
-      } catch {}
-    }
-
-    if (isVa2) {
+    if (isVa) {
       if (msg.type === 'ptt' || msg.isVoice === true) {
-        console.log('[VA2_AUDIO] Ignoring PTT/voice note from VA2 (only audio file replies to script are allowed).');
-        return { action: 'IGNORED_VA2_PTT' };
+        const hasDur = extractDurationFromFilename(msg.filename) || extractDurationFromText(msg.body);
+        if (!hasDur) {
+          console.log('[VA2_AUDIO] Ignoring PTT/voice note from VA2 (only audio file replies to script are allowed).');
+          return { action: 'IGNORED_VA2_PTT' };
+        }
       }
 
       const isAudio = isAudioDocumentMessage(msg) ||
@@ -1284,6 +1337,13 @@ async function handleMessageCreate({
               directDuration = await resolveBufferDuration(audioBuffer, media.mimetype || msg.mimetype || msg._data?.mimetype, rawFilename);
             } catch (durErr) {
               console.warn('[VA2_AUDIO] Failed to get direct audio duration from buffer:', durErr.message);
+            }
+          }
+
+          if (!directDuration || directDuration <= 0) {
+            directDuration = extractDurationFromFilename(rawFilename) || extractDurationFromFilename(msg.filename);
+            if (directDuration) {
+              console.log(`[VA2_AUDIO] Extracted direct audio duration ${directDuration}s from Bengali filename "${rawFilename}"`);
             }
           }
 
@@ -1535,6 +1595,76 @@ async function handleMessageCreate({
         }
       }
 
+      // Check if message is a duration text report from Voice Artist (e.g. '১ মিনিট ৯ সেকেন্ড', '১ মিনিট ৩৭ সেকেন্ড')
+      const durationFromText = extractDurationFromText(msg.body) || extractDurationFromFilename(msg.body);
+      if (durationFromText && durationFromText > 0) {
+        console.log(`[VA_DURATION_TEXT] Received duration ${durationFromText}s from VA (${cleanSender || rawSender}): "${msg.body}"`);
+
+        const quoteInfo = await extractQuotedMessageInfo(msg);
+        let order = null;
+
+        if (quoteInfo.quotedBody) {
+          const orderIdMatch = quoteInfo.quotedBody.match(/VJO-\d+-\d+/i);
+          if (orderIdMatch) {
+            order = getVoiceJobOrder(db, orderIdMatch[0]);
+          }
+        }
+        if (!order && quoteInfo.quotedMsgId) {
+          order = findVoiceJobOrderByVa2MsgId(db, quoteInfo.quotedMsgId);
+        }
+        if (!order && quoteInfo.quotedBody) {
+          order = findVoiceJobOrderByScriptText(db, quoteInfo.quotedBody);
+        }
+        if (!order) {
+          order = findLatestPendingVoiceJob(db);
+        }
+
+        if (order) {
+          console.log(`[VA_DURATION_TEXT] Matched order ${order.order_id} for customer +${order.customer_phone}`);
+          const billResult = await sendAndRecordAudioBill({
+            client,
+            db,
+            customerPhone: order.customer_phone,
+            durationSeconds: durationFromText,
+            targetChat: `${order.customer_phone}@c.us`,
+            audioFilename: `ভয়েস (${durationFromText}s)`
+          });
+
+          updateVoiceJobDelivered(db, order.order_id, {
+            cleanDurationSeconds: durationFromText,
+            aircheckModelUsed: 'VA_DURATION_TEXT'
+          });
+
+          // Confirm back to the VA
+          const billAmount = calculateAudioBill(durationFromText);
+          const confirmText = `✅ অর্ডার #${order.order_id} এর বিল (${formatBillMessage(billAmount)}) কাস্টমারকে পাঠানো হয়েছে।`;
+          if (client && typeof client.sendMessage === 'function') {
+            try {
+              const vaChat = msg.id?.remote || msg.from;
+              await client.sendMessage(vaChat, confirmText, {
+                quotedMessageId: msg.id?._serialized || msg.id?.id
+              });
+            } catch (replyErr) {
+              console.warn('[VA_DURATION_TEXT] Could not reply confirmation to VA:', replyErr.message);
+            }
+          }
+
+          return {
+            action: 'DELIVERED_VA_DURATION_TEXT',
+            details: {
+              orderId: order.order_id,
+              customerPhone: order.customer_phone,
+              durationSeconds: durationFromText,
+              billResult
+            }
+          };
+        } else {
+          console.log(`[VA_DURATION_TEXT] Received duration ${durationFromText}s from VA, but no pending voice job order found in DB.`);
+          return { action: 'IGNORED_VA_DURATION_NO_ORDER', details: { duration: durationFromText } };
+        }
+      }
+
+      console.log(`[VA_CHAT] Ignored non-audio message from Voice Artist (${cleanSender || rawSender}): "${msg.body}"`);
       return { action: 'IGNORED_VA2_NON_AUDIO' };
     }
 
@@ -1749,21 +1879,26 @@ async function handleMessageCreate({
   const cleanVa2 = String(config.VA2_PHONE || '8801307760509').replace(/\D/g, '');
   const toUser = extractUser(msg.to);
   const remoteUser = extractUser(msg.id?.remote);
-  let isVa2 = toUser === cleanVa2 || remoteUser === cleanVa2 ||
-    (recipient && recipient.replace(/\D/g, '').includes(cleanVa2)) ||
-    (msg.id?.remote && String(msg.id.remote).replace(/\D/g, '').includes(cleanVa2));
+  let isVa = isVaPhoneMatch(toUser) || isVaPhoneMatch(remoteUser) || isVaPhoneMatch(recipient);
 
-  if (!isVa2 && (msg.to?.endsWith?.('@lid') || msg.id?.remote?.endsWith?.('@lid'))) {
+  if (!isVa && (msg.to?.endsWith?.('@lid') || msg.id?.remote?.endsWith?.('@lid'))) {
     try {
       const resolved = await resolveCustomerPhone({ client, recipient: msg.to || msg.id?.remote, msg });
-      if (resolved === cleanVa2) {
-        isVa2 = true;
+      if (isVaPhoneMatch(resolved)) {
+        isVa = true;
       }
     } catch {}
   }
+  if (!isVa && db) {
+    const vaLids = getCachedVaLids(db);
+    const target = msg.to || msg.id?.remote || '';
+    if (vaLids.some(lid => target.includes(lid))) {
+      isVa = true;
+    }
+  }
 
-  // Outgoing Forward Tracking for VA2 (automatic or manual)
-  if (msg.fromMe === true && isVa2) {
+  // Outgoing Forward Tracking for VA (automatic or manual)
+  if (msg.fromMe === true && isVa) {
     if (msg.body && db) {
       const isVoiceOrderForward = /\[নতুন\s*ভয়েস\s*অর্ডার(?:\s*#[^\]]+)?\]/i.test(msg.body);
       const isAutoBill = (msg.id?._serialized && (sentAutoBillMsgIds.has(msg.id._serialized) || sentSelfBotMsgIds.has(msg.id._serialized))) ||
@@ -1860,6 +1995,26 @@ async function handleMessageCreate({
           audioFilename: msg.filename || msg._data?.filename || msg._data?.title || msg.body || '',
           msg
         });
+
+        // If customer has a pending voice job order, mark it as delivered!
+        if (db && cleanPhone) {
+          try {
+            const pendingOrder = db.prepare(`
+              SELECT * FROM voice_job_orders 
+              WHERE customer_phone = ? AND status = 'PENDING_VA2'
+              ORDER BY id DESC LIMIT 1
+            `).get(cleanPhone);
+            if (pendingOrder) {
+              updateVoiceJobDelivered(db, pendingOrder.order_id, {
+                cleanDurationSeconds: duration,
+                va2AudioFilename: msg.filename || msg._data?.filename || msg._data?.title || msg.body || 'manual_audio'
+              });
+              console.log(`[AUDIO_BILLING] Marked pending order ${pendingOrder.order_id} as DELIVERED for customer +${cleanPhone}`);
+            }
+          } catch (ordErr) {
+            console.warn('[AUDIO_BILLING] Failed updating pending voice order on manual send:', ordErr.message);
+          }
+        }
 
         return billRes;
       } else {
@@ -2303,7 +2458,7 @@ async function catchupUnreadCustomerMessages({ client, db, handleMessageCreateFn
       if (c.isGroup === true || String(c.id?._serialized || '').includes('@g.us')) return false;
       if (c.id?._serialized?.includes('@broadcast') || c.id?._serialized?.includes('@newsletter')) return false;
       const user = extractUser(c.id?._serialized || '');
-      if (user === myUser || user === cleanVa2 || user === cleanVe3) return false;
+      if (user === myUser || user === cleanVa2 || isVaPhoneMatch(user) || user === cleanVe3) return false;
       return (c.unreadCount && c.unreadCount > 0);
     });
 
@@ -2408,15 +2563,22 @@ function setupBotHandlers({ client, db }) {
       console.warn('[SYNC] Error syncing existing contacts on ready:', e.message);
     }
 
-    // Proactively resolve and cache VA2's LID
+    // Proactively resolve and cache Voice Artists' LIDs (VA2, VA3, etc.)
     try {
-      const cleanVa2 = String(config.VA2_PHONE || '8801307760509').replace(/\D/g, '');
+      const vaList = [
+        { role: 'VA2', phone: String(config.VA2_PHONE || '8801307760509').replace(/\D/g, '') },
+        { role: 'VA3', phone: String(config.VA3_PHONE || '8801844674843').replace(/\D/g, '') }
+      ];
       if (client && typeof client.getContactById === 'function') {
-        const va2Contact = await client.getContactById(`${cleanVa2}@c.us`);
-        const va2Lid = va2Contact?.lid?._serialized || va2Contact?.lid || (typeof va2Contact?.id?._serialized === 'string' && va2Contact.id._serialized.endsWith('@lid') ? va2Contact.id._serialized : null);
-        if (va2Lid && String(va2Lid).includes('@lid')) {
-          console.log(`[VA2_SYNC] Discovered VA2 LID on ready: ${va2Lid}`);
-          cacheStaffLid(db, 'VA2', cleanVa2, va2Lid);
+        for (const va of vaList) {
+          try {
+            const vaContact = await client.getContactById(`${va.phone}@c.us`);
+            const vaLid = vaContact?.lid?._serialized || vaContact?.lid || (typeof vaContact?.id?._serialized === 'string' && vaContact.id._serialized.endsWith('@lid') ? vaContact.id._serialized : null);
+            if (vaLid && String(vaLid).includes('@lid')) {
+              console.log(`[VA_SYNC] Discovered ${va.role} LID on ready: ${vaLid}`);
+              cacheStaffLid(db, va.role, va.phone, vaLid);
+            }
+          } catch {}
         }
       }
     } catch (e) {
@@ -2523,5 +2685,8 @@ module.exports = {
   downloadMediaWithFallback,
   downloadMediaWithRetry,
   recoverPendingWorkflows,
-  catchupUnreadCustomerMessages
+  catchupUnreadCustomerMessages,
+  getVoiceArtistPhones,
+  isVaPhoneMatch,
+  isVoiceArtistMessage
 };

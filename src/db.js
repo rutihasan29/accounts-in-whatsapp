@@ -1417,6 +1417,15 @@ function getCachedStaffLid(db, staffRole) {
   }
 }
 
+function getAllCachedStaffLids(db) {
+  if (!db) return [];
+  try {
+    return db.prepare('SELECT staff_role, phone_number, lid FROM staff_lids').all() || [];
+  } catch {
+    return [];
+  }
+}
+
 module.exports = {
   initDb,
   recordTransaction,
@@ -1461,5 +1470,6 @@ module.exports = {
   removePendingConfirmationFromDb,
   getAllPendingConfirmationsFromDb,
   cacheStaffLid,
-  getCachedStaffLid
+  getCachedStaffLid,
+  getAllCachedStaffLids
 };

@@ -86,13 +86,71 @@ function formatBillMessage(amount) {
   return `বিল ${toBengaliDigits(amount)} টাকা`;
 }
 
+const BENGALI_DIGIT_MAP = {
+  '০': '0', '১': '1', '২': '2', '৩': '3', '৪': '4',
+  '৫': '5', '৬': '6', '৭': '7', '৮': '8', '৯': '9'
+};
+
+/**
+ * Extracts duration in seconds from audio filename or headline.
+ * Supports:
+ * - '(1m 23s)' or '(59s)'
+ * - Bengali minutes.seconds: 'জামালপুরে ১.৪  .wav' (64s), 'দীর্ঘদিনের আন্দোলন সংগ্রামে ২.৪২ .wav' (162s), '১.২৫' (85s)
+ * - Bengali standalone seconds: 'পরকীয়া ৪৫  .wav' (45s), 'ভালুকা ৪৭' (47s)
+ */
+function extractDurationFromFilename(filename) {
+  if (!filename || typeof filename !== 'string') return null;
+  const name = filename.replace(/\.[^/.]+$/, '').trim();
+
+  // Pattern 1: (1m 23s) or (59s)
+  const parenMatch = name.match(/\((\d+)\s*m\s*(\d+)\s*s\)/i);
+  if (parenMatch) return parseInt(parenMatch[1], 10) * 60 + parseInt(parenMatch[2], 10);
+  const parenSecMatch = name.match(/\((\d+)\s*s\)/i);
+  if (parenSecMatch) return parseInt(parenSecMatch[1], 10);
+
+  // Convert Bengali digits to ASCII
+  const ascii = name.replace(/[০-৯]/g, (d) => BENGALI_DIGIT_MAP[d] || d);
+
+  // Pattern 2: minutes:seconds or minutes.seconds e.g. "১.২৫", "২.৪২", "১:০৯", "১.৪"
+  const minSecMatch = ascii.match(/(?:^|\s|[(\[])(\d+)[.:](\d{1,2})(?:\s*[)\]]|\s*$)/);
+  if (minSecMatch) {
+    const mins = parseInt(minSecMatch[1], 10);
+    const secs = parseInt(minSecMatch[2], 10);
+    if (secs < 60) return mins * 60 + secs;
+  }
+
+  // Pattern 3: standalone seconds e.g. "পরকীয়া ৪৫", "ভালুকা ৪৭"
+  const secMatch = ascii.match(/(?:^|\s|[(\[])(\d{2,3})(?:\s*[)\]]|\s*$)/);
+  if (secMatch) {
+    const secs = parseInt(secMatch[1], 10);
+    if (secs > 0 && secs < 3600) return secs;
+  }
+
+  return null;
+}
+
+/**
+ * Extracts duration from text like '১ মিনিট ৯ সেকেন্ড' or '১ মিনিট ৩৭ সেকেন্ড'
+ */
+function extractDurationFromText(text) {
+  if (!text || typeof text !== 'string') return null;
+  const ascii = text.replace(/[০-৯]/g, (d) => BENGALI_DIGIT_MAP[d] || d).trim();
+  const minSecMatch = ascii.match(/(\d+)\s*(?:মিনিট|min|m)\s*(?:(\d+)\s*(?:সেকেন্ড|sec|s)?)?/i);
+  if (minSecMatch) {
+    const mins = parseInt(minSecMatch[1], 10);
+    const secs = minSecMatch[2] ? parseInt(minSecMatch[2], 10) : 0;
+    return mins * 60 + secs;
+  }
+  const secMatch = ascii.match(/(\d+)\s*(?:সেকেন্ড|sec|s)/i);
+  if (secMatch) return parseInt(secMatch[1], 10);
+  return null;
+}
+
 function isAudioDocumentMessage(msg) {
   if (!msg) return false;
-  const hasMedia = Boolean(msg.hasMedia || msg._data?.directPath || msg._data?.mediaKey);
-  if (!hasMedia) return false;
 
-  // Strictly exclude voice notes / PTT
-  if (msg.isVoice === true || msg.type === 'ptt' || msg._data?.isVoice === true || msg._data?.type === 'ptt') {
+  // Plain chat messages without media are not audio documents
+  if (msg.type === 'chat' && !msg.hasMedia && !msg._data?.directPath && !msg._data?.mediaKey) {
     return false;
   }
 
@@ -101,14 +159,24 @@ function isAudioDocumentMessage(msg) {
   const mimetype = String(msg.mimetype || msg._data?.mimetype || '').toLowerCase();
   const type = String(msg.type || msg._data?.type || '').toLowerCase();
 
+  const isAudioExt = /\.(mp3|wav|m4a|ogg|opus|aac|flac|wma)$/i.test(filename);
+  const isAudioMime = mimetype.startsWith('audio/') || mimetype.includes('audio');
+
+  // If filename clearly has an audio extension, it IS an audio document even if marked voice
+  if (isAudioExt) {
+    return true;
+  }
+
+  // Strictly exclude voice notes / PTT if they don't have an audio file extension
+  if (msg.isVoice === true || msg.type === 'ptt' || msg._data?.isVoice === true || msg._data?.type === 'ptt') {
+    return false;
+  }
+
   if (type === 'audio') {
     return true;
   }
 
-  const isAudioExt = /\.(mp3|wav|m4a|ogg|opus|aac|flac|wma)$/i.test(filename);
-  const isAudioMime = mimetype.startsWith('audio/') || mimetype.includes('audio');
-
-  return isAudioExt || isAudioMime;
+  return isAudioMime;
 }
 
 function isVideoDocumentMessage(msg) {
@@ -463,6 +531,18 @@ async function resolveAudioDuration({ msg, client }) {
     }
   }
 
+  // 4. Reliable Fallback: Parse duration from filename or caption/text
+  const fallbackDuration = extractDurationFromFilename(filename) ||
+    extractDurationFromFilename(msg.filename) ||
+    extractDurationFromFilename(msg._data?.filename) ||
+    extractDurationFromFilename(msg._data?.title) ||
+    extractDurationFromText(msg.body);
+
+  if (fallbackDuration !== null && fallbackDuration > 0) {
+    console.log(`[AUDIO] Successfully extracted fallback duration ${fallbackDuration}s from filename/text "${filename || msg.body}"`);
+    return fallbackDuration;
+  }
+
   return null;
 }
 
@@ -561,5 +641,7 @@ module.exports = {
   hasBengaliCharacters,
   formatDurationForFilename,
   extractHeadline,
-  buildCleanVoiceFilename
+  buildCleanVoiceFilename,
+  extractDurationFromFilename,
+  extractDurationFromText
 };
