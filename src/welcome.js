@@ -1,10 +1,13 @@
-﻿const path = require('path');
+const path = require('path');
 const fs = require('fs');
 
 let MessageMedia = null;
 try {
   ({ MessageMedia } = require('whatsapp-web.js'));
 } catch {}
+
+const sentWelcomeDemoMsgIds = new Set();
+const activeWelcomeDemoChats = new Set();
 
 const DEFAULT_WELCOME_MESSAGES = [
   {
@@ -87,11 +90,19 @@ async function sendWelcomeDemo({
   console.log(`[WELCOME_DEMO] Sending welcome demo sequence (${msgList.length} messages) to ${targetChat}...`);
   const sentResults = [];
 
+  const cleanTarget = targetChat ? String(targetChat).replace(/\D/g, '') : '';
+  const cleanP = phone ? String(phone).replace(/\D/g, '') : '';
+  if (cleanTarget) activeWelcomeDemoChats.add(cleanTarget);
+  if (cleanP) activeWelcomeDemoChats.add(cleanP);
+  if (targetChat) activeWelcomeDemoChats.add(targetChat);
+
   for (let i = 0; i < msgList.length; i++) {
     const item = msgList[i];
     try {
       if (item.type === 'text') {
         const res = await client.sendMessage(targetChat, item.text);
+        if (res?.id?._serialized) sentWelcomeDemoMsgIds.add(res.id._serialized);
+        if (res?.id?.id) sentWelcomeDemoMsgIds.add(res.id.id);
         sentResults.push({ type: 'text', res });
       } else if (item.type === 'audio') {
         let filePath = item.filePath || (item.filename ? path.join(__dirname, '..', item.filename) : null);
@@ -124,6 +135,15 @@ async function sendWelcomeDemo({
               sendAudioAsVoice: false,
               sendMediaAsDocument: false
             });
+            if (sentMediaRes?.id?._serialized) {
+              sentWelcomeDemoMsgIds.add(sentMediaRes.id._serialized);
+              if (typeof sentMediaRes.id._serialized === 'string' && sentMediaRes.id._serialized.includes('_')) {
+                sentWelcomeDemoMsgIds.add(sentMediaRes.id._serialized.split('_').pop());
+              }
+            }
+            if (sentMediaRes?.id?.id) {
+              sentWelcomeDemoMsgIds.add(sentMediaRes.id.id);
+            }
           } catch (audioErr) {
             console.error(`[WELCOME_DEMO] Error sending audio for ${path.basename(filePath)}:`, audioErr.message);
           }
@@ -133,6 +153,8 @@ async function sendWelcomeDemo({
         }
       } else if (item.type === 'link') {
         const res = await client.sendMessage(targetChat, item.url, { linkPreview: true });
+        if (res?.id?._serialized) sentWelcomeDemoMsgIds.add(res.id._serialized);
+        if (res?.id?.id) sentWelcomeDemoMsgIds.add(res.id.id);
         sentResults.push({ type: 'link', res });
       }
     } catch (sendErr) {
@@ -151,6 +173,13 @@ async function sendWelcomeDemo({
     } catch {}
   }
 
+  // Keep target protected in activeWelcomeDemoChats for 2 minutes to guard against delayed message_create events
+  setTimeout(() => {
+    if (cleanTarget) activeWelcomeDemoChats.delete(cleanTarget);
+    if (cleanP) activeWelcomeDemoChats.delete(cleanP);
+    if (targetChat) activeWelcomeDemoChats.delete(targetChat);
+  }, 120000).unref?.();
+
   return { success: true, count: sentResults.length };
 }
 
@@ -158,5 +187,7 @@ module.exports = {
   DEFAULT_WELCOME_MESSAGES,
   getWelcomeMessages,
   sendWelcomeDemo,
+  sentWelcomeDemoMsgIds,
+  activeWelcomeDemoChats,
   sleep
 };

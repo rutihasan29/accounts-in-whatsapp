@@ -1,4 +1,4 @@
-﻿const { describe, it } = require('node:test');
+const { describe, it } = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
 const { initDb } = require('../src/db');
@@ -149,5 +149,71 @@ describe('Welcome Demo Module', () => {
     const res2 = await handleMessageCreate({ msg: secondMsg, client, db });
     assert.strictEqual(res2.action, 'IGNORED_NOT_FROM_ME');
     assert.strictEqual(sent.length, 7); // Count unchanged
+  });
+
+  it('outgoing demo audio messages (e.g. voice1.wav / voice2.mp3) are NEVER billed to customers', async () => {
+    const db = initDb(':memory:');
+    const sent = [];
+    const client = {
+      info: { wid: { _serialized: '8801999999999@c.us' } },
+      sendMessage: async (chat, content, options) => {
+        sent.push({ chat, content, options });
+        return { id: { _serialized: `msg_${sent.length}` } };
+      }
+    };
+
+    // Case 1: Audio with voice1.wav filename
+    const demoMsg1 = {
+      fromMe: true,
+      from: '8801999999999@c.us',
+      to: '8801799999999@c.us',
+      id: { remote: '8801799999999@c.us', id: 'demo_msg_01', _serialized: 'true_8801799999999@c.us_demo_msg_01' },
+      type: 'audio',
+      filename: 'voice1.wav',
+      hasMedia: true,
+      duration: 92
+    };
+
+    const res1 = await handleMessageCreate({ msg: demoMsg1, client, db });
+    assert.strictEqual(res1.action, 'IGNORED_DEMO_AUDIO');
+    assert.strictEqual(sent.length, 0, 'No bill message should be sent for demo audio 1');
+
+    // Case 2: Audio with voice2.mp3 filename
+    const demoMsg2 = {
+      fromMe: true,
+      from: '8801999999999@c.us',
+      to: '8801799999999@c.us',
+      id: { remote: '8801799999999@c.us', id: 'demo_msg_02', _serialized: 'true_8801799999999@c.us_demo_msg_02' },
+      type: 'audio',
+      filename: 'voice2.mp3',
+      hasMedia: true,
+      duration: 80
+    };
+
+    const res2 = await handleMessageCreate({ msg: demoMsg2, client, db });
+    assert.strictEqual(res2.action, 'IGNORED_DEMO_AUDIO');
+    assert.strictEqual(sent.length, 0, 'No bill message should be sent for demo audio 2');
+
+    // Case 3: Playable audio sent to a fresh lead without order
+    db.prepare("INSERT INTO leads (phone_number, name, welcome_sent, first_contact_at) VALUES (?, ?, 1, CURRENT_TIMESTAMP)").run('8801799999999', 'Fresh Lead');
+    const demoMsg3 = {
+      fromMe: true,
+      from: '8801999999999@c.us',
+      to: '8801799999999@c.us',
+      id: { remote: '8801799999999@c.us', id: 'demo_msg_03', _serialized: 'true_8801799999999@c.us_demo_msg_03' },
+      type: 'audio',
+      hasMedia: true,
+      duration: 85
+    };
+
+    const res3 = await handleMessageCreate({ msg: demoMsg3, client, db });
+    assert.strictEqual(res3.action, 'IGNORED_DEMO_AUDIO');
+    assert.strictEqual(sent.length, 0, 'No bill message should be sent to lead without order');
+
+    // Verify 0 transactions were recorded in DB
+    const txs = db.prepare('SELECT * FROM transactions WHERE phone_number = ?').all('8801799999999');
+    assert.strictEqual(txs.length, 0, 'No transactions should be recorded for demo audios');
+
+    db.close();
   });
 });

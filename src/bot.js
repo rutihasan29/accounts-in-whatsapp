@@ -42,7 +42,7 @@ const {
   extractDurationFromText
 } = require('./audio');
 const { cleanVoiceoverAudio } = require('./aircheck');
-const { sendWelcomeDemo } = require('./welcome');
+const { sendWelcomeDemo, sentWelcomeDemoMsgIds, activeWelcomeDemoChats } = require('./welcome');
 const { syncExistingInboxContacts } = require('./sync');
 const { classifyChat, isAffirmativeConfirmation, isNegativeConfirmation } = require('./classifier');
 const {
@@ -1986,6 +1986,39 @@ async function handleMessageCreate({
     const audioMsgId = serializedId || stanzaId;
     const stanzaFromSerialized = typeof serializedId === 'string' && serializedId.includes('_') ? serializedId.split('_').pop() : null;
 
+    // 1. Guard against billing Welcome Demo audio messages
+    if (
+      (serializedId && sentWelcomeDemoMsgIds.has(serializedId)) ||
+      (stanzaId && sentWelcomeDemoMsgIds.has(stanzaId)) ||
+      (stanzaFromSerialized && sentWelcomeDemoMsgIds.has(stanzaFromSerialized))
+    ) {
+      console.log(`[AUDIO] Audio ${serializedId || stanzaId} is a welcome demo sample. Skipping billing.`);
+      return { action: 'IGNORED_WELCOME_DEMO_AUDIO' };
+    }
+
+    const checkFilename = String(msg.filename || msg._data?.filename || msg._data?.title || msg.body || '').trim().toLowerCase();
+    if (
+      /^(voice\d+|demo)/i.test(checkFilename) ||
+      checkFilename.includes('voice1') ||
+      checkFilename.includes('voice2') ||
+      checkFilename.includes('demo')
+    ) {
+      console.log(`[AUDIO] Outgoing audio "${checkFilename}" is identified as demo voiceover. Skipping billing.`);
+      return { action: 'IGNORED_DEMO_AUDIO' };
+    }
+
+    const targetChat = msg.id?.remote || msg.to || msg.from;
+    const rawRecipient = recipient || targetChat;
+    let cleanPhone = null;
+
+    if (
+      (targetChat && activeWelcomeDemoChats.has(targetChat)) ||
+      (rawRecipient && activeWelcomeDemoChats.has(rawRecipient))
+    ) {
+      console.log(`[AUDIO] Target ${targetChat} is currently in welcome demo sequence. Skipping billing.`);
+      return { action: 'IGNORED_WELCOME_DEMO_AUDIO' };
+    }
+
     if (
       (serializedId && billedAudioMsgIds.has(serializedId)) ||
       (stanzaId && billedAudioMsgIds.has(stanzaId)) ||
@@ -1995,24 +2028,42 @@ async function handleMessageCreate({
       return { action: 'IGNORED_ALREADY_BILLED' };
     }
 
-    // Safeguard against duplicate billing of bot-forwarded VA audio:
-    // If an order for this customer was delivered within the last 45 seconds with this exact audio filename, skip!
-    const checkFilename = msg.filename || msg._data?.filename || msg._data?.title || '';
-    if (db && checkFilename) {
+    // Safeguard against duplicate billing of bot-forwarded VA audio and welcome demo to fresh leads
+    if (db) {
       try {
-        const targetChat = msg.id?.remote || msg.to || msg.from;
-        const rawRecipient = recipient || targetChat;
         const phone = await resolveCustomerPhone({ client, recipient: rawRecipient, msg });
-        const cleanPhone = phone || (rawRecipient ? rawRecipient.split('@')[0].replace(/\D/g, '') : null);
+        cleanPhone = phone || (rawRecipient ? rawRecipient.split('@')[0].replace(/\D/g, '') : null);
+
         if (cleanPhone) {
-          const recentOrder = db.prepare(`
-            SELECT * FROM voice_job_orders 
-            WHERE customer_phone = ? AND status = 'DELIVERED'
-            ORDER BY updated_at DESC LIMIT 1
-          `).get(cleanPhone);
-          if (recentOrder && (recentOrder.va2_audio_filename === checkFilename || recentOrder.final_audio_filename === checkFilename)) {
-            console.log(`[AUDIO] Audio "${checkFilename}" matches just-delivered order ${recentOrder.order_id} for +${cleanPhone}. Skipping duplicate billing.`);
-            return { action: 'IGNORED_ALREADY_BILLED' };
+          if (activeWelcomeDemoChats.has(cleanPhone)) {
+            console.log(`[AUDIO] Lead +${cleanPhone} is currently in welcome demo sequence. Skipping billing.`);
+            return { action: 'IGNORED_WELCOME_DEMO_AUDIO' };
+          }
+
+          // If customer is a fresh lead in leads table without any voice job order in DB,
+          // and sent audio has type='audio' (playable sample) or empty/default filename, it is a demo audio
+          const lead = db.prepare('SELECT first_contact_at, welcome_sent FROM leads WHERE phone_number = ?').get(cleanPhone);
+          if (lead) {
+            const hasOrder = db.prepare('SELECT id FROM voice_job_orders WHERE customer_phone = ?').get(cleanPhone);
+            if (!hasOrder) {
+              const msgType = String(msg.type || msg._data?.type || '').toLowerCase();
+              if (msgType === 'audio' || !checkFilename || checkFilename === 'audio') {
+                console.log(`[AUDIO] Audio sent to lead +${cleanPhone} without order (type=${msgType}, file="${checkFilename}"). Identified as demo audio. Skipping billing.`);
+                return { action: 'IGNORED_DEMO_AUDIO' };
+              }
+            }
+          }
+
+          if (checkFilename) {
+            const recentOrder = db.prepare(`
+              SELECT * FROM voice_job_orders 
+              WHERE customer_phone = ? AND status = 'DELIVERED'
+              ORDER BY updated_at DESC LIMIT 1
+            `).get(cleanPhone);
+            if (recentOrder && (recentOrder.va2_audio_filename === checkFilename || recentOrder.final_audio_filename === checkFilename)) {
+              console.log(`[AUDIO] Audio "${checkFilename}" matches just-delivered order ${recentOrder.order_id} for +${cleanPhone}. Skipping duplicate billing.`);
+              return { action: 'IGNORED_ALREADY_BILLED' };
+            }
           }
         }
       } catch (safeguardErr) {}
