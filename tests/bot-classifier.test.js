@@ -229,7 +229,7 @@ test('handleMessageCreate classifies existing contact where welcome demo was alr
     fromMe: false,
     from: '8801799999999@c.us',
     to: '8801340517587@c.us',
-    body: 'Voice lagbe',
+    body: 'Voice script: breaking news report update',
     getChat: async () => mockChat
   };
   const mockClient = {
@@ -251,7 +251,7 @@ test('handleMessageCreate classifies existing contact where welcome demo was alr
     db: mockDb,
     classifierFn: async () => {
       classified = true;
-      return { classification: 'VOICE_JOB', extracted_script: 'Voice lagbe' };
+      return { classification: 'VOICE_JOB', extracted_script: 'Voice script: breaking news report update' };
     }
   });
 

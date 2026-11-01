@@ -9,6 +9,7 @@ const {
   getAllPendingConfirmationsFromDb
 } = require('./db');
 const { extractHeadline } = require('./audio');
+const { isServiceInquiryOnly } = require('./classifier');
 
 const pendingConfirmations = new Map();
 
@@ -175,6 +176,33 @@ async function handleClassificationAction({
   if (classification === 'VOICE_JOB') {
     cancelPendingConfirmation(cleanCustomerPhone);
 
+    const scriptBody = (extracted_script || latestMessageText || '').trim();
+
+    // Guard: A voice job MUST contain an actual script to record.
+    // If the extracted text is only a service inquiry (e.g. "নিউজ ভয়েস লাগবে", "ভয়েস লাগবে", "নিউজ ভয়েস", "voice lagbe")
+    // without any actual narration/content, do NOT forward a blank order to VA2!
+    if (isServiceInquiryOnly(scriptBody)) {
+      console.log(`[DISPATCH] Customer +${cleanCustomerPhone} requested voice service without an actual script ("${scriptBody}"). Prompting for script instead of forwarding to VA2.`);
+      const promptText = 'জি, আপনার স্ক্রিপ্টটি এখানে লিখে বা পেস্ট করে পাঠিয়ে দিন।';
+      if (chat && typeof chat.sendMessage === 'function') {
+        try {
+          await chat.sendMessage(promptText);
+        } catch (err) {
+          console.warn('[DISPATCH] Error asking customer for script:', err.message);
+        }
+      } else if (customerJid && client && typeof client.sendMessage === 'function') {
+        try {
+          await client.sendMessage(customerJid, promptText);
+        } catch (err) {
+          console.warn('[DISPATCH] Error asking customer for script fallback:', err.message);
+        }
+      }
+      return {
+        action: 'PROMPTED_FOR_SCRIPT',
+        details: { customerPhone: cleanCustomerPhone, inquiryText: scriptBody }
+      };
+    }
+
     // 1. Reply "ওকে" to customer
     if (chat && typeof chat.sendMessage === 'function') {
       try {
@@ -193,7 +221,6 @@ async function handleClassificationAction({
     // 2. Forward to VA2 (Strict rule: NEVER send customer phone number OR name to VA2; strictly script only)
     const cleanVa2 = String(config.VA2_PHONE || '8801307760509').replace(/\D/g, '');
     const va2Jid = `${cleanVa2}@c.us`;
-    const scriptBody = extracted_script || latestMessageText;
     const headline = typeof extractHeadline === 'function' ? extractHeadline(scriptBody) : 'ভয়েস স্ক্রিপ্ট';
     const orderId = `VJO-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 

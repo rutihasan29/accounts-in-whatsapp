@@ -9,9 +9,10 @@ Language note: Messages may be in Bengali (বাংলা), Banglish (Bengali w
 Classify into exactly ONE of the following categories:
 
 1. VOICE_JOB:
-   - Case A (Explicit voice request): The Customer's latest message contains a script/ad copy AND explicitly asks for voiceover / audio recording (e.g., "ভয়েস লাগবে", "ভয়েস দেন", "রেকর্ড", "voice", "audio", "voiceover", "voice recording", "recording lagbe").
+   - Case A (Explicit voice request): The Customer's latest message contains an ACTUAL script/ad copy/news report AND explicitly asks for voiceover / audio recording (e.g., "এইটার ভয়েস লাগবে: [স্ক্রিপ্ট]", "ভয়েস করে দেন: [স্ক্রিপ্ট]").
+     CRITICAL REQUIREMENT: A message that ONLY expresses interest or inquires (e.g., "নিউজ ভয়েস লাগবে", "ভয়েস লাগবে", "ভাই ভয়েস দরকার", "voice lagbe", "audio lagbe", "amar news voice lagbe") WITHOUT an actual news story or script text to read/record is NOT a VOICE_JOB. Classify service inquiries without a script as OTHER.
    - Case B (Confirmation to Bot's question): The Bot's previous question was "ভয়েস?" (or "শুধু ভয়েস?"), and the Customer's latest message answers affirmatively (e.g., "হ্যাঁ", "জি", "জী", "জি ভাই", "ji", "jee", "yes", "shudu voice", "hmm", "thik ache", "ok", "ha", "হুম", "voice", "voice e", "শুধু ভয়েস", "ভয়েস").
-   In both cases, extract the full script text into extracted_script (if confirming, retrieve the script from the customer's prior message in history).
+   In both cases, extract the full script text into extracted_script (if confirming, retrieve the script from the customer's prior message in history). The extracted_script must be the actual content/story to be recorded, NOT an inquiry phrase.
 
 2. SCRIPT_PENDING_CONFIRMATION:
    - The Customer's latest message provides a commercial, narration, ad copy, promo announcement, or script text, BUT does not explicitly specify whether they want voiceover, video editing, or both.
@@ -25,6 +26,7 @@ Classify into exactly ONE of the following categories:
 
 4. OTHER:
    - Casual greetings ("hi", "hello", "assalamu alaikum", "kemon achen", "kire").
+   - Service inquiries without an actual script (e.g., "নিউজ ভয়েস লাগবে", "ভয়েস লাগবে", "voice lagbe", "recording korte chai", "amar voice dorkar", "news voice chai", "service available?").
    - Payment notifications ("paid", "টাকা পাঠিয়েছি", "taka disi").
    - Media attachments without text, or any general chatter.
 
@@ -118,13 +120,21 @@ async function classifyWithOpenRouter({
     }
     const parsed = JSON.parse(cleaned);
     let classification = parsed.classification || 'OTHER';
+    let extractedScript = parsed.extracted_script || '';
     if (!VALID_CLASSIFICATIONS.has(classification)) {
       classification = 'ESCALATE';
     }
+
+    if (classification === 'VOICE_JOB' && isServiceInquiryOnly(extractedScript)) {
+      console.log(`[CLASSIFIER] Reclassifying VOICE_JOB -> OTHER because extracted_script "${extractedScript}" is only a service inquiry, not an actual script.`);
+      classification = 'OTHER';
+      extractedScript = '';
+    }
+
     return {
       classification,
       confidence: parsed.confidence || 'LOW',
-      extracted_script: parsed.extracted_script || '',
+      extracted_script: extractedScript,
       reason: parsed.reason || ''
     };
   } finally {
@@ -294,13 +304,21 @@ async function classifyChat({
     }
     const parsed = JSON.parse(cleaned);
     let classification = parsed.classification || 'OTHER';
+    let extractedScript = parsed.extracted_script || '';
     if (!VALID_CLASSIFICATIONS.has(classification)) {
       classification = 'ESCALATE';
     }
+
+    if (classification === 'VOICE_JOB' && isServiceInquiryOnly(extractedScript)) {
+      console.log(`[CLASSIFIER] Reclassifying VOICE_JOB -> OTHER because extracted_script "${extractedScript}" is only a service inquiry, not an actual script.`);
+      classification = 'OTHER';
+      extractedScript = '';
+    }
+
     return {
       classification,
       confidence: parsed.confidence || 'LOW',
-      extracted_script: parsed.extracted_script || '',
+      extracted_script: extractedScript,
       reason: parsed.reason || ''
     };
   } catch (err) {
@@ -312,6 +330,43 @@ async function classifyChat({
       reason: `Error: ${err.message}`
     };
   }
+}
+
+function isServiceInquiryOnly(text) {
+  if (!text || typeof text !== 'string') return true;
+  const clean = text.trim();
+  if (clean.length === 0) return true;
+
+  // Normalize Bengali characters (ya variants: \u09af\u09bc -> \u09df)
+  const normalized = clean.replace(/\u09af\u09bc/g, 'য়').toLowerCase();
+
+  // Common service inquiry patterns
+  const inquiryRegex = /^(ভাই|ভাইয়া|হ্যালো|আসসালামু\s*আলাইকুম|hello|hi|vai|bhai|bhaiya|admin|এডমিন)?\s*(আমার|amar)?\s*(একটি|একটা|ekta)?\s*(নিউজ|news|সংবাদ)?\s*(ভয়েস|ভয়েস|ভয়েজ|ভয়েজ|ভইস|voice|voiceover|audio|ভয়েসওভার|ভয়েসওভার|রেকর্ডিং|recording)?\s*(লাগবে|দেন|দরকার|হবে|চাই|করব|করতে\s*চাই|নিব|নেব|lagbe|dorkar|chai|needed|need|want|service)?[\s.!,?]*$/i;
+
+  if (inquiryRegex.test(normalized)) {
+    return true;
+  }
+
+  // If very short (<= 4 words) and consists only of inquiry keywords
+  const words = normalized.split(/\s+/).filter(Boolean);
+  if (words.length <= 4) {
+    const inquiryKeywords = new Set([
+      'নিউজ', 'ভয়েস', 'ভয়েস', 'ভয়েজ', 'ভয়েজ', 'ভইস', 'ভয়েসওভার', 'ভয়েসওভার',
+      'লাগবে', 'দরকার', 'হবে', 'চাই', 'দেন', 'করব', 'রেকর্ডিং', 'সার্ভিস',
+      'ভাই', 'ভাইয়া', 'হ্যালো', 'আসসালামু', 'আলাইকুম',
+      'voice', 'voiceover', 'news', 'audio', 'recording', 'lagbe', 'dorkar', 'chai',
+      'need', 'needed', 'service', 'vai', 'bhai', 'bhaiya', 'hello', 'hi', 'amar', 'ekta'
+    ]);
+    const allKeywords = words.every(w => {
+      const stripped = w.replace(/[^a-z\u0980-\u09ff]/g, '');
+      return inquiryKeywords.has(stripped);
+    });
+    if (allKeywords) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 const AFFIRMATIVE_REGEX = /^(হ্যাঁ|হা|হ|জি|জী|হুম|হুঁ|yes|yeah|yep|ok|okay|thik\s*ache|ঠিক\s*আছে|শুধু\s*ভয়েস|shudu\s*voice|voice|voice\s*e)(\s+(ভাই|ভাইয়া|bhai|bhaiya|admin))?[\s.!,]*$/i;
@@ -336,6 +391,7 @@ module.exports = {
   isAffirmativeConfirmation,
   isNegativeConfirmation,
   buildHistoryTranscript,
+  isServiceInquiryOnly,
   classifyWithOpenRouter,
   classifyChat
 };

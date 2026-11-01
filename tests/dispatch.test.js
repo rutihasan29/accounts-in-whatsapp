@@ -547,4 +547,46 @@ test('handleClassificationAction creates order in DB before sending forwardMsg t
   db.close();
 });
 
+test('handleClassificationAction prompts customer for script and skips VA2 when scriptBody is only an inquiry', async () => {
+  const sentMessages = [];
+  const mockClient = {
+    sendMessage: async (jid, text) => {
+      sentMessages.push({ jid, text });
+      return { id: { _serialized: 'msg-id' } };
+    }
+  };
+  const mockChat = {
+    id: { _serialized: '8801700000000@c.us' },
+    sendMessage: async (text) => {
+      sentMessages.push({ jid: 'customer', text });
+      return { id: { _serialized: 'msg-id' } };
+    }
+  };
+  const db = initDb(':memory:');
+
+  const res = await handleClassificationAction({
+    client: mockClient,
+    chat: mockChat,
+    classificationResult: {
+      classification: 'VOICE_JOB',
+      extracted_script: 'নিউজ ভয়েস লাগবে'
+    },
+    customerPhone: '8801700000000',
+    customerName: 'Shahriar',
+    db
+  });
+
+  assert.equal(res.action, 'PROMPTED_FOR_SCRIPT');
+  // Check that customer received the prompt to send script
+  const customerMsg = sentMessages.find(m => m.jid === 'customer');
+  assert.ok(customerMsg && customerMsg.text.includes('স্ক্রিপ্টটি'));
+  // Ensure VA2 received NOTHING
+  const va2Msg = sentMessages.find(m => m.jid && m.jid.includes('8801307760509'));
+  assert.equal(va2Msg, undefined, 'VA2 must NOT receive any message for service inquiries');
+  // Ensure no order was created in DB
+  const orders = db.prepare('SELECT * FROM voice_job_orders').all();
+  assert.equal(orders.length, 0, 'No voice order should be created for inquiries without script');
+  db.close();
+});
+
 

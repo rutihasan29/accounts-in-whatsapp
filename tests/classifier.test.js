@@ -1,6 +1,6 @@
-﻿const test = require('node:test');
+const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildHistoryTranscript, classifyChat } = require('../src/classifier');
+const { buildHistoryTranscript, classifyChat, isServiceInquiryOnly } = require('../src/classifier');
 
 test('buildHistoryTranscript formats roles properly', () => {
   const msgs = [
@@ -292,4 +292,53 @@ test('classifyChat falls back to Gemini when OpenRouter call fails', async () =>
   assert.equal(res.extracted_script, 'Fallback script');
   assert.ok(calls.some(u => u.includes('openrouter.ai')));
   assert.ok(calls.some(u => u.includes('generativelanguage.googleapis.com')));
+});
+
+test('isServiceInquiryOnly identifies inquiries vs real scripts', () => {
+  // Service inquiries without script must return true
+  assert.equal(isServiceInquiryOnly('নিউজ ভয়েস লাগবে'), true);
+  assert.equal(isServiceInquiryOnly('নিউজ ভয়েস'), true);
+  assert.equal(isServiceInquiryOnly('ভয়েস লাগবে'), true);
+  assert.equal(isServiceInquiryOnly('ভয়েস লাগবে'), true);
+  assert.equal(isServiceInquiryOnly('ভাই নিউজ ভয়েস লাগবে'), true);
+  assert.equal(isServiceInquiryOnly('voice lagbe'), true);
+  assert.equal(isServiceInquiryOnly('news voice chai'), true);
+  assert.equal(isServiceInquiryOnly('amar ekta voice lagbe'), true);
+  assert.equal(isServiceInquiryOnly(''), true);
+  assert.equal(isServiceInquiryOnly(null), true);
+
+  // Real narration scripts must return false
+  assert.equal(isServiceInquiryOnly('ব্রেকিং নিউজ: রাজধানীর ধানমন্ডিতে ভয়াবহ অগ্নিকাণ্ডের ঘটনা ঘটেছে।'), false);
+  assert.equal(isServiceInquiryOnly('This is the ad script for commercial.'), false);
+  assert.equal(isServiceInquiryOnly('দেশ ও বিদেশের সর্বশেষ গুরুত্বপূর্ণ খবর শুনতে সাথে থাকুন।'), false);
+  assert.equal(isServiceInquiryOnly('Voice script: breaking news report update'), false);
+});
+
+test('classifyChat reclassifies VOICE_JOB to OTHER when extracted script is only an inquiry ("নিউজ ভয়েস")', async () => {
+  const mockFetch = async () => ({
+    ok: true,
+    json: async () => ({
+      candidates: [{
+        content: {
+          parts: [{
+            text: JSON.stringify({
+              classification: 'VOICE_JOB',
+              confidence: 'HIGH',
+              extracted_script: 'নিউজ ভয়েস',
+              reason: 'Customer explicitly requested news voice'
+            })
+          }]
+        }
+      }]
+    })
+  });
+
+  const res = await classifyChat({
+    messages: [{ fromMe: false, body: 'নিউজ ভয়েস লাগবে' }],
+    apiKey: 'dummy-key',
+    fetchFn: mockFetch
+  });
+
+  assert.equal(res.classification, 'OTHER', 'Must be reclassified to OTHER');
+  assert.equal(res.extracted_script, '', 'Extracted script must be empty');
 });
