@@ -78,6 +78,7 @@ const pendingAutoBills = [];
 const recentOutboundJobTypes = new Map();
 const sentSelfBotMsgIds = new Set();
 const billedAudioMsgIds = new Set();
+const recentAudioBillsPerPhone = new Map();
 
 /**
  * Reusable helper to record an audio bill in the database and send the bill message to customer.
@@ -112,6 +113,31 @@ async function sendAndRecordAudioBill({
   const cleanPhone = String(customerPhone).replace(/\D/g, '');
   const destinationJid = targetChat || (cleanPhone ? `${cleanPhone}@c.us` : null);
 
+  const lastBilled = cleanPhone ? recentAudioBillsPerPhone.get(cleanPhone) : null;
+  const now = Date.now();
+  if (lastBilled && (now - lastBilled.time < 20000)) {
+    const hasDifferentFilenames = Boolean(
+      audioFilename &&
+      lastBilled.filename &&
+      audioFilename !== lastBilled.filename &&
+      !/^(audio|voice)$/i.test(audioFilename) &&
+      !/^(audio|voice)$/i.test(lastBilled.filename)
+    );
+
+    const isSameFile = Boolean(audioFilename && lastBilled.filename && audioFilename === lastBilled.filename);
+    const isSameDuration = typeof durationSeconds === 'number' &&
+                           typeof lastBilled.duration === 'number' &&
+                           Math.abs(durationSeconds - lastBilled.duration) <= 2;
+
+    if (!hasDifferentFilenames && (isSameFile || isSameDuration)) {
+      console.log(`[AUDIO_BILL] Duplicate audio detected for +${cleanPhone} (same duration/file within ${Math.round((now - lastBilled.time) / 1000)}s). Skipping duplicate billing.`);
+      return {
+        action: 'IGNORED_ALREADY_BILLED',
+        details: { phone: cleanPhone, lastBilled }
+      };
+    }
+  }
+
   let contactName = null;
   try {
     if (client && typeof client.getContactById === 'function' && destinationJid) {
@@ -130,6 +156,15 @@ async function sendAndRecordAudioBill({
     jobType: 'voice',
     durationSeconds: Math.round(durationSeconds)
   });
+
+  if (cleanPhone) {
+    recentAudioBillsPerPhone.set(cleanPhone, {
+      time: now,
+      amount: billAmount,
+      duration: durationSeconds,
+      filename: audioFilename
+    });
+  }
 
   console.log(`[AUDIO_BILL] Recorded voice job (${Math.round(durationSeconds)}s) bill ${billAmount} BDT for +${cleanPhone}${contactName ? ` (${contactName})` : ''}. Current due: ${record.dueAmount} BDT`);
 
@@ -2054,14 +2089,20 @@ async function handleMessageCreate({
             }
           }
 
-          if (checkFilename) {
-            const recentOrder = db.prepare(`
-              SELECT * FROM voice_job_orders 
-              WHERE customer_phone = ? AND status = 'DELIVERED'
-              ORDER BY updated_at DESC LIMIT 1
-            `).get(cleanPhone);
-            if (recentOrder && (recentOrder.va2_audio_filename === checkFilename || recentOrder.final_audio_filename === checkFilename)) {
-              console.log(`[AUDIO] Audio "${checkFilename}" matches just-delivered order ${recentOrder.order_id} for +${cleanPhone}. Skipping duplicate billing.`);
+          // Safeguard against duplicate billing of bot-forwarded VA audio:
+          // If an order for this customer was delivered with this exact audio filename, skip!
+          const recentOrder = db.prepare(`
+            SELECT * FROM voice_job_orders 
+            WHERE customer_phone = ? AND status = 'DELIVERED'
+            ORDER BY id DESC LIMIT 1
+          `).get(cleanPhone);
+          if (recentOrder) {
+            const isFilenameMatch = Boolean(checkFilename && (
+              String(recentOrder.va2_audio_filename || '').trim().toLowerCase() === checkFilename ||
+              String(recentOrder.final_audio_filename || '').trim().toLowerCase() === checkFilename
+            ));
+            if (isFilenameMatch) {
+              console.log(`[AUDIO] Audio "${checkFilename}" matches delivered order ${recentOrder.order_id} for +${cleanPhone}. Skipping duplicate billing.`);
               return { action: 'IGNORED_ALREADY_BILLED' };
             }
           }
@@ -2093,6 +2134,26 @@ async function handleMessageCreate({
         }
 
         const cleanPhone = phone || (rawRecipient ? rawRecipient.split('@')[0].replace(/\D/g, '') : null);
+
+        // Safeguard against duplicate billing of bot-forwarded VA audio by duration:
+        if (db && cleanPhone) {
+          try {
+            const recentOrder = db.prepare(`
+              SELECT * FROM voice_job_orders 
+              WHERE customer_phone = ? AND status = 'DELIVERED'
+              ORDER BY id DESC LIMIT 1
+            `).get(cleanPhone);
+            if (recentOrder && recentOrder.delivered_at) {
+              const isRecentDelivery = (Date.now() - new Date(recentOrder.delivered_at).getTime() < 60000);
+              const isDurationMatch = recentOrder.clean_duration_seconds && Math.abs(recentOrder.clean_duration_seconds - duration) <= 2;
+              if (isRecentDelivery && isDurationMatch) {
+                console.log(`[AUDIO] Audio (${duration}s) matches recently delivered order ${recentOrder.order_id} for +${cleanPhone}. Skipping duplicate billing.`);
+                return { action: 'IGNORED_ALREADY_BILLED' };
+              }
+            }
+          } catch (ordErr) {}
+        }
+
         const billRes = await sendAndRecordAudioBill({
           client,
           db,
@@ -2175,7 +2236,12 @@ async function handleMessageCreate({
       });
 
       if (pendingIndex !== -1) {
-        pendingAutoBills.splice(pendingIndex, 1);
+        // Prune expired entries older than 60s while keeping active ones to suppress multiple echoes (e.g. LID and phone sync)
+        for (let i = pendingAutoBills.length - 1; i >= 0; i--) {
+          if (now - pendingAutoBills[i].time >= 60000) {
+            pendingAutoBills.splice(i, 1);
+          }
+        }
         console.log(`[AUDIO_BILL] Ignored echo of auto-sent bill (${parsed.amount} BDT) for +${cleanPhone || targetChat}`);
         return { action: 'IGNORED_ECHO_AUTO_BILL' };
       }
@@ -2839,6 +2905,7 @@ module.exports = {
   sentAutoBillMsgIds,
   pendingAutoBills,
   billedAudioMsgIds,
+  recentAudioBillsPerPhone,
   sendAndRecordAudioBill,
   isTestEnv,
   createMedia,

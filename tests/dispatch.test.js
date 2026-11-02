@@ -589,4 +589,100 @@ test('handleClassificationAction prompts customer for script and skips VA2 when 
   db.close();
 });
 
+test('handleClassificationAction skips duplicate forwarding when order with same script already exists within 30 minutes', async () => {
+  const sentMessages = [];
+  const mockClient = {
+    sendMessage: async (jid, text) => {
+      sentMessages.push({ jid, text });
+      return { id: { _serialized: 'msg-id' } };
+    }
+  };
+  const mockChat = {
+    id: { _serialized: '8801700000000@c.us' },
+    sendMessage: async (text) => {
+      sentMessages.push({ jid: 'customer', text });
+      return { id: { _serialized: 'msg-id' } };
+    }
+  };
+  const db = initDb(':memory:');
+  const scriptText = 'নরসিংদী ম্যারাথন ২০২৬: হাজারো দৌড়বিদের অংশগ্রহণে মুখরিত সফল আয়োজন সম্পন্ন';
+
+  // First forward
+  const res1 = await handleClassificationAction({
+    client: mockClient,
+    chat: mockChat,
+    classificationResult: {
+      classification: 'VOICE_JOB',
+      extracted_script: scriptText
+    },
+    customerPhone: '8801700000000',
+    customerName: 'Customer A',
+    db
+  });
+  assert.equal(res1.action, 'VOICE_JOB_DISPATCHED');
+  assert.equal(sentMessages.filter(m => m.jid.includes('8801307760509')).length, 1);
+
+  // Second forward with SAME script within 30 minutes
+  const res2 = await handleClassificationAction({
+    client: mockClient,
+    chat: mockChat,
+    classificationResult: {
+      classification: 'VOICE_JOB',
+      extracted_script: scriptText
+    },
+    customerPhone: '8801700000000',
+    customerName: 'Customer A',
+    db
+  });
+  assert.equal(res2.action, 'IGNORED_DUPLICATE_VOICE_JOB');
+  // VA2 message count must STILL be 1 (never sent twice!)
+  assert.equal(sentMessages.filter(m => m.jid.includes('8801307760509')).length, 1);
+
+  // DB must only have 1 order
+  const orders = db.prepare('SELECT * FROM voice_job_orders WHERE customer_phone = ?').all('8801700000000');
+  assert.equal(orders.length, 1);
+
+  db.close();
+});
+
+test('handleClassificationAction cleans pending_confirmations in DB on VOICE_JOB dispatch', async () => {
+  const mockClient = {
+    sendMessage: async () => ({ id: { _serialized: 'msg-id' } })
+  };
+  const mockChat = {
+    id: { _serialized: '8801700000000@c.us' },
+    sendMessage: async () => ({ id: { _serialized: 'msg-id' } })
+  };
+  const db = initDb(':memory:');
+  const phone = '8801700000000';
+  const scriptText = 'বিকেল ৪টায় গুলশানে এক বিশেষ সংবাদ সম্মেলন অনুষ্ঠিত হবে।';
+
+  // Pre-insert a row in pending_confirmations
+  db.prepare(`
+    INSERT INTO pending_confirmations (customer_phone, script, customer_name, customer_script_msg_id, timeout_ms, asked_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(phone, scriptText, 'Customer A', 'script-msg-1', 300000, Date.now());
+
+  assert.ok(db.prepare('SELECT * FROM pending_confirmations WHERE customer_phone = ?').get(phone));
+
+  const res = await handleClassificationAction({
+    client: mockClient,
+    chat: mockChat,
+    classificationResult: {
+      classification: 'VOICE_JOB',
+      extracted_script: scriptText
+    },
+    customerPhone: phone,
+    customerName: 'Customer A',
+    db
+  });
+  assert.equal(res.action, 'VOICE_JOB_DISPATCHED');
+
+  // Verify pending_confirmations row was DELETED from DB!
+  const pendingInDb = db.prepare('SELECT * FROM pending_confirmations WHERE customer_phone = ?').get(phone);
+  assert.equal(pendingInDb, undefined, 'Pending confirmation must be purged from DB');
+
+  db.close();
+});
+
 

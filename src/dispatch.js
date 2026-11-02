@@ -174,7 +174,7 @@ async function handleClassificationAction({
   }
 
   if (classification === 'VOICE_JOB') {
-    cancelPendingConfirmation(cleanCustomerPhone);
+    cancelPendingConfirmation(cleanCustomerPhone, db);
 
     const scriptBody = (extracted_script || latestMessageText || '').trim();
 
@@ -201,6 +201,35 @@ async function handleClassificationAction({
         action: 'PROMPTED_FOR_SCRIPT',
         details: { customerPhone: cleanCustomerPhone, inquiryText: scriptBody }
       };
+    }
+
+    // Deduplication check: Has this exact script already been ordered/forwarded for this customer recently?
+    if (db && cleanCustomerPhone && scriptBody) {
+      try {
+        const recentOrder = db.prepare(`
+          SELECT order_id, status, created_at FROM voice_job_orders
+          WHERE customer_phone = ? 
+            AND status IN ('PENDING_VA2', 'RECORDING', 'DELIVERED')
+            AND script_text = ?
+            AND created_at >= datetime('now', '-30 minutes')
+          ORDER BY id DESC LIMIT 1
+        `).get(cleanCustomerPhone, scriptBody);
+
+        if (recentOrder && recentOrder.order_id) {
+          console.log(`[DISPATCH] Order ${recentOrder.order_id} already exists for customer +${cleanCustomerPhone} with this script. Skipping duplicate forwarding to VA2.`);
+          cancelPendingConfirmation(cleanCustomerPhone, db);
+          return {
+            action: 'IGNORED_DUPLICATE_VOICE_JOB',
+            details: {
+              orderId: recentOrder.order_id,
+              customerPhone: cleanCustomerPhone,
+              script: scriptBody
+            }
+          };
+        }
+      } catch (dedupErr) {
+        console.warn('[DISPATCH] Error checking duplicate order:', dedupErr.message);
+      }
     }
 
     // 1. Reply "ওকে" to customer
@@ -319,7 +348,7 @@ async function handleClassificationAction({
   }
 
   if (classification === 'VIDEO_CUSTOMER') {
-    cancelPendingConfirmation(cleanCustomerPhone);
+    cancelPendingConfirmation(cleanCustomerPhone, db);
 
     const cleanVe3 = String(config.VE3_PHONE || '8801831366604').replace(/\D/g, '');
     const ve3Jid = `${cleanVe3}@c.us`;
@@ -353,7 +382,7 @@ async function handleClassificationAction({
 
   // Any message other than VOICE_JOB, SCRIPT_PENDING_CONFIRMATION, or VIDEO_CUSTOMER
   // is escalated to VE3 (voice affirmation is the only non-escalated path besides new script).
-  cancelPendingConfirmation(cleanCustomerPhone);
+  cancelPendingConfirmation(cleanCustomerPhone, db);
 
   const ve3Enabled = getBotSetting(db, 've3_escalation_enabled', true);
   if (!ve3Enabled) {
