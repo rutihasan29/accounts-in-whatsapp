@@ -32,5 +32,11 @@ module.exports = {
   VE3_PHONE: process.env.VE3_PHONE || '8801831366604',
   PREENAN_PHONE: process.env.PREENAN_PHONE || '8801534323811',
   SCRIPT_TIMEOUT_MS: process.env.SCRIPT_TIMEOUT_MS ? parseInt(process.env.SCRIPT_TIMEOUT_MS, 10) : 5 * 60 * 1000,
-  DASHBOARD_PIN: process.env.DASHBOARD_PIN || '6700'
+  DASHBOARD_PIN: process.env.DASHBOARD_PIN || '6700',
+  GITHUB_TOKEN: process.env.GITHUB_TOKEN || '',
+  GITHUB_REPO_URL: process.env.GITHUB_REPO_URL || 'https://github.com/rutihasan29/accounts-in-whatsapp',
+  GITHUB_WEBHOOK_SECRET: process.env.GITHUB_WEBHOOK_SECRET || '',
+  AUTO_UPDATE_ENABLED: process.env.AUTO_UPDATE_ENABLED !== 'false',
+  AUTO_UPDATE_INTERVAL_MS: process.env.AUTO_UPDATE_INTERVAL_MS ? parseInt(process.env.AUTO_UPDATE_INTERVAL_MS, 10) : 60000,
+  AUTO_UPDATE_BRANCH: process.env.AUTO_UPDATE_BRANCH || ''
 };

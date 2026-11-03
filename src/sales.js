@@ -246,40 +246,35 @@ async function fetchWhatsAppCustomerNote(client, phone) {
   const cleanPhone = String(phone).replace(/\D/g, '');
   if (!cleanPhone) return null;
 
-  // 1. Try standard getCustomerNote on client
-  try {
-    if (typeof client.getCustomerNote === 'function') {
-      const jid = `${cleanPhone}@c.us`;
-      const noteObj = await client.getCustomerNote(jid);
-      if (noteObj?.content) {
-        return String(noteObj.content).trim();
-      }
-    }
-  } catch {}
-
-  // 2. Try in-page fallback via pupPage
   if (client?.pupPage && typeof client.pupPage.evaluate === 'function') {
     try {
       const content = await client.pupPage.evaluate(async (cleanPhone) => {
         try {
-          const userJid = `${cleanPhone}@c.us`;
-          const wid = window.require('WAWebWidFactory')?.createWid(userJid);
-          if (!wid) return null;
-
-          const userJidObj = window.require('WAWebWidToJid')?.widToUserJid(wid);
-          const noteAction = window.require('WAWebNoteAction');
-          if (noteAction && typeof noteAction.retrieveOnlyNoteForChatJid === 'function') {
-            const note = await noteAction.retrieveOnlyNoteForChatJid(userJidObj);
-            const serialized = note?.serialize ? note.serialize() : note;
-            return serialized?.content || null;
+          const openDb = () => new Promise((resolve, reject) => {
+            const req = window.indexedDB.open('model-storage');
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+          });
+          const idb = await openDb();
+          if (idb.objectStoreNames.contains('note')) {
+            const tx = idb.transaction('note', 'readonly');
+            const req = tx.objectStore('note').getAll();
+            const rawNotes = await new Promise(r => {
+              req.onsuccess = () => r(req.result || []);
+              req.onerror = () => r([]);
+            });
+            idb.close();
+            const match = rawNotes.find(n => {
+              const cJid = String(n.chatJid || '').replace(/\D/g, '');
+              return cJid === cleanPhone;
+            });
+            if (match && match.content) return String(match.content).trim();
           }
-        } catch (e) {
-          return null;
-        }
+        } catch {}
         return null;
       }, cleanPhone);
 
-      if (content) return String(content).trim();
+      if (content) return content;
     } catch {}
   }
 
@@ -292,36 +287,84 @@ async function fetchWhatsAppCustomerNote(client, phone) {
 async function syncWhatsAppNotes(db, client, { limit = 60, startDate = '2026-11-01' } = {}) {
   if (!db || !client) return { synced: 0 };
 
-  // 1. First attempt fast in-page batch scan of loaded NoteCollection models
+  // 1. Direct high-speed batch scan of IndexedDB model-storage notes
   let batchCount = 0;
   if (client?.pupPage && typeof client.pupPage.evaluate === 'function') {
     try {
-      const loadedNotes = await client.pupPage.evaluate(() => {
+      const extracted = await client.pupPage.evaluate(async () => {
+        const openDb = () => new Promise((resolve, reject) => {
+          const req = window.indexedDB.open('model-storage');
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+
+        let rawNotes = [];
         try {
-          const noteCol = window.require('WAWebCollections')?.Note;
-          if (noteCol && typeof noteCol.getModelsArray === 'function') {
-            return noteCol.getModelsArray().map(m => {
-              const ser = m.serialize ? m.serialize() : m;
-              return {
-                chatId: ser.chatId || ser.chatJid || m.chatId || m.chatJid || '',
-                content: ser.content || m.content || ''
-              };
-            }).filter(n => n.content && n.chatId);
+          const idb = await openDb();
+          if (idb.objectStoreNames.contains('note')) {
+            const tx = idb.transaction('note', 'readonly');
+            const req = tx.objectStore('note').getAll();
+            rawNotes = await new Promise(r => {
+              req.onsuccess = () => r(req.result || []);
+              req.onerror = () => r([]);
+            });
           }
+          idb.close();
         } catch {}
-        return [];
+
+        const results = [];
+        const widFactory = window.require('WAWebWidFactory');
+        const contactApi = window.require('WAWebApiContact');
+        const collections = window.require('WAWebCollections');
+
+        for (const n of rawNotes) {
+          const chatJid = n.chatJid || '';
+          const content = n.content || '';
+          if (!chatJid || !content) continue;
+
+          let resolvedPhone = null;
+          try {
+            if (widFactory && contactApi) {
+              const wid = widFactory.createWid(chatJid);
+              if (contactApi.getPhoneNumber) {
+                const pWid = contactApi.getPhoneNumber(wid);
+                if (pWid?.user) resolvedPhone = pWid.user;
+              }
+              if (!resolvedPhone && collections?.Contact) {
+                const c = collections.Contact.get(wid);
+                if (c?.phoneNumber?.user) resolvedPhone = c.phoneNumber.user;
+              }
+              if (!resolvedPhone && collections?.Chat) {
+                const ch = collections.Chat.get(wid);
+                if (ch?.contact?.phoneNumber?.user) resolvedPhone = ch.contact.phoneNumber.user;
+              }
+            }
+          } catch {}
+
+          results.push({
+            cleanJid: chatJid.split('@')[0].replace(/\D/g, ''),
+            resolvedPhone: resolvedPhone ? String(resolvedPhone).replace(/\D/g, '') : null,
+            content: content.trim()
+          });
+        }
+
+        return results;
       });
 
-      if (Array.isArray(loadedNotes) && loadedNotes.length > 0) {
-        for (const n of loadedNotes) {
-          const phone = String(n.chatId).replace(/@.*$/, '').replace(/\D/g, '');
-          if (phone && n.content) {
-            saveWhatsappCustomerNote(db, phone, n.content.trim());
+      if (Array.isArray(extracted) && extracted.length > 0) {
+        for (const item of extracted) {
+          if (item.cleanJid && item.content) {
+            saveWhatsappCustomerNote(db, item.cleanJid, item.content);
             batchCount++;
+          }
+          if (item.resolvedPhone && item.resolvedPhone !== item.cleanJid && item.content) {
+            saveWhatsappCustomerNote(db, item.resolvedPhone, item.content);
           }
         }
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[SALES] Error during in-page note extraction:', err.message);
+    }
   }
 
   // 2. For leads that do not yet have a note in DB, fetch on-demand

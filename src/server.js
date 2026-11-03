@@ -28,6 +28,7 @@ const { handleCrmRequest } = require('./crm/api');
 const { checkAndEscalateTimeouts } = require('./crm/routing');
 const { createCaller, updateCallerStatus } = require('./crm/db');
 const { getSalesLeads, syncWhatsAppNotes } = require('./sales');
+const { getServerVersionInfo, performUpdate, verifyGitHubWebhookSignature } = require('./updater');
 
 const DASHBOARD_HTML_PATH = path.join(__dirname, 'dashboard.html');
 const SALES_HTML_PATH = path.join(__dirname, 'sales.html');
@@ -53,6 +54,21 @@ function readJsonBody(req) {
         reject(new Error('Invalid JSON payload: ' + e.message));
       }
     });
+    req.on('error', reject);
+  });
+}
+
+function readRawBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+      if (body.length > 2e6) {
+        req.destroy();
+        reject(new Error('Payload too large'));
+      }
+    });
+    req.on('end', () => resolve(body));
     req.on('error', reject);
   });
 }
@@ -102,7 +118,7 @@ function renderHtmlPage(options = {}) {
         botUptime,
         botSettings
       });
-      html = html.replace('/*__INITIAL_DATA__*/', `window.__INITIAL_DATA__ = ${initialJson};`);
+      html = html.replace('/*__INITIAL_DATA__*/', `window.__INITIAL_DATA__ = ${initialJson};\n`);
     } catch (e) {
       console.error('Error pre-rendering initial data in dashboard:', e.message);
     }
@@ -265,7 +281,7 @@ function renderPrintableStatement({ summary, transactions }) {
 </html>`;
 }
 
-function startWebServer({ db, client = null, port = PORT }) {
+function startWebServer({ db, client = null, port = PORT, onRestart = null } = {}) {
   const server = http.createServer(async (req, res) => {
     const parsedUrl = url.parse(req.url, true);
     const pathname = parsedUrl.pathname;
@@ -408,11 +424,88 @@ function startWebServer({ db, client = null, port = PORT }) {
     if (pathname === '/api/bot-status' && method === 'GET') {
       try {
         const status = getBotUptimeStats(db);
+        status.serverVersion = getServerVersionInfo();
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify(status));
       } catch (err) {
         res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: err.message }));
+      }
+      return;
+    }
+
+    // API: Server Version & Auto-update info - GET
+    if (pathname === '/api/server/version' && method === 'GET') {
+      try {
+        const version = getServerVersionInfo();
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'ok', version }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', error: err.message }));
+      }
+      return;
+    }
+
+    // API: Manual Update Trigger - POST
+    if (pathname === '/api/server/update' && method === 'POST') {
+      try {
+        const result = await performUpdate({
+          reason: 'MANUAL_API_TRIGGER',
+          onRestart
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'ok', result }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', error: err.message }));
+      }
+      return;
+    }
+
+    // API: GitHub Webhook - POST
+    if (pathname === '/api/webhook/github' && method === 'POST') {
+      try {
+        const rawBody = await readRawBody(req);
+        const signature = req.headers['x-hub-signature-256'];
+        if (!verifyGitHubWebhookSignature(rawBody, signature)) {
+          res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ status: 'error', error: 'Invalid signature' }));
+          return;
+        }
+
+        const event = req.headers['x-github-event'] || 'push';
+        let payload = {};
+        try {
+          payload = rawBody ? JSON.parse(rawBody) : {};
+        } catch {}
+
+        if (event === 'ping') {
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ status: 'ok', message: 'pong' }));
+          return;
+        }
+
+        if (event === 'push') {
+          console.log(`[AUTO-UPDATE] Received GitHub push webhook for ref: ${payload.ref || 'unknown'}`);
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ status: 'ok', updating: true }));
+
+          // Run update asynchronously
+          performUpdate({
+            reason: 'GITHUB_WEBHOOK_PUSH',
+            onRestart
+          }).catch(err => {
+            console.error('[AUTO-UPDATE] Webhook triggered update failed:', err.message);
+          });
+          return;
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'ok', message: `Unhandled event: ${event}` }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', error: err.message }));
       }
       return;
     }

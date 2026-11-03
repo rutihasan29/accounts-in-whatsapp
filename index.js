@@ -4,8 +4,11 @@ const { initDb, recoverUngracefulShutdown, recordBotState } = require('./src/db'
 const { setupBotHandlers } = require('./src/bot');
 const { startWebServer } = require('./src/server');
 const { startNgrokTunnel, stopNgrokTunnel } = require('./src/tunnel');
+const { getServerVersionInfo, startAutoUpdater, restartServer } = require('./src/updater');
 
+const versionInfo = getServerVersionInfo();
 console.log('🚀 Starting WhatsApp Business Ledger Bot...');
+console.log(`🕒 Latest Server Update: ${versionInfo.updateTime} (${versionInfo.commitHash}) - "${versionInfo.commitMessage}"`);
 console.log(`📁 Database path: ${DB_PATH}`);
 console.log(`📁 Auth storage: ${AUTH_DATA_PATH}`);
 
@@ -29,8 +32,14 @@ const client = new Client({
   }
 });
 
+let server = null;
+const onRestart = () => restartServer({ client, db, server });
+
 // Start the official paper-styled mobile web dashboard
-const server = startWebServer({ db, client, port: PORT });
+server = startWebServer({ db, client, port: PORT, onRestart });
+
+// Start background auto-updater service (checks GitHub periodically)
+startAutoUpdater({ onRestart });
 
 // Automatically open ngrok public tunnel on bot startup
 startNgrokTunnel({ port: PORT, db }).catch(() => {});
