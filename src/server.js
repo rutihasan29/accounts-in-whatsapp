@@ -27,8 +27,11 @@ const { resolveCustomerPhone } = require('./bot');
 const { handleCrmRequest } = require('./crm/api');
 const { checkAndEscalateTimeouts } = require('./crm/routing');
 const { createCaller, updateCallerStatus } = require('./crm/db');
+const { getSalesLeads, syncWhatsAppNotes } = require('./sales');
 
 const DASHBOARD_HTML_PATH = path.join(__dirname, 'dashboard.html');
+const SALES_HTML_PATH = path.join(__dirname, 'sales.html');
+let lastSalesNotesSyncTime = 0;
 
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
@@ -309,6 +312,58 @@ function startWebServer({ db, client = null, port = PORT }) {
     if (pathname && (pathname.startsWith('/crm') || pathname.startsWith('/api/crm'))) {
       const handled = await handleCrmRequest(req, res, db);
       if (handled) return;
+    }
+
+    // Sales Leads Directory Page (/sales)
+    if (pathname === '/sales' && method === 'GET') {
+      try {
+        const html = fs.readFileSync(SALES_HTML_PATH, 'utf8');
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(html);
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Error reading sales page: ' + err.message);
+      }
+      return;
+    }
+
+    // API: Sales Leads Directory Data (/api/sales/leads)
+    if (pathname === '/api/sales/leads' && method === 'GET') {
+      try {
+        const startDate = parsedUrl.query?.startDate || '2026-11-01';
+        const data = getSalesLeads(db, { startDate });
+
+        // Non-blocking background sync if WhatsApp client is active and > 15s since last sync
+        if (client && Date.now() - lastSalesNotesSyncTime > 15000) {
+          lastSalesNotesSyncTime = Date.now();
+          syncWhatsAppNotes(db, client, { startDate }).catch(() => {});
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify(data));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+      return;
+    }
+
+    // API: Trigger WhatsApp Customer Notes Sync (/api/sales/sync-notes)
+    if (pathname === '/api/sales/sync-notes' && method === 'POST') {
+      try {
+        if (!client) {
+          res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: 'WhatsApp client is not connected' }));
+          return;
+        }
+        const resSync = await syncWhatsAppNotes(db, client);
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'ok', ...resSync }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+      return;
     }
 
     // API: Inbox Sync - POST trigger scan & sync
@@ -604,6 +659,7 @@ function startWebServer({ db, client = null, port = PORT }) {
       checkAndEscalateTimeouts(db);
     } catch {}
   }, 5000);
+  if (escalationInterval.unref) escalationInterval.unref();
 
   server.on('close', () => {
     clearInterval(escalationInterval);

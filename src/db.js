@@ -205,6 +205,12 @@ function initDb(dbPath) {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS whatsapp_customer_notes (
+      phone TEXT PRIMARY KEY,
+      note TEXT NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS system_alerts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       alert_type TEXT NOT NULL,
@@ -276,7 +282,7 @@ function getCustomerSummary(db, phone) {
   return stmt.get(phone) || null;
 }
 
-function recordLead(db, { phone, name = null }) {
+function recordLead(db, { phone, name = null, firstContactAt = null }) {
   if (!phone) return null;
 
   // Check if customer already exists in customers table
@@ -297,8 +303,8 @@ function recordLead(db, { phone, name = null }) {
   // Insert brand new lead
   db.prepare(`
     INSERT INTO leads (phone_number, name, status, first_contact_at)
-    VALUES (?, ?, 'PENDING', CURRENT_TIMESTAMP)
-  `).run(phone, name);
+    VALUES (?, ?, 'PENDING', COALESCE(?, CURRENT_TIMESTAMP))
+  `).run(phone, name, firstContactAt);
 
   return { status: 'NEW_LEAD', phone, name };
 }
@@ -1470,8 +1476,47 @@ function getRecentSystemAlerts(db, limit = 20) {
   }
 }
 
+function saveWhatsappCustomerNote(db, phone, note) {
+  if (!db || !phone) return null;
+  const cleanPhone = String(phone).replace(/\D/g, '');
+  if (!cleanPhone) return null;
+  const trimmedNote = String(note || '').trim();
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO whatsapp_customer_notes (phone, note, updated_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(phone) DO UPDATE SET
+      note = excluded.note,
+      updated_at = excluded.updated_at
+  `).run(cleanPhone, trimmedNote, now);
+  return { phone: cleanPhone, note: trimmedNote, updated_at: now };
+}
+
+function getWhatsappCustomerNotes(db) {
+  if (!db) return [];
+  try {
+    return db.prepare('SELECT phone, note, updated_at FROM whatsapp_customer_notes').all();
+  } catch {
+    return [];
+  }
+}
+
+function getWhatsappCustomerNote(db, phone) {
+  if (!db || !phone) return null;
+  const cleanPhone = String(phone).replace(/\D/g, '');
+  if (!cleanPhone) return null;
+  try {
+    return db.prepare('SELECT phone, note, updated_at FROM whatsapp_customer_notes WHERE phone = ?').get(cleanPhone) || null;
+  } catch {
+    return null;
+  }
+}
+
 module.exports = {
   initDb,
+  saveWhatsappCustomerNote,
+  getWhatsappCustomerNotes,
+  getWhatsappCustomerNote,
   recordTransaction,
   recordLead,
   recordExistingContact,
