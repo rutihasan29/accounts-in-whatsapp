@@ -1214,7 +1214,7 @@ async function handleMessageCreate({
         '⚙️ *সিস্টেম ও অবস্থা:*',
         '• `status` — বট কানেকশন ও আপটাইম রিপোর্ট',
         '• `help` — এই সাহায্য মেনু দেখুন\n',
-        '💡 *টিপ:* যেকোনো গ্রাহকের চ্যাটে গিয়ে সরাসরি `বিল ৫০০ টাকা` বা `৫০০ টাকা পেয়েছি, ধন্যবাদ` লিখলে স্বয়ংক্রিয়ভাবে লেজারে হিসাব যুক্ত হবে।'
+        '💡 *টিপ:* যেকোনো গ্রাহকের চ্যাটে গিয়ে সরাসরি `বিল ৫০০ টাকা` বা `৫০০ টাকা পেয়েছি` লিখলে স্বয়ংক্রিয়ভাবে লেজারে হিসাব যুক্ত হবে।'
       ].join('\n');
 
       await sendSelfReply(helpText);
@@ -1757,7 +1757,7 @@ async function handleMessageCreate({
               classification: 'VIDEO_CUSTOMER',
               confidence: 'HIGH',
               extracted_script: msg.body || '',
-              reason: 'ভিডিও গ্রাহক—কোনো প্রশ্ন ছাড়াই সরাসরি VE3 তে ফরোয়ার্ড'
+              reason: 'ভিডিও গ্রাহক'
             },
             customerPhone: phone,
             customerName: contactName,

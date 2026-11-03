@@ -20,7 +20,7 @@ function toStandardNumber(str) {
 }
 
 const BILL_REGEX = /^বিল\s+([০-৯\d]+(?:\.[০-৯\d]+)?)\s*টাকা$/i;
-const PAYMENT_REGEX = /^([০-৯\d]+(?:\.[০-৯\d]+)?)\s*টাকা\s*পেয়েছি[,\s]+ধন্যবাদ$/i;
+const PAYMENT_REGEX = /^([০-৯\d]+(?:\.[০-৯\d]+)?)\s*টাকা\s*পেয়েছি(?:[,\s]+ধন্যবাদ)?$/i;
 const SET_DUE_REGEX = /^বকেয়া\s+([০-৯\d]+(?:\.[০-৯\d]+)?)\s*টাকা$/i;
 const DUE_CMD_REGEX = /^(?:!|\/)?(?:due|dues|baki|বকেয়া|বকেয়া\s*তালিকা)$/i;
 const VIDEO_CMD_REGEX = /^(?:!|\/)?(?:video|ভিডিও)(?:\s+(add|remove|delete|list))?(?:\s+([+\d]+)(?:\s+(.*))?)?$/i;

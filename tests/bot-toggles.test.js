@@ -317,7 +317,7 @@ describe('Bot Feature Toggles Runtime Integration', () => {
 
       const ve3Msg = sentMessages.find(m => m.jid && m.jid.includes('8801831366604'));
       assert.ok(ve3Msg, 'VE3 receives escalation');
-      assert.ok(ve3Msg.text.includes('ভিডিও গ্রাহকের বার্তা'));
+      assert.ok(ve3Msg.text.includes('ভিডিও গ্রাহক'));
       db.close();
     });
   });
@@ -706,7 +706,8 @@ describe('Bot Feature Toggles Runtime Integration', () => {
       assert.strictEqual(res.action, 'ESCALATED_TO_VE3');
       assert.strictEqual(sentMessages.length, 1);
       assert.ok(sentMessages[0].jid.includes('8801831366604'));
-      assert.ok(sentMessages[0].text.includes('[গ্রাহকের বার্তা / Customer Message]'));
+      assert.ok(sentMessages[0].text.includes('Ami ki apnader office e ashte pari?'));
+      assert.ok(sentMessages[0].text.includes('8801700000000'));
       db.close();
     });
   });

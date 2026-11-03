@@ -58,6 +58,14 @@ describe('Parser Module', () => {
       assert.deepStrictEqual(res, { type: 'PAYMENT', amount: 56, rawText: '৫৬ টাকা পেয়েছি ধন্যবাদ' });
     });
 
+    it('parses payment message without dhonnobad ("XX টাকা পেয়েছি")', () => {
+      const res1 = parseMessage('২৫০ টাকা পেয়েছি');
+      assert.deepStrictEqual(res1, { type: 'PAYMENT', amount: 250, rawText: '২৫০ টাকা পেয়েছি' });
+
+      const res2 = parseMessage('500 টাকা পেয়েছি');
+      assert.deepStrictEqual(res2, { type: 'PAYMENT', amount: 500, rawText: '500 টাকা পেয়েছি' });
+    });
+
     it('parses payment message with English numerals', () => {
       const res = parseMessage('56 টাকা পেয়েছি, ধন্যবাদ');
       assert.deepStrictEqual(res, { type: 'PAYMENT', amount: 56, rawText: '56 টাকা পেয়েছি, ধন্যবাদ' });

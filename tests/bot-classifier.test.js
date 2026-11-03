@@ -143,7 +143,7 @@ test('handleMessageCreate handles ESCALATE dispatch to VE3', async () => {
   });
 
   assert.equal(res?.action, 'ESCALATED_TO_VE3');
-  assert.ok(sentVE3.some(m => m.jid.includes('8801831366604') && /Customer Escalation/.test(m.text)));
+  assert.ok(sentVE3.some(m => m.jid.includes('8801831366604') && m.text.includes('+8801712345678') && m.text.includes('video production')));
 });
 
 test('handleMessageCreate passes myUser to classifierFn', async () => {
@@ -553,10 +553,10 @@ test('handleMessageCreate directly escalates inbound message from video customer
   assert.equal(res?.action, 'VIDEO_CUSTOMER_ESCALATED_TO_VE3');
   assert.equal(res?.details?.delivered, true);
 
-  // Check VE3 received escalation with video customer header
+  // Check VE3 received escalation with video customer reason
   const ve3Msg = sentMessages.find(m => m.jid.includes('8801831366604'));
   assert.ok(ve3Msg, 'VE3 must receive the escalation message');
-  assert.ok(ve3Msg.text.includes('ভিডিও গ্রাহকের বার্তা'));
+  assert.ok(ve3Msg.text.includes('ভিডিও গ্রাহক'));
   assert.ok(ve3Msg.text.includes('8801755667788'));
   assert.ok(ve3Msg.text.includes('Amar ei script diye video banai den'));
 });

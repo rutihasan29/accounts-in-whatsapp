@@ -74,7 +74,7 @@ function schedulePendingConfirmation({
       return;
     }
 
-    const alertMsg = `[অপেক্ষমান স্ক্রিপ্ট - উত্তর নেই / Unanswered Script Alert]\nগ্রাহক: +${cleanPhone}${namePart}\nস্ক্রিপ্ট:\n${script}\n\nঅবস্থা: গ্রাহককে 'ভয়েস?' জিজ্ঞেস করার ${timeoutMinutes} মিনিট পার হলেও কোনো উত্তর আসেনি।`;
+    const alertMsg = `${script}\n\n+${cleanPhone}${namePart}\nকারণ: 'ভয়েস?' এর কোনো উত্তর আসেনি (${timeoutMinutes} মিনিট)`;
 
     if (client && typeof client.sendMessage === 'function') {
       try {
@@ -352,11 +352,12 @@ async function handleClassificationAction({
 
     const cleanVe3 = String(config.VE3_PHONE || '8801831366604').replace(/\D/g, '');
     const ve3Jid = `${cleanVe3}@c.us`;
-    const messageBody = latestMessageText || extracted_script || '<মিডিয়া ফাইল / Media attached>';
+    const messageBody = latestMessageText || extracted_script || '<মিডিয়া ফাইল>';
     const scriptPart = (extracted_script && extracted_script !== messageBody)
-      ? `\nস্ক্রিপ্ট:\n${extracted_script}`
+      ? `\n\n${extracted_script}`
       : '';
-    const escalateMsg = `[ভিডিও গ্রাহকের বার্তা / Video Customer Message]\nগ্রাহক: +${cleanCustomerPhone}${namePart}\nবিভাগ: ভিডিও গ্রাহক (Video Customer)\nমেসেজ / স্ক্রিপ্ট:\n${messageBody}${scriptPart}\nকারণ: ${reason || 'ভিডিও গ্রাহক—কোনো প্রশ্ন ছাড়াই সরাসরি ভিডিও এডিটর (VE3) কে ফরোয়ার্ড করা হয়েছে।'}`;
+    const shortReason = reason ? String(reason).trim() : 'ভিডিও গ্রাহক';
+    const escalateMsg = `${messageBody}${scriptPart}\n\n+${cleanCustomerPhone}${namePart}\nকারণ: ${shortReason}`;
 
     let delivered = false;
     if (client && typeof client.sendMessage === 'function') {
@@ -375,7 +376,7 @@ async function handleClassificationAction({
         customerPhone: cleanCustomerPhone,
         classification: 'VIDEO_CUSTOMER',
         delivered,
-        reason: reason || 'Video customer direct escalation'
+        reason: shortReason
       }
     };
   }
@@ -392,12 +393,12 @@ async function handleClassificationAction({
 
   const cleanVe3 = String(config.VE3_PHONE || '8801831366604').replace(/\D/g, '');
   const ve3Jid = `${cleanVe3}@c.us`;
-  const header = classification === 'OTHER'
-    ? '[গ্রাহকের বার্তা / Customer Message]'
-    : '[সহায়তা প্রয়োজন / Customer Escalation]';
-  const messageBody = latestMessageText || '<মিডিয়া ফাইল / Media attached>';
-  const scriptPart = extracted_script ? `\nঅপেক্ষমান স্ক্রিপ্ট:\n${extracted_script}\n` : '';
-  const escalateMsg = `${header}\nগ্রাহক: +${cleanCustomerPhone}${namePart}\nমেসেজ: ${messageBody}${scriptPart}\nকারণ: ${reason || (classification === 'OTHER' ? 'General inquiry/Other' : 'Non-voice message')}`;
+  const messageBody = latestMessageText || extracted_script || '<মিডিয়া ফাইল>';
+  const scriptPart = (extracted_script && extracted_script !== messageBody)
+    ? `\n\n${extracted_script}`
+    : '';
+  const shortReason = reason ? String(reason).trim() : (classification === 'OTHER' ? 'সাধারণ বার্তা' : 'সহায়তা প্রয়োজন');
+  const escalateMsg = `${messageBody}${scriptPart}\n\n+${cleanCustomerPhone}${namePart}\nকারণ: ${shortReason}`;
 
   let delivered = false;
   if (client && typeof client.sendMessage === 'function') {

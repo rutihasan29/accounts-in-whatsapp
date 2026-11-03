@@ -386,10 +386,10 @@ test('handleClassificationAction directly escalates VIDEO_CUSTOMER to VE3 withou
   // Pending confirmation should be cleared
   assert.equal(getPendingConfirmation('8801700000000'), null);
 
-  // VE3 should have received the escalation message with video customer header and details
+  // VE3 should have received the escalation message with video customer reason and details
   const ve3Msg = sentMessages.find(m => m.jid.includes('8801831366604'));
   assert.ok(ve3Msg, 'VE3 must receive the escalation message');
-  assert.ok(ve3Msg.text.includes('ভিডিও গ্রাহকের বার্তা'));
+  assert.ok(ve3Msg.text.includes('ভিডিও গ্রাহক'));
   assert.ok(ve3Msg.text.includes('8801700000000'));
   assert.ok(ve3Msg.text.includes('Video Client'));
   assert.ok(ve3Msg.text.includes('Eita diye ekta video banai den'));
