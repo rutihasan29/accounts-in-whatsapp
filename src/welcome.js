@@ -30,6 +30,11 @@ const DEFAULT_WELCOME_MESSAGES = [
     filePath: path.join(__dirname, '..', 'voice1.mp3')
   },
   {
+    type: 'link',
+    text: 'আমাদের কাজের আরো কিছু নমুনা নিচে দেয়া হলো:\nhttps://youtu.be/7w0kthHSFUM?si=gsTpmAZtwCJ54YWo',
+    url: 'https://youtu.be/7w0kthHSFUM?si=gsTpmAZtwCJ54YWo'
+  },
+  {
     type: 'text',
     text: 'আমরা বাংলাদেশের একমাত্র ভয়েস সার্ভিস যেটা ২৪ ঘণ্টা একটিভ পাবেন'
   },
@@ -157,7 +162,8 @@ async function sendWelcomeDemo({
           console.warn(`[WELCOME_DEMO] Audio file not found at: ${filePath}`);
         }
       } else if (item.type === 'link') {
-        const res = await client.sendMessage(targetChat, item.url, { linkPreview: true });
+        const contentToSend = item.text || item.url;
+        const res = await client.sendMessage(targetChat, contentToSend, { linkPreview: true });
         if (res?.id?._serialized) sentWelcomeDemoMsgIds.add(res.id._serialized);
         if (res?.id?.id) sentWelcomeDemoMsgIds.add(res.id.id);
         sentResults.push({ type: 'link', res });

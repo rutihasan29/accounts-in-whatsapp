@@ -18,7 +18,7 @@ const parsedAudioKeys = typeof rawAudioKeys === 'string'
 module.exports = {
   DB_PATH: process.env.DB_PATH || path.join(__dirname, '..', 'data', 'ledger.db'),
   AUTH_DATA_PATH: process.env.AUTH_DATA_PATH || path.join(__dirname, '..', '.wwebjs_auth'),
-  PORT: process.env.PORT ? parseInt(process.env.PORT, 10) : 3000,
+  PORT: process.env.PORT ? parseInt(process.env.PORT, 10) : 3050,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
   GEMINI_AUDIO_API_KEY: parsedAudioKeys[0] || process.env.GEMINI_AUDIO_API_KEY || process.env.GEMINI_API_KEY || '',
   GEMINI_AUDIO_API_KEYS: parsedAudioKeys,

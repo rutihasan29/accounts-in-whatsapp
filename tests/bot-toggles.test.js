@@ -118,7 +118,7 @@ describe('Bot Feature Toggles Runtime Integration', () => {
 
       assert.strictEqual(res.action, 'RECORDED_NEW_LEAD');
       assert.strictEqual(res.details.welcomeResult?.success, true);
-      assert.strictEqual(sent.length, 8, '8-step welcome sequence sent when enabled');
+      assert.strictEqual(sent.length, 9, '9-step welcome sequence sent when enabled');
       db.close();
     });
   });

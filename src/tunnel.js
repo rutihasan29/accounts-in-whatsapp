@@ -1,9 +1,10 @@
 const ngrok = require('@ngrok/ngrok');
 const { setBotSetting } = require('./db');
+const { PORT } = require('./config');
 
 let activeListener = null;
 
-async function startNgrokTunnel({ port = 3000, authtoken = null, domain = null, db = null } = {}) {
+async function startNgrokTunnel({ port = PORT || 3050, authtoken = null, domain = null, db = null } = {}) {
   const token = authtoken || process.env.NGROK_AUTHTOKEN;
   const customDomain = domain || process.env.NGROK_DOMAIN;
 

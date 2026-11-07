@@ -6,9 +6,9 @@ echo ====================================================
 echo       News Voice - Cloudflare Public Mobile Tunnel
 echo ====================================================
 echo.
-echo Starting secure public HTTPS tunnel for port 3000...
+echo Starting secure public HTTPS tunnel for port 3050...
 echo.
 
-cloudflared tunnel --url http://localhost:3000
+cloudflared tunnel --url http://localhost:3050
 
 pause

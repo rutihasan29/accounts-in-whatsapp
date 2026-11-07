@@ -4,7 +4,7 @@ services:
     container_name: news-voice-bot
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "${PORT:-3050}:3050"
     volumes:
       # Persistent SQLite ledger database and WhatsApp Web authentication session
       - ./data:/app/data

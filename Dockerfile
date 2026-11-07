@@ -27,6 +27,6 @@ RUN npm ci --omit=dev
 COPY . .
 
 # Expose web dashboard port
-EXPOSE 3000
+EXPOSE 3050
 
 CMD ["node", "index.js"]

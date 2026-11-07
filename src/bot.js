@@ -1238,7 +1238,7 @@ async function handleMessageCreate({
         `• বর্তমান অবস্থা: ${uptime.currentStatus === 'ONLINE' ? 'অনলাইন (ONLINE) ✅' : 'অফলাইন (OFFLINE) ⚠️'}`,
         `• বট নম্বর: +${getMyUser(client) || 'Active'}`,
         `• আজকের আপটাইম: ${uptime.todayUptimePercent}%`,
-        `• লোকাল ড্যাশবোর্ড: http://localhost:3000`
+        `• লোকাল ড্যাশবোর্ড: http://localhost:${config.PORT || 3050}`
       ].join('\n');
 
       await sendSelfReply(statusText);
@@ -1254,7 +1254,7 @@ async function handleMessageCreate({
         `• আজকের নতুন বিল: ৳ ${toBengaliDigits(stats.todayBilled)}`,
         `• আজকের আদায়: ৳ ${toBengaliDigits(stats.todayCollected)}`,
         '─────────────────────',
-        `বিস্তারিত দেখতে মোবাইল ড্যাশবোর্ড ভিজিট করুন: http://localhost:3000`
+        `বিস্তারিত দেখতে মোবাইল ড্যাশবোর্ড ভিজিট করুন: http://localhost:${config.PORT || 3050}`
       ].join('\n');
 
       await sendSelfReply(statsText);
