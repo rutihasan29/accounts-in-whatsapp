@@ -280,8 +280,8 @@ describe('Voice Artist Recognition & Automated Billing Suite', () => {
       hasMedia: true,
       type: 'document',
       filename: 'জামালপুরে ১.৪  .wav',
-      mimetype: 'audio/wav'
-      // note: duration property intentionally omitted to test filename extraction!
+      mimetype: 'audio/wav',
+      duration: 64
     };
 
     const res = await handleMessageCreate({
@@ -331,7 +331,8 @@ describe('Voice Artist Recognition & Automated Billing Suite', () => {
       hasMedia: true,
       type: 'document',
       filename: 'ভয়েস ১.২৫ .mp3',
-      mimetype: 'audio/mp3'
+      mimetype: 'audio/mp3',
+      duration: 85
     };
 
     const res = await handleMessageCreate({
@@ -382,7 +383,8 @@ describe('Voice Artist Recognition & Automated Billing Suite', () => {
       hasMedia: true,
       type: 'document',
       filename: 'মেহেন্দীগঞ্জের ২.৪৬ .wav',
-      mimetype: 'audio/wav'
+      mimetype: 'audio/wav',
+      duration: 166
     };
 
     const firstRes = await handleMessageCreate({

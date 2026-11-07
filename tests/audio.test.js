@@ -299,6 +299,25 @@ describe('Audio Module', () => {
       const duration = await resolveAudioDuration({ msg, client });
       assert.strictEqual(duration, null);
     });
+
+    it('does NOT extract duration from filename numbers like Standard recording 933.wav', async () => {
+      const msg = {
+        filename: 'Standard recording 933.wav',
+        _data: { filename: 'Standard recording 933.wav' }
+      };
+      const client = {
+        pupPage: { evaluate: async () => null }
+      };
+      const duration = await resolveAudioDuration({ msg, client });
+      assert.strictEqual(duration, null, 'Should not extract 933s from filename');
+    });
+
+    it('extractDurationFromFilename returns null for all filenames as per user directive', () => {
+      const { extractDurationFromFilename } = require('../src/audio');
+      assert.strictEqual(extractDurationFromFilename('Standard recording 933.wav'), null);
+      assert.strictEqual(extractDurationFromFilename('Audio 934.mp3'), null);
+      assert.strictEqual(extractDurationFromFilename('(1m 23s).wav'), null);
+    });
   });
 
   describe('getAudioDurationWithFFprobe', () => {

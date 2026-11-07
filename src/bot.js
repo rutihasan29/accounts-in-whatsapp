@@ -1341,7 +1341,7 @@ async function handleMessageCreate({
 
     if (isVa) {
       if (msg.type === 'ptt' || msg.isVoice === true) {
-        const hasDur = extractDurationFromFilename(msg.filename) || extractDurationFromText(msg.body);
+        const hasDur = extractDurationFromText(msg.body);
         if (!hasDur) {
           console.log('[VA2_AUDIO] Ignoring PTT/voice note from VA2 (only audio file replies to script are allowed).');
           return { action: 'IGNORED_VA2_PTT' };
@@ -1423,10 +1423,7 @@ async function handleMessageCreate({
           }
 
           if (!directDuration || directDuration <= 0) {
-            directDuration = extractDurationFromFilename(rawFilename) || extractDurationFromFilename(msg.filename);
-            if (directDuration) {
-              console.log(`[VA2_AUDIO] Extracted direct audio duration ${directDuration}s from Bengali filename "${rawFilename}"`);
-            }
+            // Audio duration is never extracted from filename as per directive: "name theke nio na"
           }
 
           let sentMediaMsg = null;
@@ -1690,7 +1687,7 @@ async function handleMessageCreate({
       }
 
       // Check if message is a duration text report from Voice Artist (e.g. '১ মিনিট ৯ সেকেন্ড', '১ মিনিট ৩৭ সেকেন্ড')
-      const durationFromText = extractDurationFromText(msg.body) || extractDurationFromFilename(msg.body);
+      const durationFromText = extractDurationFromText(msg.body);
       if (durationFromText && durationFromText > 0) {
         console.log(`[VA_DURATION_TEXT] Received duration ${durationFromText}s from VA (${cleanSender || rawSender}): "${msg.body}"`);
 

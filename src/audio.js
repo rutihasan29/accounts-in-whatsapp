@@ -98,34 +98,14 @@ const BENGALI_DIGIT_MAP = {
  * - Bengali minutes.seconds: 'জামালপুরে ১.৪  .wav' (64s), 'দীর্ঘদিনের আন্দোলন সংগ্রামে ২.৪২ .wav' (162s), '১.২৫' (85s)
  * - Bengali standalone seconds: 'পরকীয়া ৪৫  .wav' (45s), 'ভালুকা ৪৭' (47s)
  */
+/**
+ * DEPRECATED / DISABLED:
+ * Audio duration should NEVER be extracted from file names (e.g. "Standard recording 933.wav"),
+ * as numeric suffixes or serial counters in recording names cause false duration values (like 800 Tk bills).
+ * Audio duration must only be measured directly from the audio file buffer, ffprobe, or message text.
+ */
 function extractDurationFromFilename(filename) {
-  if (!filename || typeof filename !== 'string') return null;
-  const name = filename.replace(/\.[^/.]+$/, '').trim();
-
-  // Pattern 1: (1m 23s) or (59s)
-  const parenMatch = name.match(/\((\d+)\s*m\s*(\d+)\s*s\)/i);
-  if (parenMatch) return parseInt(parenMatch[1], 10) * 60 + parseInt(parenMatch[2], 10);
-  const parenSecMatch = name.match(/\((\d+)\s*s\)/i);
-  if (parenSecMatch) return parseInt(parenSecMatch[1], 10);
-
-  // Convert Bengali digits to ASCII
-  const ascii = name.replace(/[০-৯]/g, (d) => BENGALI_DIGIT_MAP[d] || d);
-
-  // Pattern 2: minutes:seconds or minutes.seconds e.g. "১.২৫", "২.৪২", "১:০৯", "১.৪"
-  const minSecMatch = ascii.match(/(?:^|\s|[(\[])(\d+)[.:](\d{1,2})(?:\s*[)\]]|\s*$)/);
-  if (minSecMatch) {
-    const mins = parseInt(minSecMatch[1], 10);
-    const secs = parseInt(minSecMatch[2], 10);
-    if (secs < 60) return mins * 60 + secs;
-  }
-
-  // Pattern 3: standalone seconds e.g. "পরকীয়া ৪৫", "ভালুকা ৪৭"
-  const secMatch = ascii.match(/(?:^|\s|[(\[])(\d{2,3})(?:\s*[)\]]|\s*$)/);
-  if (secMatch) {
-    const secs = parseInt(secMatch[1], 10);
-    if (secs > 0 && secs < 3600) return secs;
-  }
-
+  // Disabled as per user requirement: "name theke nio na"
   return null;
 }
 
@@ -307,14 +287,11 @@ async function resolveAudioDuration({ msg, client }) {
     if (!isNaN(d) && d >= 0) return d;
   }
 
-  // Instant duration extraction from filename or body/caption (e.g. "(1m 23s)", "জামালপুরে ১.৪  .wav", "পরকীয়া ৪৫", "১ মিনিট ৯ সেকেন্ড")
-  const directFallbackDuration = extractDurationFromFilename(filename) ||
-    extractDurationFromFilename(msg.filename) ||
-    extractDurationFromFilename(msg._data?.filename) ||
-    extractDurationFromFilename(msg._data?.title) ||
-    extractDurationFromText(msg.body);
+  // Direct text duration extraction from message body if present (e.g. '১ মিনিট ৯ সেকেন্ড' in caption)
+  // Note: Filename parsing is deliberately disabled as per directive: "name theke nio na"
+  const directFallbackDuration = extractDurationFromText(msg.body);
   if (directFallbackDuration !== null && directFallbackDuration > 0) {
-    console.log(`[AUDIO] Immediately extracted duration ${directFallbackDuration}s from filename/text "${filename || msg.body}"`);
+    console.log(`[AUDIO] Immediately extracted duration ${directFallbackDuration}s from message text "${msg.body}"`);
     return directFallbackDuration;
   }
 
@@ -542,15 +519,11 @@ async function resolveAudioDuration({ msg, client }) {
     }
   }
 
-  // 4. Reliable Fallback: Parse duration from filename or caption/text
-  const fallbackDuration = extractDurationFromFilename(filename) ||
-    extractDurationFromFilename(msg.filename) ||
-    extractDurationFromFilename(msg._data?.filename) ||
-    extractDurationFromFilename(msg._data?.title) ||
-    extractDurationFromText(msg.body);
+  // 4. Reliable Fallback: Parse duration from caption/text (NOT from filename)
+  const fallbackDuration = extractDurationFromText(msg.body);
 
   if (fallbackDuration !== null && fallbackDuration > 0) {
-    console.log(`[AUDIO] Successfully extracted fallback duration ${fallbackDuration}s from filename/text "${filename || msg.body}"`);
+    console.log(`[AUDIO] Successfully extracted fallback duration ${fallbackDuration}s from message text "${msg.body}"`);
     return fallbackDuration;
   }
 
