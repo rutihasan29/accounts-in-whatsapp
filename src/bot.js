@@ -2036,6 +2036,8 @@ async function handleMessageCreate({
       /^(voice\d+|demo)/i.test(checkFilename) ||
       checkFilename.includes('voice1') ||
       checkFilename.includes('voice2') ||
+      checkFilename.includes('voice3') ||
+      checkFilename.includes('voice4') ||
       checkFilename.includes('demo')
     ) {
       console.log(`[AUDIO] Outgoing audio "${checkFilename}" is identified as demo voiceover. Skipping billing.`);

@@ -6,17 +6,19 @@ const { handleMessageCreate } = require('../src/bot');
 const { DEFAULT_WELCOME_MESSAGES, sendWelcomeDemo } = require('../src/welcome');
 
 describe('Welcome Demo Module', () => {
-  it('DEFAULT_WELCOME_MESSAGES defines exact 7-part sequence', () => {
-    assert.strictEqual(DEFAULT_WELCOME_MESSAGES.length, 7);
+  it('DEFAULT_WELCOME_MESSAGES defines exact 8-part sequence', () => {
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES.length, 8);
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[0].type, 'text');
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[1].type, 'audio');
-    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[1].filename, 'voice1.wav');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[1].filename, 'voice3.mp3');
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[2].type, 'audio');
-    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[2].filename, 'voice2.wav');
-    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[3].type, 'text');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[2].filename, 'voice4.mp3');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[3].type, 'audio');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[3].filename, 'voice1.mp3');
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[4].type, 'text');
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[5].type, 'text');
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[6].type, 'text');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[7].type, 'text');
   });
 
   it('sendWelcomeDemo sends messages in exact order with voice options', async () => {
@@ -42,27 +44,32 @@ describe('Welcome Demo Module', () => {
     });
 
     assert.strictEqual(res.success, true);
-    assert.strictEqual(sent.length, 7);
+    assert.strictEqual(sent.length, 8);
 
     // 1. Text 1
     assert.strictEqual(sent[0].chat, '8801700000001@c.us');
     assert.strictEqual(sent[0].content, 'ডেমোগুলো শুনে দেখুন');
 
-    // 2. Voice 1 as playable audio (not ptt, not document)
+    // 2. Voice 3 as playable audio (not ptt, not document)
     assert.strictEqual(sent[1].options?.sendAudioAsVoice, false);
     assert.strictEqual(sent[1].options?.sendMediaAsDocument, false);
-    assert.ok(sent[1].content?.filename?.includes('voice1') || sent[1].content?.mimetype?.includes('audio'));
+    assert.ok(sent[1].content?.filename?.includes('voice3') || sent[1].content?.mimetype?.includes('audio'));
 
-    // 3. Voice 2 as playable audio (not ptt, not document)
+    // 3. Voice 4 as playable audio (not ptt, not document)
     assert.strictEqual(sent[2].options?.sendAudioAsVoice, false);
     assert.strictEqual(sent[2].options?.sendMediaAsDocument, false);
-    assert.ok(sent[2].content?.filename?.includes('voice2') || sent[2].content?.mimetype?.includes('audio'));
+    assert.ok(sent[2].content?.filename?.includes('voice4') || sent[2].content?.mimetype?.includes('audio'));
 
-    // 4-7. Informational text sequence
-    assert.ok(sent[3].content.includes('বাংলাদেশ'));
-    assert.ok(sent[4].content.includes('স্ক্রিপ্ট'));
-    assert.ok(sent[5].content.includes('অগ্রিম'));
-    assert.ok(sent[6].content.includes('স্যাম্পল'));
+    // 4. Voice 1 as playable audio (not ptt, not document)
+    assert.strictEqual(sent[3].options?.sendAudioAsVoice, false);
+    assert.strictEqual(sent[3].options?.sendMediaAsDocument, false);
+    assert.ok(sent[3].content?.filename?.includes('voice1') || sent[3].content?.mimetype?.includes('audio'));
+
+    // 5-8. Informational text sequence
+    assert.ok(sent[4].content.includes('বাংলাদেশ'));
+    assert.ok(sent[5].content.includes('স্ক্রিপ্ট'));
+    assert.ok(sent[6].content.includes('অগ্রিম'));
+    assert.ok(sent[7].content.includes('স্যাম্পল'));
 
     // Verify welcome_sent updated to 1 in DB
     const lead = db.prepare('SELECT welcome_sent FROM leads WHERE phone_number = ?').get('8801700000001');
@@ -78,7 +85,7 @@ describe('Welcome Demo Module', () => {
     });
     assert.strictEqual(res2.success, false);
     assert.strictEqual(res2.reason, 'ALREADY_SENT');
-    assert.strictEqual(sent.length, 7); // No extra messages sent
+    assert.strictEqual(sent.length, 8); // No extra messages sent
   });
 
   it('sendWelcomeDemo sends audio with sendAudioAsVoice: false and sendMediaAsDocument: false', async () => {
@@ -133,7 +140,7 @@ describe('Welcome Demo Module', () => {
     assert.strictEqual(res1.details.welcomeResult?.success, true);
 
     // Full sequence was sent to the lead
-    assert.strictEqual(sent.length, 7);
+    assert.strictEqual(sent.length, 8);
     assert.strictEqual(sent[0].chat, '8801788888888@c.us');
     assert.strictEqual(sent[0].content, 'ডেমোগুলো শুনে দেখুন');
 
@@ -148,7 +155,7 @@ describe('Welcome Demo Module', () => {
 
     const res2 = await handleMessageCreate({ msg: secondMsg, client, db });
     assert.strictEqual(res2.action, 'IGNORED_NOT_FROM_ME');
-    assert.strictEqual(sent.length, 7); // Count unchanged
+    assert.strictEqual(sent.length, 8); // Count unchanged
   });
 
   it('outgoing demo audio messages (e.g. voice1.wav / voice2.mp3) are NEVER billed to customers', async () => {
