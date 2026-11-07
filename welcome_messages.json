@@ -16,6 +16,12 @@
     "filename": "voice1.mp3"
   },
   {
+    "type": "image",
+    "filename": "sample_7w0kthHSFUM.jpg",
+    "url": "https://www.youtube.com/watch?v=7w0kthHSFUM",
+    "caption": "https://www.youtube.com/watch?v=7w0kthHSFUM"
+  },
+  {
     "type": "text",
     "text": "আমরা বাংলাদেশের একমাত্র ভয়েস সার্ভিস যেটা ২৪ ঘণ্টা একটিভ পাবেন"
   },
@@ -30,39 +36,5 @@
   {
     "type": "text",
     "text": "উপরের স্যাম্পলগুলো শুনে দেখুন, তারপর বিস্তারিত কথা হবে ইন শা আল্লাহ"
-  },
-  {
-    "type": "text",
-    "text": "আমাদের কাজের আরো কিছু নমুনা নিচে দেয়া হলো:"
-  },
-  {
-    "type": "link",
-    "text": "https://www.youtube.com/watch?v=7w0kthHSFUM",
-    "url": "https://www.youtube.com/watch?v=7w0kthHSFUM"
-  },
-  {
-    "type": "link",
-    "text": "https://www.youtube.com/watch?v=oRlSHM6JpkE",
-    "url": "https://www.youtube.com/watch?v=oRlSHM6JpkE"
-  },
-  {
-    "type": "link",
-    "text": "https://www.youtube.com/watch?v=DuKiMWPmg68",
-    "url": "https://www.youtube.com/watch?v=DuKiMWPmg68"
-  },
-  {
-    "type": "link",
-    "text": "https://www.youtube.com/watch?v=BknLpjzRevE",
-    "url": "https://www.youtube.com/watch?v=BknLpjzRevE"
-  },
-  {
-    "type": "link",
-    "text": "https://www.youtube.com/watch?v=C9hVUi_ol6g",
-    "url": "https://www.youtube.com/watch?v=C9hVUi_ol6g"
-  },
-  {
-    "type": "link",
-    "text": "https://www.youtube.com/watch?v=8wv9pYJT10A",
-    "url": "https://www.youtube.com/watch?v=8wv9pYJT10A"
   }
 ]

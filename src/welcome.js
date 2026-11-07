@@ -30,6 +30,13 @@ const DEFAULT_WELCOME_MESSAGES = [
     filePath: path.join(__dirname, '..', 'voice1.mp3')
   },
   {
+    type: 'image',
+    filename: 'sample_7w0kthHSFUM.jpg',
+    filePath: path.join(__dirname, '..', 'sample_7w0kthHSFUM.jpg'),
+    url: 'https://www.youtube.com/watch?v=7w0kthHSFUM',
+    caption: 'https://www.youtube.com/watch?v=7w0kthHSFUM'
+  },
+  {
     type: 'text',
     text: 'আমরা বাংলাদেশের একমাত্র ভয়েস সার্ভিস যেটা ২৪ ঘণ্টা একটিভ পাবেন'
   },
@@ -44,40 +51,6 @@ const DEFAULT_WELCOME_MESSAGES = [
   {
     type: 'text',
     text: 'উপরের স্যাম্পলগুলো শুনে দেখুন, তারপর বিস্তারিত কথা হবে ইন শা আল্লাহ'
-  },
-  {
-    type: 'text',
-    text: 'আমাদের কাজের আরো কিছু নমুনা নিচে দেয়া হলো:'
-  },
-  {
-    type: 'link',
-    text: 'https://www.youtube.com/watch?v=7w0kthHSFUM',
-    url: 'https://www.youtube.com/watch?v=7w0kthHSFUM'
-  },
-  {
-    type: 'link',
-    text: 'https://www.youtube.com/watch?v=oRlSHM6JpkE',
-    url: 'https://www.youtube.com/watch?v=oRlSHM6JpkE'
-  },
-  {
-    type: 'link',
-    text: 'https://www.youtube.com/watch?v=DuKiMWPmg68',
-    url: 'https://www.youtube.com/watch?v=DuKiMWPmg68'
-  },
-  {
-    type: 'link',
-    text: 'https://www.youtube.com/watch?v=BknLpjzRevE',
-    url: 'https://www.youtube.com/watch?v=BknLpjzRevE'
-  },
-  {
-    type: 'link',
-    text: 'https://www.youtube.com/watch?v=C9hVUi_ol6g',
-    url: 'https://www.youtube.com/watch?v=C9hVUi_ol6g'
-  },
-  {
-    type: 'link',
-    text: 'https://www.youtube.com/watch?v=8wv9pYJT10A',
-    url: 'https://www.youtube.com/watch?v=8wv9pYJT10A'
   }
 ];
 
@@ -191,6 +164,37 @@ async function sendWelcomeDemo({
         } else {
           console.warn(`[WELCOME_DEMO] Audio file not found at: ${filePath}`);
         }
+      } else if (item.type === 'image') {
+        let filePath = item.filePath || (item.filename ? path.join(__dirname, '..', item.filename) : null);
+        if (!filePath || !fs.existsSync(filePath)) {
+          const defaultThumb = path.join(__dirname, '..', 'sample_7w0kthHSFUM.jpg');
+          if (fs.existsSync(defaultThumb)) {
+            filePath = defaultThumb;
+          }
+        }
+        let media = null;
+        if (filePath && fs.existsSync(filePath)) {
+          if (MediaClass && typeof MediaClass.fromFilePath === 'function') {
+            media = MediaClass.fromFilePath(filePath);
+          } else {
+            const b64data = fs.readFileSync(filePath, { encoding: 'base64' });
+            media = {
+              mimetype: 'image/jpeg',
+              data: b64data,
+              filename: path.basename(filePath)
+            };
+          }
+        }
+        const caption = item.caption || item.text || item.url || '';
+        let sentImgRes = null;
+        if (media) {
+          sentImgRes = await client.sendMessage(targetChat, media, { caption });
+        } else {
+          sentImgRes = await client.sendMessage(targetChat, caption, { linkPreview: true });
+        }
+        if (sentImgRes?.id?._serialized) sentWelcomeDemoMsgIds.add(sentImgRes.id._serialized);
+        if (sentImgRes?.id?.id) sentWelcomeDemoMsgIds.add(sentImgRes.id.id);
+        sentResults.push({ type: 'image', res: sentImgRes });
       } else if (item.type === 'link') {
         const contentToSend = item.text || item.url;
         const res = await client.sendMessage(targetChat, contentToSend, { linkPreview: true });
@@ -203,7 +207,7 @@ async function sendWelcomeDemo({
     }
 
     if (delayMs > 0 && i < msgList.length - 1) {
-      const waitTime = item.type === 'link' ? Math.max(delayMs, 1500) : delayMs;
+      const waitTime = (item.type === 'link' || item.type === 'image') ? Math.max(delayMs, 1500) : delayMs;
       await sleep(waitTime);
     }
   }
