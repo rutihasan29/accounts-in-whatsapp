@@ -15,9 +15,8 @@ describe('Welcome Demo Module', () => {
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[2].filename, 'voice4.mp3');
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[3].type, 'audio');
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[3].filename, 'voice1.mp3');
-    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[4].type, 'image');
-    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[4].filename, 'sample_7w0kthHSFUM.jpg');
-    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[4].caption, 'https://www.youtube.com/watch?v=7w0kthHSFUM');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[4].type, 'link');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[4].url, 'https://www.youtube.com/watch?v=7w0kthHSFUM');
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[5].type, 'text');
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[6].type, 'text');
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[7].type, 'text');
@@ -25,7 +24,7 @@ describe('Welcome Demo Module', () => {
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[8].text, 'উপরের স্যাম্পলগুলো শুনে দেখুন, তারপর বিস্তারিত কথা হবে ইন শা আল্লাহ');
   });
 
-  it('sendWelcomeDemo sends messages in exact order with voice options and thumbnail image', async () => {
+  it('sendWelcomeDemo sends messages in exact order with voice options and link preview', async () => {
     const db = initDb(':memory:');
     const sent = [];
 
@@ -69,9 +68,9 @@ describe('Welcome Demo Module', () => {
     assert.strictEqual(sent[3].options?.sendMediaAsDocument, false);
     assert.ok(sent[3].content?.filename?.includes('voice1') || sent[3].content?.mimetype?.includes('audio'));
 
-    // 5. Image with YouTube link as caption right after voices
-    assert.strictEqual(sent[4].options?.caption, 'https://www.youtube.com/watch?v=7w0kthHSFUM');
-    assert.ok(sent[4].content?.filename?.includes('sample_7w0kthHSFUM') || sent[4].content?.mimetype?.includes('image'));
+    // 5. Link with YouTube URL and linkPreview: true right after voices
+    assert.strictEqual(sent[4].content, 'https://www.youtube.com/watch?v=7w0kthHSFUM');
+    assert.strictEqual(sent[4].options?.linkPreview, true);
 
     // 6-8. Informational text sequence
     assert.ok(sent[5].content.includes('বাংলাদেশ'));

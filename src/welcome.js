@@ -30,11 +30,9 @@ const DEFAULT_WELCOME_MESSAGES = [
     filePath: path.join(__dirname, '..', 'voice1.mp3')
   },
   {
-    type: 'image',
-    filename: 'sample_7w0kthHSFUM.jpg',
-    filePath: path.join(__dirname, '..', 'sample_7w0kthHSFUM.jpg'),
+    type: 'link',
     url: 'https://www.youtube.com/watch?v=7w0kthHSFUM',
-    caption: 'https://www.youtube.com/watch?v=7w0kthHSFUM'
+    text: 'https://www.youtube.com/watch?v=7w0kthHSFUM'
   },
   {
     type: 'text',
