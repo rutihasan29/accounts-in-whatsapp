@@ -627,7 +627,7 @@ async function downloadMediaWithFallback(msg, client = null, maxAttempts = 3, ba
 
   const targetId = msg.id?._serialized || (typeof msg.id === 'string' ? msg.id : msg.id?.id);
   const stanzaId = msg.id?.id || msg._data?.id?.id || (typeof msg.id === 'string' ? msg.id : null);
-  const filename = msg.filename || msg._data?.filename || msg.body;
+  const filename = msg.filename || msg._data?.filename || '';
   const targetChat = msg.from || msg.to || msg._data?.from || msg._data?.to;
 
   const directMediaParams = {
@@ -1386,11 +1386,15 @@ async function handleMessageCreate({
           };
         }
 
-        const rawFilename = msg.filename || msg.body || media?.filename || '';
+        // STRICT FILENAME EXTRACTION:
+        // Filename MUST be derived strictly from the attached file's filename, NEVER from the caption/body (msg.body).
+        const rawFilename = (msg.filename || msg._data?.filename || media?.filename || '').trim();
         if (media && rawFilename && !media.filename) {
           media.filename = rawFilename;
         }
-        const hasBengali = hasBengaliCharacters(rawFilename);
+        // Direct forwarding to client happens ONLY when the file's filename contains Bengali characters.
+        // Check ONLY the filename, NOT caption.
+        const hasBengali = Boolean(rawFilename && hasBengaliCharacters(rawFilename));
 
         if (hasBengali) {
           let directDuration = null;

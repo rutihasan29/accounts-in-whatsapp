@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
-const { initDb, getDueList, createVoiceJobOrder, getVoiceJobOrder } = require('../src/db');
+const { initDb, getDueList, createVoiceJobOrder, getVoiceJobOrder, setBotSetting } = require('../src/db');
 const {
   formatDueReport,
   handleMessageCreate,
@@ -1433,6 +1433,73 @@ describe('Bot Message Router', () => {
       assert.strictEqual(updatedOrder.final_audio_filename, 'নবাবপুর ফুড সিটি.mp3');
       assert.strictEqual(updatedOrder.aircheck_model_used, 'DIRECT_FORWARD');
       assert.ok(updatedOrder.delivered_at);
+      db.close();
+    });
+
+    it('VA2 audio reply with English filename and Bengali caption does NOT directly forward (checks filename, not caption)', async () => {
+      const db = initDb(':memory:');
+      const order = createVoiceJobOrder(db, {
+        customerPhone: '8801711223399',
+        customerName: 'English Filename Bengali Caption Customer',
+        customerScriptMsgId: 'cust-script-msg-cap-1',
+        va2ForwardMsgId: 'va2-fwd-msg-cap-2',
+        scriptText: 'নিউজ স্ক্রিপ্ট টেস্ট',
+        headline: 'নিউজ টেস্ট'
+      });
+
+      const sentMessages = [];
+      const mockClient = {
+        sendMessage: async (jid, content, options) => {
+          sentMessages.push({ jid, content, options });
+          return { id: { _serialized: `sent-${Date.now()}` } };
+        }
+      };
+
+      const mediaPayload = {
+        data: Buffer.from('audio-data-english-filename').toString('base64'),
+        mimetype: 'audio/wav',
+        filename: 'recording_123.wav'
+      };
+
+      const va2Msg = {
+        id: { _serialized: 'va2-audio-reply-english-file', id: 'va2-audio-reply-english-file' },
+        fromMe: false,
+        from: '8801307760509@c.us',
+        to: '8801999999999@c.us',
+        type: 'document',
+        filename: 'recording_123.wav',
+        body: 'ভাই অডিওটা হয়েছে একটু চেক করেন', // Bengali caption!
+        mimetype: 'audio/wav',
+        hasQuotedMsg: true,
+        getQuotedMessage: async () => ({
+          id: { _serialized: 'va2-fwd-msg-cap-2' },
+          body: `[নতুন ভয়েস অর্ডার #${order.order_id}]\n\nস্ক্রিপ্ট:\n${order.script_text}`
+        }),
+        downloadMedia: async () => mediaPayload
+      };
+
+      // When aircheck is disabled/fails, it will ask VA2 to edit manually rather than direct-forwarding to customer
+      setBotSetting(db, 'aircheck_enabled', false);
+
+      const res = await handleMessageCreate({
+        msg: va2Msg,
+        client: mockClient,
+        db
+      });
+
+      // Must NOT be DELIVERED_VA2_AUDIO_DIRECT
+      assert.notStrictEqual(res.action, 'DELIVERED_VA2_AUDIO_DIRECT');
+      assert.strictEqual(res.action, 'AIRCHECK_FAILED_NOTIFIED_VA2');
+
+      // Nothing was forwarded to customer
+      const customerMsgs = sentMessages.filter(m => m.jid.includes('8801711223399'));
+      assert.strictEqual(customerMsgs.length, 0);
+
+      // VA2 was asked to edit manually
+      assert.strictEqual(sentMessages.length, 1);
+      assert.strictEqual(sentMessages[0].jid, '8801307760509@c.us');
+      assert.ok(sentMessages[0].content.includes('এডিট করে'));
+
       db.close();
     });
 
