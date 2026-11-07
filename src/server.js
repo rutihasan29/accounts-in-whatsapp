@@ -29,9 +29,16 @@ const { checkAndEscalateTimeouts } = require('./crm/routing');
 const { createCaller, updateCallerStatus } = require('./crm/db');
 const { getSalesLeads, syncWhatsAppNotes } = require('./sales');
 const { getServerVersionInfo, performUpdate, verifyGitHubWebhookSignature } = require('./updater');
+const {
+  getQrStatus,
+  getQrDataUrl,
+  getQrPngBuffer,
+  getQrSvg
+} = require('./qrState');
 
 const DASHBOARD_HTML_PATH = path.join(__dirname, 'dashboard.html');
 const SALES_HTML_PATH = path.join(__dirname, 'sales.html');
+const QR_HTML_PATH = path.join(__dirname, 'qr.html');
 let lastSalesNotesSyncTime = 0;
 
 function readJsonBody(req) {
@@ -343,6 +350,68 @@ function startWebServer({ db, client = null, port = PORT, onRestart = null } = {
       return;
     }
 
+    // WhatsApp Web QR Code Scanner Page (/qr)
+    if (pathname === '/qr' && method === 'GET') {
+      try {
+        const html = fs.readFileSync(QR_HTML_PATH, 'utf8');
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(html);
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Error reading QR page: ' + err.message);
+      }
+      return;
+    }
+
+    // API: Live WhatsApp QR status & data URL
+    if (pathname === '/api/qr' && method === 'GET') {
+      try {
+        const qrInfo = getQrStatus();
+        let qrImage = null;
+        if (qrInfo.hasQr) {
+          qrImage = await getQrDataUrl();
+        }
+        res.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-cache, no-store, must-revalidate'
+        });
+        res.end(JSON.stringify({
+          status: qrInfo.status,
+          hasQr: qrInfo.hasQr,
+          qr: qrInfo.qr,
+          qrTime: qrInfo.qrTime,
+          qrImage,
+          userPhone: qrInfo.userPhone
+        }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', error: err.message }));
+      }
+      return;
+    }
+
+    // Raw binary PNG of active QR code
+    if (pathname === '/qr.png' && method === 'GET') {
+      try {
+        const pngBuf = await getQrPngBuffer();
+        if (pngBuf) {
+          res.writeHead(200, {
+            'Content-Type': 'image/png',
+            'Content-Length': pngBuf.length,
+            'Cache-Control': 'no-cache, no-store, must-revalidate'
+          });
+          res.end(pngBuf);
+        } else {
+          res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ status: 'NO_ACTIVE_QR', message: 'No active QR code waiting for scan' }));
+        }
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Error generating QR image: ' + err.message);
+      }
+      return;
+    }
+
     // API: Sales Leads Directory Data (/api/sales/leads)
     if (pathname === '/api/sales/leads' && method === 'GET') {
       try {
@@ -425,6 +494,7 @@ function startWebServer({ db, client = null, port = PORT, onRestart = null } = {
       try {
         const status = getBotUptimeStats(db);
         status.serverVersion = getServerVersionInfo();
+        status.qrStatus = getQrStatus();
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify(status));
       } catch (err) {

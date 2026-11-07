@@ -1353,6 +1353,22 @@
       <div class="sub" id="clock-display" style="font-size: 11px; margin-top: 4px;">DATE: --</div>
     </div>
 
+    <!-- WhatsApp Offline QR Code Quick Alert Banner -->
+    <div id="bot-offline-qr-banner" style="display: none; background: #FEF3C7; border: 2px solid #F59E0B; border-radius: 12px; padding: 14px 18px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.15);">
+      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 24px;">⚠️</span>
+          <div>
+            <strong style="color: #92400E; font-size: 15px;">WhatsApp বট অফলাইন! পুনরায় সংযোগ প্রয়োজন</strong>
+            <p style="color: #B45309; font-size: 13px; margin-top: 2px;">মেসেজ আদান-প্রদান ও ডেমো পাঠানো সক্রিয় করতে ফোন দিয়ে QR কোড স্ক্যান করুন।</p>
+          </div>
+        </div>
+        <a href="/qr" target="_blank" style="background: #10B981; color: #FFFFFF; padding: 10px 18px; border-radius: 8px; font-weight: 700; text-decoration: none; font-size: 14px; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 6px rgba(16, 185, 129, 0.4);">
+          📲 QR কোড স্ক্যান করুন ↗
+        </a>
+      </div>
+    </div>
+
     <!-- Bot Online/Offline Status & Uptime Monitor -->
     <div class="bot-uptime-box">
       <div class="bot-uptime-header">
@@ -3189,13 +3205,18 @@
 
       const isOnline = data.currentStatus === 'ONLINE';
 
+      const qrBanner = document.getElementById('bot-offline-qr-banner');
+      if (qrBanner) {
+        qrBanner.style.display = isOnline ? 'none' : 'block';
+      }
+
       if (dot) {
         dot.className = 'status-indicator-dot ' + (isOnline ? 'online' : 'offline');
       }
       if (statusText) {
         statusText.innerHTML = isOnline
           ? '<span style="color:#059669;">🟢 বট অনলাইন (ONLINE)</span>'
-          : '<span style="color:#DC2626;">🔴 বট অফলাইন (OFFLINE)</span>';
+          : '<span style="color:#DC2626;">🔴 বট অফলাইন (OFFLINE)</span> <a href="/qr" target="_blank" style="margin-left:8px;padding:2px 8px;background:#10B981;color:#fff;border-radius:6px;font-size:11px;text-decoration:none;font-weight:600;display:inline-flex;align-items:center;gap:3px;">📲 QR কোড</a>';
       }
       if (uptimeSince) {
         uptimeSince.innerText = isOnline

@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WhatsApp Web QR Code | MunniSoft Ledger Bot</title>
+  <style>
+    :root {
+      --wa-emerald: #10B981;
+      --wa-dark-emerald: #059669;
+      --bg-slate: #0F172A;
+      --card-bg: #1E293B;
+      --text-main: #F8FAFC;
+      --text-muted: #94A3B8;
+      --border-color: #334155;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    body {
+      background: radial-gradient(circle at top, #1E293B 0%, #0F172A 100%);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container {
+      width: 100%;
+      max-width: 520px;
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      padding: 32px 24px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4), 0 0 30px rgba(16, 185, 129, 0.1);
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .container::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, #10B981, #3B82F6, #10B981);
+    }
+    .header {
+      margin-bottom: 24px;
+    }
+    .logo-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--wa-emerald);
+      padding: 6px 14px;
+      border-radius: 9999px;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      background: var(--wa-emerald);
+      border-radius: 50%;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
+    h1 {
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      margin-bottom: 8px;
+    }
+    p.subtitle {
+      color: var(--text-muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .qr-box-wrapper {
+      position: relative;
+      background: #FFFFFF;
+      border-radius: 16px;
+      padding: 16px;
+      display: inline-block;
+      margin: 20px auto;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+      min-width: 270px;
+      min-height: 270px;
+    }
+    .qr-img {
+      width: 260px;
+      height: 260px;
+      display: block;
+      border-radius: 8px;
+      image-rendering: pixelated;
+    }
+    .spinner {
+      width: 44px;
+      height: 44px;
+      border: 4px solid rgba(16, 185, 129, 0.2);
+      border-top-color: var(--wa-emerald);
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+      margin: 110px auto;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .instructions {
+      text-align: left;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 16px 18px;
+      margin-top: 20px;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .instructions h4 {
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+    .instructions ol {
+      padding-left: 20px;
+      color: #CBD5E1;
+    }
+    .instructions li {
+      margin-bottom: 6px;
+    }
+    .instructions li:last-child {
+      margin-bottom: 0;
+    }
+    .instructions strong {
+      color: #FFFFFF;
+    }
+    .meta-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 18px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .connected-card {
+      padding: 30px 10px;
+    }
+    .check-icon {
+      width: 72px;
+      height: 72px;
+      background: rgba(16, 185, 129, 0.15);
+      border: 2px solid var(--wa-emerald);
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 16px;
+      color: var(--wa-emerald);
+      font-size: 36px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 24px;
+      border-radius: 10px;
+      font-weight: 600;
+      font-size: 14px;
+      text-decoration: none;
+      transition: all 0.2s;
+      margin-top: 18px;
+      cursor: pointer;
+    }
+    .btn-primary {
+      background: var(--wa-emerald);
+      color: #0F172A;
+    }
+    .btn-primary:hover {
+      background: var(--wa-dark-emerald);
+    }
+    .btn-secondary {
+      background: #334155;
+      color: var(--text-main);
+      margin-left: 8px;
+    }
+    .btn-secondary:hover {
+      background: #475569;
+    }
+    .nav-links {
+      margin-top: 24px;
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      font-size: 13px;
+    }
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover {
+      color: var(--wa-emerald);
+    }
+  </style>
+</head>
+<body>
+  <div class="container" id="main-container">
+    <div class="header">
+      <div class="logo-badge">
+        <div class="pulse-dot" id="live-dot"></div>
+        <span id="live-status-badge">সার্ভার স্ট্যাটাস যাচাই হচ্ছে...</span>
+      </div>
+      <h1 id="title-text">WhatsApp সংযোগ করুন</h1>
+      <p class="subtitle" id="subtitle-text">নিচের কিউআর কোডটি আপনার ফোনের WhatsApp অ্যাপ দিয়ে স্ক্যান করুন</p>
+    </div>
+
+    <!-- QR Code Screen -->
+    <div id="qr-section">
+      <div class="qr-box-wrapper" id="qr-box-wrapper">
+        <div class="spinner" id="loading-spinner"></div>
+        <img id="qr-img" class="qr-img" style="display: none;" alt="WhatsApp Web QR Code" />
+      </div>
+
+      <div class="meta-bar">
+        <span id="qr-timer">🔄 প্রতি ২-৩ সেকেন্ডে অটো-রিফ্রেশ হচ্ছে</span>
+        <a href="/qr.png" target="_blank" style="color: var(--wa-emerald); text-decoration: none;">সরাসরি ইমেজ দেখুন ↗</a>
+      </div>
+
+      <div class="instructions">
+        <h4>স্ক্যান করার নিয়মাবলী:</h4>
+        <ol>
+          <li>আপনার ফোনে <strong>WhatsApp</strong> চালু করুন</li>
+          <li>উপরে ডানে <strong>মেনু (⋮)</strong> অথবা <strong>Settings</strong>-এ ট্যাপ করুন</li>
+          <li><strong>Linked Devices</strong> সিলেক্ট করুন</li>
+          <li><strong>Link a Device</strong> বাটনে চাপ দিয়ে এই কোডটি স্ক্যান করুন</li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- Connected Screen -->
+    <div id="connected-section" class="connected-card" style="display: none;">
+      <div class="check-icon">✓</div>
+      <h2 style="font-size: 22px; margin-bottom: 8px; color: var(--wa-emerald);">WhatsApp সফলভাবে সংযুক্ত হয়েছে!</h2>
+      <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 16px;" id="connected-phone-msg">বট এখন সম্পূর্ণ অনলাইন ও সক্রিয় রয়েছে।</p>
+      <div>
+        <a href="/" class="btn btn-primary">📊 লেজার ড্যাশবোর্ডে যান</a>
+        <a href="/crm" class="btn btn-secondary">📞 CRM খুলুন</a>
+      </div>
+    </div>
+
+    <div class="nav-links">
+      <a href="/">← ড্যাশবোর্ড</a>
+      <span>•</span>
+      <a href="/sales">সেলস লিড</a>
+      <span>•</span>
+      <a href="/crm">টেলিকলার CRM</a>
+    </div>
+  </div>
+
+  <script>
+    let pollInterval = null;
+    let lastQrString = null;
+
+    async function checkQrStatus() {
+      try {
+        const res = await fetch('/api/qr');
+        if (!res.ok) return;
+        const data = await res.json();
+
+        const badge = document.getElementById('live-status-badge');
+        const spinner = document.getElementById('loading-spinner');
+        const qrImg = document.getElementById('qr-img');
+        const qrSection = document.getElementById('qr-section');
+        const connectedSection = document.getElementById('connected-section');
+        const titleText = document.getElementById('title-text');
+        const subtitleText = document.getElementById('subtitle-text');
+
+        if (data.status === 'READY') {
+          badge.textContent = '🟢 হোয়াটসঅ্যাপ অনলাইন (CONNECTED)';
+          badge.style.color = '#10B981';
+          qrSection.style.display = 'none';
+          connectedSection.style.display = 'block';
+          titleText.textContent = 'হোয়াটসঅ্যাপ সক্রিয়';
+          subtitleText.textContent = 'বট মেসেজ আদান-প্রদানের জন্য প্রস্তুত রয়েছে';
+
+          const phoneMsg = document.getElementById('connected-phone-msg');
+          if (data.userPhone) {
+            phoneMsg.textContent = 'লগইন করা নম্বর: +' + data.userPhone + ' (বট অনলাইন)';
+          }
+          return;
+        }
+
+        if (data.status === 'AUTHENTICATED') {
+          badge.textContent = '🔐 প্রমাণীকরণ সম্পন্ন হচ্ছে...';
+          badge.style.color = '#F59E0B';
+          spinner.style.display = 'block';
+          qrImg.style.display = 'none';
+          return;
+        }
+
+        if (data.hasQr && data.qrImage) {
+          badge.textContent = '📲 কিউআর কোড স্ক্যানের অপেক্ষায়';
+          badge.style.color = '#38BDF8';
+          spinner.style.display = 'none';
+          qrImg.style.display = 'block';
+
+          if (data.qr !== lastQrString) {
+            lastQrString = data.qr;
+            qrImg.src = data.qrImage;
+          }
+          qrSection.style.display = 'block';
+          connectedSection.style.display = 'none';
+        } else {
+          badge.textContent = '⏳ হোয়াটসঅ্যাপ চালু হচ্ছে...';
+          badge.style.color = '#F59E0B';
+          spinner.style.display = 'block';
+          qrImg.style.display = 'none';
+        }
+      } catch (err) {
+        console.warn('Error fetching QR status:', err);
+      }
+    }
+
+    // Initial check and auto-poll every 2.5 seconds
+    checkQrStatus();
+    pollInterval = setInterval(checkQrStatus, 2500);
+  </script>
+</body>
+</html>

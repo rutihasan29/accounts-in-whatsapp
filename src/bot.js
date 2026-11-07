@@ -54,6 +54,12 @@ const {
 const { insertLead: insertCrmLead } = require('./crm/db');
 const { assignFreshLead } = require('./crm/routing');
 const { sendSystemAlertToPreenan, startUiHealthWatchdog } = require('./alerts');
+const {
+  setQr,
+  setReady,
+  setAuthenticated,
+  setDisconnected
+} = require('./qrState');
 const qrcode = require('qrcode-terminal');
 
 let MessageMedia = null;
@@ -2731,11 +2737,13 @@ function setupBotHandlers({ client, db }) {
   let heartbeatInterval = null;
 
   client.on('qr', (qr) => {
+    try { setQr(qr); } catch {}
     console.log('Scan the QR code below to log in:');
     qrcode.generate(qr, { small: true });
   });
 
   client.on('ready', async () => {
+    try { setReady(client.info); } catch {}
     console.log('✅ WhatsApp Web Client is ready!');
     console.log(`Logged in as: ${client.info?.wid?.user}`);
 
@@ -2864,6 +2872,7 @@ function setupBotHandlers({ client, db }) {
   });
 
   client.on('authenticated', () => {
+    try { setAuthenticated(); } catch {}
     console.log('🔐 Authentication successful. Session stored.');
   });
 
@@ -2877,6 +2886,7 @@ function setupBotHandlers({ client, db }) {
       if (state === 'CONNECTED') {
         recordBotState(db, 'ONLINE', 'STATE_CONNECTED');
       } else if (state === 'DISCONNECTED' || state === 'UNPAIRED') {
+        try { setDisconnected(state); } catch {}
         if (heartbeatInterval) clearInterval(heartbeatInterval);
         recordBotState(db, 'OFFLINE', `STATE_${state}`);
       }
@@ -2884,6 +2894,7 @@ function setupBotHandlers({ client, db }) {
   });
 
   client.on('disconnected', (reason) => {
+    try { setDisconnected(reason); } catch {}
     console.log('⚠️ Disconnected:', reason);
     if (heartbeatInterval) clearInterval(heartbeatInterval);
     try {
@@ -2898,6 +2909,7 @@ function setupBotHandlers({ client, db }) {
   });
 
   client.on('auth_failure', (msg) => {
+    try { setDisconnected(msg); } catch {}
     console.error('❌ Authentication failed:', msg);
     if (heartbeatInterval) clearInterval(heartbeatInterval);
     try {
