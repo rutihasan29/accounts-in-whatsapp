@@ -22,17 +22,17 @@ describe('Welcome Demo Module', () => {
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[8].type, 'text');
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[8].text, 'আমাদের কাজের আরো কিছু নমুনা নিচে দেয়া হলো:');
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[9].type, 'link');
-    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[9].url, 'https://youtu.be/7w0kthHSFUM?si=gsTpmAZtwCJ54YWo');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[9].url, 'https://www.youtube.com/watch?v=7w0kthHSFUM');
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[10].type, 'link');
-    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[10].url, 'https://youtu.be/oRlSHM6JpkE?si=7VPQaAvCVQM04J86');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[10].url, 'https://www.youtube.com/watch?v=oRlSHM6JpkE');
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[11].type, 'link');
-    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[11].url, 'https://youtu.be/DuKiMWPmg68?si=WxaqBgsG7bm3rZbS');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[11].url, 'https://www.youtube.com/watch?v=DuKiMWPmg68');
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[12].type, 'link');
-    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[12].url, 'https://youtu.be/BknLpjzRevE?si=bJh02MT7cfC15RT8');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[12].url, 'https://www.youtube.com/watch?v=BknLpjzRevE');
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[13].type, 'link');
-    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[13].url, 'https://youtu.be/C9hVUi_ol6g?si=-6qhiLiVdDpVjOz9');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[13].url, 'https://www.youtube.com/watch?v=C9hVUi_ol6g');
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[14].type, 'link');
-    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[14].url, 'https://youtu.be/8wv9pYJT10A?si=xdX9zhWCLhIYZO8Q');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[14].url, 'https://www.youtube.com/watch?v=8wv9pYJT10A');
   });
 
   it('sendWelcomeDemo sends messages in exact order with voice options', async () => {
@@ -91,7 +91,7 @@ describe('Welcome Demo Module', () => {
     // 10-15. YouTube link previews
     for (let k = 9; k <= 14; k++) {
       assert.strictEqual(sent[k].options?.linkPreview, true);
-      assert.ok(sent[k].content.includes('youtu.be'));
+      assert.ok(sent[k].content.includes('youtube.com'));
     }
 
     // Verify welcome_sent updated to 1 in DB
