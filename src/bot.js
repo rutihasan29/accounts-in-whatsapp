@@ -1871,6 +1871,7 @@ async function handleMessageCreate({
             classificationResult = {
               classification: 'VOICE_JOB',
               confidence: 'HIGH',
+              is_news_script: true,
               extracted_script: pending.script,
               reason: `Customer affirmatively confirmed "${rawText}" to "ভয়েস?"`
             };

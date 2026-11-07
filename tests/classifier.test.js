@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildHistoryTranscript, classifyChat, isServiceInquiryOnly } = require('../src/classifier');
+const { buildHistoryTranscript, classifyChat, isServiceInquiryOnly, checkIfNewsScript } = require('../src/classifier');
 
 test('buildHistoryTranscript formats roles properly', () => {
   const msgs = [
@@ -341,4 +341,111 @@ test('classifyChat reclassifies VOICE_JOB to OTHER when extracted script is only
 
   assert.equal(res.classification, 'OTHER', 'Must be reclassified to OTHER');
   assert.equal(res.extracted_script, '', 'Extracted script must be empty');
+});
+
+test('classifyChat reclassifies SCRIPT_PENDING_CONFIRMATION to OTHER when LLM indicates is_news_script: false', async () => {
+  const mockFetch = async () => ({
+    ok: true,
+    json: async () => ({
+      candidates: [{
+        content: {
+          parts: [{
+            text: JSON.stringify({
+              classification: 'SCRIPT_PENDING_CONFIRMATION',
+              confidence: 'HIGH',
+              is_news_script: false,
+              extracted_script: 'ভাই আমি কালকে আপনার অফিসে আসব দেখা করতে',
+              reason: 'Personal visit note, not a news script'
+            })
+          }]
+        }
+      }]
+    })
+  });
+
+  const res = await classifyChat({
+    messages: [{ fromMe: false, body: 'ভাই আমি কালকে আপনার অফিসে আসব দেখা করতে' }],
+    apiKey: 'dummy-key',
+    fetchFn: mockFetch
+  });
+
+  assert.equal(res.classification, 'OTHER');
+  assert.equal(res.is_news_script, false);
+  assert.equal(res.extracted_script, '');
+});
+
+test('classifyChat reclassifies VOICE_JOB to OTHER when LLM indicates is_news_script: false', async () => {
+  const mockFetch = async () => ({
+    ok: true,
+    json: async () => ({
+      candidates: [{
+        content: {
+          parts: [{
+            text: JSON.stringify({
+              classification: 'VOICE_JOB',
+              confidence: 'HIGH',
+              is_news_script: false,
+              extracted_script: 'ভাই আমার মেসেজ সিন করেন না কেন',
+              reason: 'Casual complaint, not a news script'
+            })
+          }]
+        }
+      }]
+    })
+  });
+
+  const res = await classifyChat({
+    messages: [{ fromMe: false, body: 'ভাই আমার মেসেজ সিন করেন না কেন' }],
+    apiKey: 'dummy-key',
+    fetchFn: mockFetch
+  });
+
+  assert.equal(res.classification, 'OTHER');
+  assert.equal(res.is_news_script, false);
+  assert.equal(res.extracted_script, '');
+});
+
+test('checkIfNewsScript returns is_news_script: false for empty or inquiry text without API call', async () => {
+  let apiCalled = false;
+  const mockFetch = async () => {
+    apiCalled = true;
+    return { ok: true };
+  };
+
+  const emptyRes = await checkIfNewsScript({ text: '', fetchFn: mockFetch });
+  assert.equal(emptyRes.is_news_script, false);
+  assert.equal(apiCalled, false);
+
+  const inqRes = await checkIfNewsScript({ text: 'নিউজ ভয়েস লাগবে', fetchFn: mockFetch });
+  assert.equal(inqRes.is_news_script, false);
+  assert.equal(apiCalled, false);
+});
+
+test('checkIfNewsScript calls LLM and returns parsed is_news_script', async () => {
+  const mockFetch = async (url, opts) => ({
+    ok: true,
+    json: async () => ({
+      candidates: [{
+        content: {
+          parts: [{
+            text: JSON.stringify({
+              is_news_script: true,
+              confidence: 'HIGH',
+              reason: 'Valid crime news report'
+            })
+          }]
+        }
+      }]
+    })
+  });
+
+  const res = await checkIfNewsScript({
+    text: 'ব্রেকিং নিউজ: রাজধানীর উত্তরায় বহুতল ভবনে অগ্নিকাণ্ডের ঘটনা ঘটেছে।',
+    apiKey: 'dummy-gemini-key',
+    fetchFn: mockFetch
+  });
+
+  assert.equal(res.is_news_script, true);
+  assert.equal(res.confidence, 'HIGH');
+  assert.match(res.reason, /crime news/i);
 });

@@ -6,8 +6,8 @@ const { handleMessageCreate } = require('../src/bot');
 const { DEFAULT_WELCOME_MESSAGES, sendWelcomeDemo } = require('../src/welcome');
 
 describe('Welcome Demo Module', () => {
-  it('DEFAULT_WELCOME_MESSAGES defines exact 9-part sequence', () => {
-    assert.strictEqual(DEFAULT_WELCOME_MESSAGES.length, 9);
+  it('DEFAULT_WELCOME_MESSAGES defines exact 15-part sequence', () => {
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES.length, 15);
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[0].type, 'text');
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[1].type, 'audio');
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[1].filename, 'voice3.mp3');
@@ -15,12 +15,24 @@ describe('Welcome Demo Module', () => {
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[2].filename, 'voice4.mp3');
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[3].type, 'audio');
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[3].filename, 'voice1.mp3');
-    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[4].type, 'link');
-    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[4].url, 'https://youtu.be/7w0kthHSFUM?si=gsTpmAZtwCJ54YWo');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[4].type, 'text');
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[5].type, 'text');
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[6].type, 'text');
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[7].type, 'text');
     assert.strictEqual(DEFAULT_WELCOME_MESSAGES[8].type, 'text');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[8].text, 'আমাদের কাজের আরো কিছু নমুনা নিচে দেয়া হলো:');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[9].type, 'link');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[9].url, 'https://youtu.be/7w0kthHSFUM?si=gsTpmAZtwCJ54YWo');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[10].type, 'link');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[10].url, 'https://youtu.be/oRlSHM6JpkE?si=7VPQaAvCVQM04J86');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[11].type, 'link');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[11].url, 'https://youtu.be/DuKiMWPmg68?si=WxaqBgsG7bm3rZbS');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[12].type, 'link');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[12].url, 'https://youtu.be/BknLpjzRevE?si=bJh02MT7cfC15RT8');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[13].type, 'link');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[13].url, 'https://youtu.be/C9hVUi_ol6g?si=-6qhiLiVdDpVjOz9');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[14].type, 'link');
+    assert.strictEqual(DEFAULT_WELCOME_MESSAGES[14].url, 'https://youtu.be/8wv9pYJT10A?si=xdX9zhWCLhIYZO8Q');
   });
 
   it('sendWelcomeDemo sends messages in exact order with voice options', async () => {
@@ -46,7 +58,7 @@ describe('Welcome Demo Module', () => {
     });
 
     assert.strictEqual(res.success, true);
-    assert.strictEqual(sent.length, 9);
+    assert.strictEqual(sent.length, 15);
 
     // 1. Text 1
     assert.strictEqual(sent[0].chat, '8801700000001@c.us');
@@ -67,15 +79,20 @@ describe('Welcome Demo Module', () => {
     assert.strictEqual(sent[3].options?.sendMediaAsDocument, false);
     assert.ok(sent[3].content?.filename?.includes('voice1') || sent[3].content?.mimetype?.includes('audio'));
 
-    // 5. Work samples link with preview
-    assert.strictEqual(sent[4].options?.linkPreview, true);
-    assert.ok(sent[4].content.includes('https://youtu.be/7w0kthHSFUM?si=gsTpmAZtwCJ54YWo'));
+    // 5-8. Informational text sequence
+    assert.ok(sent[4].content.includes('বাংলাদেশ'));
+    assert.ok(sent[5].content.includes('স্ক্রিপ্ট'));
+    assert.ok(sent[6].content.includes('অগ্রিম'));
+    assert.ok(sent[7].content.includes('স্যাম্পল'));
 
-    // 6-9. Informational text sequence
-    assert.ok(sent[5].content.includes('বাংলাদেশ'));
-    assert.ok(sent[6].content.includes('স্ক্রিপ্ট'));
-    assert.ok(sent[7].content.includes('অগ্রিম'));
-    assert.ok(sent[8].content.includes('স্যাম্পল'));
+    // 9. Work samples header text
+    assert.strictEqual(sent[8].content, 'আমাদের কাজের আরো কিছু নমুনা নিচে দেয়া হলো:');
+
+    // 10-15. YouTube link previews
+    for (let k = 9; k <= 14; k++) {
+      assert.strictEqual(sent[k].options?.linkPreview, true);
+      assert.ok(sent[k].content.includes('youtu.be'));
+    }
 
     // Verify welcome_sent updated to 1 in DB
     const lead = db.prepare('SELECT welcome_sent FROM leads WHERE phone_number = ?').get('8801700000001');
@@ -91,7 +108,7 @@ describe('Welcome Demo Module', () => {
     });
     assert.strictEqual(res2.success, false);
     assert.strictEqual(res2.reason, 'ALREADY_SENT');
-    assert.strictEqual(sent.length, 9); // No extra messages sent
+    assert.strictEqual(sent.length, 15); // No extra messages sent
   });
 
   it('sendWelcomeDemo sends audio with sendAudioAsVoice: false and sendMediaAsDocument: false', async () => {
@@ -146,7 +163,7 @@ describe('Welcome Demo Module', () => {
     assert.strictEqual(res1.details.welcomeResult?.success, true);
 
     // Full sequence was sent to the lead
-    assert.strictEqual(sent.length, 9);
+    assert.strictEqual(sent.length, 15);
     assert.strictEqual(sent[0].chat, '8801788888888@c.us');
     assert.strictEqual(sent[0].content, 'ডেমোগুলো শুনে দেখুন');
 
@@ -161,7 +178,7 @@ describe('Welcome Demo Module', () => {
 
     const res2 = await handleMessageCreate({ msg: secondMsg, client, db });
     assert.strictEqual(res2.action, 'IGNORED_NOT_FROM_ME');
-    assert.strictEqual(sent.length, 9); // Count unchanged
+    assert.strictEqual(sent.length, 15); // Count unchanged
   });
 
   it('outgoing demo audio messages (e.g. voice1.wav / voice2.mp3) are NEVER billed to customers', async () => {

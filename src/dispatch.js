@@ -174,6 +174,10 @@ async function handleClassificationAction({
   }
 
   if (classification === 'VOICE_JOB') {
+    if (classificationResult?.is_news_script === false) {
+      console.log(`[DISPATCH] Ignoring voice job for customer +${cleanCustomerPhone} because text is not a news script.`);
+      return { action: 'IGNORED_NON_NEWS_SCRIPT' };
+    }
     cancelPendingConfirmation(cleanCustomerPhone, db);
 
     const scriptBody = (extracted_script || latestMessageText || '').trim();
@@ -307,6 +311,10 @@ async function handleClassificationAction({
   }
 
   if (classification === 'SCRIPT_PENDING_CONFIRMATION') {
+    if (classificationResult?.is_news_script === false) {
+      console.log(`[DISPATCH] Ignoring script confirmation for customer +${cleanCustomerPhone} because text is not a news script.`);
+      return { action: 'IGNORED_NON_NEWS_SCRIPT' };
+    }
     let delivered = false;
     if (chat && typeof chat.sendMessage === 'function') {
       try {
