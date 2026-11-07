@@ -246,4 +246,84 @@ describe('Welcome Demo Module', () => {
 
     db.close();
   });
+
+  it('triggers welcome sequence when Preenan sends "demo" or "!demo"', async () => {
+    const db = initDb(':memory:');
+    const sent = [];
+    const client = {
+      info: { wid: { _serialized: '8801999999999@c.us' } },
+      sendMessage: async (chat, content, options) => {
+        sent.push({ chat, content, options });
+        return { id: { _serialized: `msg_${sent.length}` } };
+      },
+      getContactById: async () => ({ isMyContact: true, name: 'Preenan' })
+    };
+
+    // Preenan sends 'demo'
+    const preenanMsg = {
+      fromMe: false,
+      from: '8801534323811@c.us',
+      to: '8801999999999@c.us',
+      id: { remote: '8801534323811@c.us', id: 'preenan_msg_1' },
+      body: 'demo'
+    };
+
+    const res = await handleMessageCreate({ msg: preenanMsg, client, db });
+    assert.strictEqual(res.action, 'TEST_WELCOME_DEMO_SENT');
+    assert.strictEqual(res.details.recipient, '8801534323811');
+    assert.strictEqual(sent.length, 15);
+    assert.strictEqual(sent[0].content, 'ডেমোগুলো শুনে দেখুন');
+
+    // Preenan sends '!demo' second time - force bypasses welcome_sent
+    const preenanMsg2 = {
+      fromMe: false,
+      from: '8801534323811@c.us',
+      to: '8801999999999@c.us',
+      id: { remote: '8801534323811@c.us', id: 'preenan_msg_2' },
+      body: '!demo'
+    };
+
+    const res2 = await handleMessageCreate({ msg: preenanMsg2, client, db });
+    assert.strictEqual(res2.action, 'TEST_WELCOME_DEMO_SENT');
+    assert.strictEqual(sent.length, 30); // sent another 15 messages
+
+    // Preenan sends regular non-demo message
+    const preenanMsg3 = {
+      fromMe: false,
+      from: '8801534323811@c.us',
+      to: '8801999999999@c.us',
+      id: { remote: '8801534323811@c.us', id: 'preenan_msg_3' },
+      body: 'কেমন আছেন?'
+    };
+
+    const res3 = await handleMessageCreate({ msg: preenanMsg3, client, db });
+    assert.notStrictEqual(res3.action, 'TEST_WELCOME_DEMO_SENT');
+    assert.strictEqual(sent.length, 30);
+
+    // Non-Preenan contact sends 'demo'
+    const otherMsg = {
+      fromMe: false,
+      from: '8801700000099@c.us',
+      to: '8801999999999@c.us',
+      id: { remote: '8801700000099@c.us', id: 'other_msg_1' },
+      body: 'demo'
+    };
+
+    const res4 = await handleMessageCreate({ msg: otherMsg, client, db });
+    assert.notStrictEqual(res4.action, 'TEST_WELCOME_DEMO_SENT');
+
+    // Self-chat sends 'demo'
+    const selfMsg = {
+      fromMe: false,
+      from: '8801999999999@c.us',
+      to: '8801999999999@c.us',
+      id: { remote: '8801999999999@c.us', id: 'self_demo_1' },
+      body: 'demo'
+    };
+
+    const res5 = await handleMessageCreate({ msg: selfMsg, client, db });
+    assert.strictEqual(res5.action, 'TEST_WELCOME_DEMO_SENT');
+
+    db.close();
+  });
 });

@@ -1308,7 +1308,22 @@ async function handleMessageCreate({
       return { action: 'RESPONDED_SELF_LEDGER_GUIDANCE' };
     }
 
-    // 7. Any other text in self-chat -> Friendly help hint
+    // 7. Demo Command (test welcome sequence)
+    if (/^(?:!|\/)?(demo|ডেমো)$/i.test(String(msg.body || '').trim())) {
+      console.log('[TEST_DEMO] Received demo command in self-chat. Sending welcome demo sequence...');
+      const targetChat = msg.id?.remote || msg.to || msg.from;
+      const welcomeResult = await sendWelcomeDemo({
+        client,
+        targetChat,
+        db: null,
+        phone: null,
+        delayMs: isTest ? 0 : 800,
+        force: true
+      });
+      return { action: 'TEST_WELCOME_DEMO_SENT', details: { recipient: 'self', targetChat, welcomeResult } };
+    }
+
+    // 8. Any other text in self-chat -> Friendly help hint
     const fallbackText = `ℹ️ কমান্ড বুঝতে পারিনি: "${msg.body}"\n\nউপলব্ধ কমান্ড তালিকা দেখতে *help* লিখুন অথবা বকেয়া তালিকা দেখতে *due* লিখুন।`;
     await sendSelfReply(fallbackText);
     return { action: 'RESPONDED_UNKNOWN_SELF_COMMAND', details: { text: msg.body } };
@@ -1735,6 +1750,32 @@ async function handleMessageCreate({
 
     try {
       const phone = await resolveCustomerPhone({ client, recipient: rawSender, msg });
+      const cleanPreenan = String(config.PREENAN_PHONE || '8801534323811').replace(/\D/g, '');
+      const isPreenan = isPhoneMatch(cleanSender, cleanPreenan) || (phone && isPhoneMatch(phone, cleanPreenan));
+      const msgText = String(msg.body || '').trim();
+
+      // TEST HOOK: If Preenan sends 'demo' (or '!demo', '/demo', 'ডেমো'), immediately trigger welcome demo sequence
+      if (isPreenan && /^(?:!|\/)?(demo|ডেমো)$/i.test(msgText)) {
+        console.log(`[TEST_DEMO] Received demo command from Preenan (+${phone || cleanSender}). Sending welcome demo sequence...`);
+        const targetChat = msg.from || msg.id?.remote || `${cleanPreenan}@c.us`;
+        const welcomeResult = await sendWelcomeDemo({
+          client,
+          targetChat,
+          db,
+          phone: phone || cleanPreenan,
+          delayMs: isTest ? 0 : 800,
+          force: true
+        });
+        return {
+          action: 'TEST_WELCOME_DEMO_SENT',
+          details: {
+            recipient: phone || cleanSender,
+            targetChat,
+            welcomeResult
+          }
+        };
+      }
+
       if (phone) {
         let contact = null;
         let contactName = null;

@@ -108,14 +108,15 @@ async function sendWelcomeDemo({
   phone = null,
   messages = null,
   delayMs = 800,
+  force = false,
   MediaClass = MessageMedia
 }) {
   if (!client || typeof client.sendMessage !== 'function' || !targetChat) {
     return { success: false, error: 'INVALID_CLIENT_OR_TARGET' };
   }
 
-  // Guard against duplicate welcome demo sends to the same lead
-  if (db && phone) {
+  // Guard against duplicate welcome demo sends to the same lead (unless force = true)
+  if (!force && db && phone) {
     try {
       const row = db.prepare('SELECT welcome_sent FROM leads WHERE phone_number = ?').get(phone);
       if (row && row.welcome_sent === 1) {
