@@ -4,6 +4,9 @@ node_modules/
 data/*.db
 data/*.db-wal
 data/*.db-shm
+data/*.json
+data/*.csv
+data/*.txt
 .env
 npm-debug.log*
 cloudflared.exe

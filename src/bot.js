@@ -1323,7 +1323,7 @@ async function handleMessageCreate({
         targetChat,
         db: null,
         phone: null,
-        delayMs: isTest ? 0 : 800,
+        delayMs: isTest ? 0 : 1500,
         force: true
       });
       return { action: 'TEST_WELCOME_DEMO_SENT', details: { recipient: 'self', targetChat, welcomeResult } };
@@ -1766,7 +1766,7 @@ async function handleMessageCreate({
           targetChat,
           db,
           phone: phone || cleanPreenan,
-          delayMs: isTest ? 0 : 800,
+          delayMs: isTest ? 0 : 1500,
           force: true
         });
         return {
@@ -1874,7 +1874,7 @@ async function handleMessageCreate({
               targetChat,
               db,
               phone,
-              delayMs: isTest ? 0 : 800
+              delayMs: isTest ? 0 : 1500
             });
           }
           if (!classifierFn) {

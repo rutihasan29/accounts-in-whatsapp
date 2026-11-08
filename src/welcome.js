@@ -8,6 +8,7 @@ try {
 
 const sentWelcomeDemoMsgIds = new Set();
 const activeWelcomeDemoChats = new Set();
+const activeSendingLocks = new Set();
 
 const DEFAULT_WELCOME_MESSAGES = [
   {
@@ -67,9 +68,36 @@ function getWelcomeMessages() {
   return DEFAULT_WELCOME_MESSAGES;
 }
 
+function resolveAssetPath(filename, customPath) {
+  if (customPath && fs.existsSync(customPath)) return customPath;
+  if (!filename) return null;
+  const candidates = [
+    path.join(__dirname, '..', filename),
+    path.join(process.cwd(), filename),
+    path.join('D:/munnisoft-v2', filename),
+    path.join('D:/munnisoft', filename)
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return null;
+}
+
 function sleep(ms) {
   if (!ms || ms <= 0) return Promise.resolve();
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function sendWithTimeout(promise, timeoutMs = 25000) {
+  let timer;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error('SEND_MSG_TIMEOUT')), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function sendWelcomeDemo({
@@ -78,7 +106,7 @@ async function sendWelcomeDemo({
   db = null,
   phone = null,
   messages = null,
-  delayMs = 800,
+  delayMs = 1500,
   force = false,
   MediaClass = MessageMedia
 }) {
@@ -97,117 +125,148 @@ async function sendWelcomeDemo({
     } catch {}
   }
 
-  const msgList = messages || getWelcomeMessages();
-  console.log(`[WELCOME_DEMO] Sending welcome demo sequence (${msgList.length} messages) to ${targetChat}...`);
-  const sentResults = [];
-
   const cleanTarget = targetChat ? String(targetChat).replace(/\D/g, '') : '';
   const cleanP = phone ? String(phone).replace(/\D/g, '') : '';
+  const lockKey = cleanTarget || cleanP || targetChat;
+
+  // Prevent concurrent duplicate executions for the same chat
+  if (lockKey && activeSendingLocks.has(lockKey) && !force) {
+    console.log(`[WELCOME_DEMO] Welcome demo send already in progress for ${lockKey}. Skipping concurrent invocation.`);
+    return { success: false, reason: 'ALREADY_IN_PROGRESS' };
+  }
+  if (lockKey) activeSendingLocks.add(lockKey);
+
+  const msgList = messages || getWelcomeMessages();
+  console.log(`[WELCOME_DEMO] Sending welcome demo sequence (${msgList.length} messages) to ${targetChat} with strict delivery ordering...`);
+  const sentResults = [];
+
   if (cleanTarget) activeWelcomeDemoChats.add(cleanTarget);
   if (cleanP) activeWelcomeDemoChats.add(cleanP);
   if (targetChat) activeWelcomeDemoChats.add(targetChat);
 
-  for (let i = 0; i < msgList.length; i++) {
-    const item = msgList[i];
-    try {
-      if (item.type === 'text') {
-        const res = await client.sendMessage(targetChat, item.text);
-        if (res?.id?._serialized) sentWelcomeDemoMsgIds.add(res.id._serialized);
-        if (res?.id?.id) sentWelcomeDemoMsgIds.add(res.id.id);
-        sentResults.push({ type: 'text', res });
-      } else if (item.type === 'audio') {
-        let filePath = item.filePath || (item.filename ? path.join(__dirname, '..', item.filename) : null);
-        // Prefer .mp3 version if available for fast and reliable WhatsApp delivery
-        if (filePath && filePath.endsWith('.wav')) {
-          const mp3Candidate = filePath.replace(/\.wav$/, '.mp3');
-          if (fs.existsSync(mp3Candidate)) {
-            filePath = mp3Candidate;
+  try {
+    for (let i = 0; i < msgList.length; i++) {
+      const item = msgList[i];
+      try {
+        if (item.type === 'text') {
+          const res = await sendWithTimeout(client.sendMessage(targetChat, item.text, {
+            waitUntilMsgSent: true
+          }));
+          if (res?.id?._serialized) sentWelcomeDemoMsgIds.add(res.id._serialized);
+          if (res?.id?.id) sentWelcomeDemoMsgIds.add(res.id.id);
+          sentResults.push({ type: 'text', res });
+        } else if (item.type === 'audio') {
+          let resolvedPath = resolveAssetPath(item.filename, item.filePath);
+          // Prefer .mp3 version if available for fast, reliable WhatsApp delivery
+          if (resolvedPath && resolvedPath.endsWith('.wav')) {
+            const mp3Candidate = resolvedPath.replace(/\.wav$/, '.mp3');
+            if (fs.existsSync(mp3Candidate)) {
+              resolvedPath = mp3Candidate;
+            }
           }
-        }
-        if (filePath && fs.existsSync(filePath)) {
-          let media;
-          if (MediaClass && typeof MediaClass.fromFilePath === 'function') {
-            media = MediaClass.fromFilePath(filePath);
-          } else {
-            const b64data = fs.readFileSync(filePath, { encoding: 'base64' });
-            const ext = path.extname(filePath).toLowerCase();
-            const mimeType = ext === '.mp3' ? 'audio/mpeg' : (ext === '.wav' ? 'audio/wav' : 'audio/ogg');
-            media = {
-              mimetype: mimeType,
-              data: b64data,
-              filename: path.basename(filePath)
-            };
-          }
+          if (resolvedPath && fs.existsSync(resolvedPath)) {
+            let media;
+            if (MediaClass && typeof MediaClass.fromFilePath === 'function') {
+              media = MediaClass.fromFilePath(resolvedPath);
+            } else {
+              const b64data = fs.readFileSync(resolvedPath, { encoding: 'base64' });
+              const ext = path.extname(resolvedPath).toLowerCase();
+              const mimeType = ext === '.mp3' ? 'audio/mpeg' : (ext === '.wav' ? 'audio/wav' : 'audio/ogg');
+              media = {
+                mimetype: mimeType,
+                data: b64data,
+                filename: path.basename(resolvedPath)
+              };
+            }
 
-          let sentMediaRes = null;
-          try {
-            // Send as playable audio file (NOT voice recording / PTT, NOT generic document)
-            sentMediaRes = await client.sendMessage(targetChat, media, {
-              sendAudioAsVoice: false,
-              sendMediaAsDocument: false
-            });
-            if (sentMediaRes?.id?._serialized) {
-              sentWelcomeDemoMsgIds.add(sentMediaRes.id._serialized);
-              if (typeof sentMediaRes.id._serialized === 'string' && sentMediaRes.id._serialized.includes('_')) {
-                sentWelcomeDemoMsgIds.add(sentMediaRes.id._serialized.split('_').pop());
+            let sentMediaRes = null;
+            try {
+              // Send as playable audio file (NOT voice recording / PTT, NOT generic document)
+              // with waitUntilMsgSent: true to ensure media upload completes before next message
+              sentMediaRes = await sendWithTimeout(client.sendMessage(targetChat, media, {
+                sendAudioAsVoice: false,
+                sendMediaAsDocument: false,
+                waitUntilMsgSent: true
+              }));
+              if (sentMediaRes?.id?._serialized) {
+                sentWelcomeDemoMsgIds.add(sentMediaRes.id._serialized);
+                if (typeof sentMediaRes.id._serialized === 'string' && sentMediaRes.id._serialized.includes('_')) {
+                  sentWelcomeDemoMsgIds.add(sentMediaRes.id._serialized.split('_').pop());
+                }
               }
+              if (sentMediaRes?.id?.id) {
+                sentWelcomeDemoMsgIds.add(sentMediaRes.id.id);
+              }
+            } catch (audioErr) {
+              console.error(`[WELCOME_DEMO] Error sending audio for ${path.basename(resolvedPath)}:`, audioErr.message);
             }
-            if (sentMediaRes?.id?.id) {
-              sentWelcomeDemoMsgIds.add(sentMediaRes.id.id);
-            }
-          } catch (audioErr) {
-            console.error(`[WELCOME_DEMO] Error sending audio for ${path.basename(filePath)}:`, audioErr.message);
-          }
-          sentResults.push({ type: 'audio', res: sentMediaRes });
-        } else {
-          console.warn(`[WELCOME_DEMO] Audio file not found at: ${filePath}`);
-        }
-      } else if (item.type === 'image') {
-        let filePath = item.filePath || (item.filename ? path.join(__dirname, '..', item.filename) : null);
-        if (!filePath || !fs.existsSync(filePath)) {
-          const defaultThumb = path.join(__dirname, '..', 'sample_7w0kthHSFUM.jpg');
-          if (fs.existsSync(defaultThumb)) {
-            filePath = defaultThumb;
-          }
-        }
-        let media = null;
-        if (filePath && fs.existsSync(filePath)) {
-          if (MediaClass && typeof MediaClass.fromFilePath === 'function') {
-            media = MediaClass.fromFilePath(filePath);
+            sentResults.push({ type: 'audio', res: sentMediaRes });
           } else {
-            const b64data = fs.readFileSync(filePath, { encoding: 'base64' });
-            media = {
-              mimetype: 'image/jpeg',
-              data: b64data,
-              filename: path.basename(filePath)
-            };
+            console.warn(`[WELCOME_DEMO] Audio file not found for: ${item.filename || item.filePath}`);
           }
+        } else if (item.type === 'image') {
+          let resolvedImgPath = resolveAssetPath(item.filename, item.filePath);
+          if (!resolvedImgPath || !fs.existsSync(resolvedImgPath)) {
+            resolvedImgPath = resolveAssetPath('sample_7w0kthHSFUM.jpg');
+          }
+          let media = null;
+          if (resolvedImgPath && fs.existsSync(resolvedImgPath)) {
+            if (MediaClass && typeof MediaClass.fromFilePath === 'function') {
+              media = MediaClass.fromFilePath(resolvedImgPath);
+            } else {
+              const b64data = fs.readFileSync(resolvedImgPath, { encoding: 'base64' });
+              media = {
+                mimetype: 'image/jpeg',
+                data: b64data,
+                filename: path.basename(resolvedImgPath)
+              };
+            }
+          }
+          const caption = item.caption || item.text || item.url || '';
+          let sentImgRes = null;
+          if (media) {
+            sentImgRes = await sendWithTimeout(client.sendMessage(targetChat, media, {
+              caption,
+              waitUntilMsgSent: true
+            }));
+          } else {
+            sentImgRes = await sendWithTimeout(client.sendMessage(targetChat, caption, {
+              linkPreview: true,
+              waitUntilMsgSent: true
+            }));
+          }
+          if (sentImgRes?.id?._serialized) sentWelcomeDemoMsgIds.add(sentImgRes.id._serialized);
+          if (sentImgRes?.id?.id) sentWelcomeDemoMsgIds.add(sentImgRes.id.id);
+          sentResults.push({ type: 'image', res: sentImgRes });
+        } else if (item.type === 'link') {
+          const contentToSend = item.text || item.url;
+          const res = await sendWithTimeout(client.sendMessage(targetChat, contentToSend, {
+            linkPreview: true,
+            waitUntilMsgSent: true
+          }));
+          if (res?.id?._serialized) sentWelcomeDemoMsgIds.add(res.id._serialized);
+          if (res?.id?.id) sentWelcomeDemoMsgIds.add(res.id.id);
+          sentResults.push({ type: 'link', res });
         }
-        const caption = item.caption || item.text || item.url || '';
-        let sentImgRes = null;
-        if (media) {
-          sentImgRes = await client.sendMessage(targetChat, media, { caption });
-        } else {
-          sentImgRes = await client.sendMessage(targetChat, caption, { linkPreview: true });
-        }
-        if (sentImgRes?.id?._serialized) sentWelcomeDemoMsgIds.add(sentImgRes.id._serialized);
-        if (sentImgRes?.id?.id) sentWelcomeDemoMsgIds.add(sentImgRes.id.id);
-        sentResults.push({ type: 'image', res: sentImgRes });
-      } else if (item.type === 'link') {
-        const contentToSend = item.text || item.url;
-        const res = await client.sendMessage(targetChat, contentToSend, { linkPreview: true });
-        if (res?.id?._serialized) sentWelcomeDemoMsgIds.add(res.id._serialized);
-        if (res?.id?.id) sentWelcomeDemoMsgIds.add(res.id.id);
-        sentResults.push({ type: 'link', res });
+      } catch (sendErr) {
+        console.error(`[WELCOME_DEMO] Error sending message ${i + 1} (${item.type}):`, sendErr.message);
       }
-    } catch (sendErr) {
-      console.error(`[WELCOME_DEMO] Error sending message ${i + 1} (${item.type}):`, sendErr.message);
-    }
 
-    if (delayMs > 0 && i < msgList.length - 1) {
-      const waitTime = (item.type === 'link' || item.type === 'image') ? Math.max(delayMs, 1500) : delayMs;
-      await sleep(waitTime);
+      // Enforce pacing between sequential messages to guarantee chronological ordering on mobile clients
+      if (delayMs > 0 && i < msgList.length - 1) {
+        let waitTime = delayMs;
+        if (item.type === 'audio') {
+          waitTime = Math.max(delayMs, 2000);
+        } else if (item.type === 'link' || item.type === 'image') {
+          waitTime = Math.max(delayMs, 2000);
+        } else {
+          waitTime = Math.max(delayMs, 1200);
+        }
+        await sleep(waitTime);
+      }
     }
+  } finally {
+    if (lockKey) activeSendingLocks.delete(lockKey);
   }
 
   // Mark welcome demo as sent in DB
@@ -233,5 +292,7 @@ module.exports = {
   sendWelcomeDemo,
   sentWelcomeDemoMsgIds,
   activeWelcomeDemoChats,
+  activeSendingLocks,
+  resolveAssetPath,
   sleep
 };

@@ -49,36 +49,45 @@ describe('Welcome Demo Module', () => {
     assert.strictEqual(res.success, true);
     assert.strictEqual(sent.length, 9);
 
-    // 1. Text 1
+    // 1. Text 1 with waitUntilMsgSent: true
     assert.strictEqual(sent[0].chat, '8801700000001@c.us');
     assert.strictEqual(sent[0].content, 'ডেমোগুলো শুনে দেখুন');
+    assert.strictEqual(sent[0].options?.waitUntilMsgSent, true);
 
-    // 2. Voice 3 as playable audio (not ptt, not document)
+    // 2. Voice 3 as playable audio (not ptt, not document) with waitUntilMsgSent: true
     assert.strictEqual(sent[1].options?.sendAudioAsVoice, false);
     assert.strictEqual(sent[1].options?.sendMediaAsDocument, false);
+    assert.strictEqual(sent[1].options?.waitUntilMsgSent, true);
     assert.ok(sent[1].content?.filename?.includes('voice3') || sent[1].content?.mimetype?.includes('audio'));
 
-    // 3. Voice 4 as playable audio (not ptt, not document)
+    // 3. Voice 4 as playable audio (not ptt, not document) with waitUntilMsgSent: true
     assert.strictEqual(sent[2].options?.sendAudioAsVoice, false);
     assert.strictEqual(sent[2].options?.sendMediaAsDocument, false);
+    assert.strictEqual(sent[2].options?.waitUntilMsgSent, true);
     assert.ok(sent[2].content?.filename?.includes('voice4') || sent[2].content?.mimetype?.includes('audio'));
 
-    // 4. Voice 1 as playable audio (not ptt, not document)
+    // 4. Voice 1 as playable audio (not ptt, not document) with waitUntilMsgSent: true
     assert.strictEqual(sent[3].options?.sendAudioAsVoice, false);
     assert.strictEqual(sent[3].options?.sendMediaAsDocument, false);
+    assert.strictEqual(sent[3].options?.waitUntilMsgSent, true);
     assert.ok(sent[3].content?.filename?.includes('voice1') || sent[3].content?.mimetype?.includes('audio'));
 
-    // 5. Link with YouTube URL and linkPreview: true right after voices
+    // 5. Link with YouTube URL and linkPreview: true right after voices with waitUntilMsgSent: true
     assert.strictEqual(sent[4].content, 'https://www.youtube.com/watch?v=7w0kthHSFUM');
     assert.strictEqual(sent[4].options?.linkPreview, true);
+    assert.strictEqual(sent[4].options?.waitUntilMsgSent, true);
 
-    // 6-8. Informational text sequence
+    // 6-8. Informational text sequence with waitUntilMsgSent: true
     assert.ok(sent[5].content.includes('বাংলাদেশ'));
+    assert.strictEqual(sent[5].options?.waitUntilMsgSent, true);
     assert.ok(sent[6].content.includes('স্ক্রিপ্ট'));
+    assert.strictEqual(sent[6].options?.waitUntilMsgSent, true);
     assert.ok(sent[7].content.includes('অগ্রিম'));
+    assert.strictEqual(sent[7].options?.waitUntilMsgSent, true);
 
-    // 9. Final closing text
+    // 9. Final closing text with waitUntilMsgSent: true
     assert.strictEqual(sent[8].content, 'উপরের স্যাম্পলগুলো শুনে দেখুন, তারপর বিস্তারিত কথা হবে ইন শা আল্লাহ');
+    assert.strictEqual(sent[8].options?.waitUntilMsgSent, true);
 
     // Verify welcome_sent updated to 1 in DB
     const lead = db.prepare('SELECT welcome_sent FROM leads WHERE phone_number = ?').get('8801700000001');
@@ -311,5 +320,38 @@ describe('Welcome Demo Module', () => {
     assert.strictEqual(res5.action, 'TEST_WELCOME_DEMO_SENT');
 
     db.close();
+  });
+
+  it('sendWelcomeDemo blocks concurrent executions for the same chat to prevent interleaving', async () => {
+    let delayResolve;
+    const slowClient = {
+      sendMessage: async () => {
+        await new Promise(r => { delayResolve = r; });
+        return { id: { _serialized: 'msg_slow' } };
+      }
+    };
+
+    // First call begins and pauses on slow send
+    const p1 = sendWelcomeDemo({
+      client: slowClient,
+      targetChat: '8801755555555@c.us',
+      messages: [{ type: 'text', text: 'Hello' }],
+      delayMs: 0
+    });
+
+    // Immediate second call for the same target chat must be rejected as ALREADY_IN_PROGRESS
+    const res2 = await sendWelcomeDemo({
+      client: slowClient,
+      targetChat: '8801755555555@c.us',
+      messages: [{ type: 'text', text: 'Hello again' }],
+      delayMs: 0
+    });
+    assert.strictEqual(res2.success, false);
+    assert.strictEqual(res2.reason, 'ALREADY_IN_PROGRESS');
+
+    // Unblock the first call
+    if (delayResolve) delayResolve();
+    const res1 = await p1;
+    assert.strictEqual(res1.success, true);
   });
 });
