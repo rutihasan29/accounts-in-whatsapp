@@ -1215,6 +1215,8 @@ const DEFAULT_BOT_SETTINGS = Object.freeze({
   ai_classifier_enabled: true,
   welcome_demo_enabled: true,
   auto_audio_billing_enabled: true,
+  auto_video_billing_enabled: true,
+  default_video_bill_amount: 350,
   video_customer_escalation_enabled: true,
   ve3_escalation_enabled: true
 });

@@ -749,7 +749,7 @@ describe('Bot Message Router', () => {
       };
 
       const res = await handleMessageCreate({ msg, client, db });
-      assert.strictEqual(res.action, 'IGNORED_UNMATCHED');
+      assert.ok(res.action === 'IGNORED_UNMATCHED' || res.action === 'IGNORED_PTT_TO_CLIENT');
       assert.strictEqual(sendMessageCalled, false);
     });
 

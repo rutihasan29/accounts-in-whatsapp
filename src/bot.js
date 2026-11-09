@@ -170,8 +170,14 @@ async function sendAndRecordAudioBill({
       duration: durationSeconds,
       filename: audioFilename
     });
+    recentOutboundJobTypes.set(cleanPhone, {
+      jobType: 'voice',
+      durationSeconds: Math.round(durationSeconds),
+      time: now
+    });
   }
 
+  console.log(`[AUDIO_DELIVERY] Delivered audio duration: ${Math.round(durationSeconds)}s noted for +${cleanPhone}`);
   console.log(`[AUDIO_BILL] Recorded voice job (${Math.round(durationSeconds)}s) bill ${billAmount} BDT for +${cleanPhone}${contactName ? ` (${contactName})` : ''}. Current due: ${record.dueAmount} BDT`);
 
   pendingAutoBills.push({
@@ -2048,18 +2054,171 @@ async function handleMessageCreate({
     }
   }
 
+  // Handle PTT / voice notes sent to client - strictly DO NOT bill and DO NOT log
+  if (msg.fromMe && !isSelf && (msg.type === 'ptt' || msg.isVoice === true || msg._data?.isVoice === true || msg._data?.type === 'ptt')) {
+    console.log('[AUDIO] Outgoing PTT/voice note to client. Skipping billing and logging per policy.');
+    return { action: 'IGNORED_PTT_TO_CLIENT' };
+  }
+
+  // Handle playable audio (type === 'audio', e.g. welcome sequence demo voice) sent to client - strictly DO NOT bill and DO NOT log
+  if (msg.fromMe && !isSelf && (msg.type === 'audio' || msg._data?.type === 'audio')) {
+    const checkFilename = String(msg.filename || msg._data?.filename || msg._data?.title || msg.body || '').trim().toLowerCase();
+    const isDemo = /^(voice\d+|demo)/i.test(checkFilename) ||
+      checkFilename.includes('voice1') ||
+      checkFilename.includes('voice2') ||
+      checkFilename.includes('voice3') ||
+      checkFilename.includes('voice4') ||
+      checkFilename.includes('demo');
+
+    if (isDemo) {
+      console.log(`[AUDIO] Outgoing playable audio "${checkFilename}" is identified as demo voiceover. Skipping billing.`);
+      return { action: 'IGNORED_DEMO_AUDIO' };
+    }
+
+    if (db) {
+      try {
+        const targetChat = msg.id?.remote || msg.to || msg.from;
+        const rawRecipient = recipient || targetChat;
+        const phone = await resolveCustomerPhone({ client, recipient: rawRecipient, msg });
+        const cleanPhone = phone || (rawRecipient ? rawRecipient.split('@')[0].replace(/\D/g, '') : null);
+        if (cleanPhone) {
+          const lead = db.prepare('SELECT first_contact_at, welcome_sent FROM leads WHERE phone_number = ?').get(cleanPhone);
+          if (lead) {
+            const hasOrder = db.prepare('SELECT id FROM voice_job_orders WHERE customer_phone = ?').get(cleanPhone);
+            if (!hasOrder) {
+              console.log(`[AUDIO] Playable audio sent to lead +${cleanPhone} without order. Identified as demo audio. Skipping billing.`);
+              return { action: 'IGNORED_DEMO_AUDIO' };
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    console.log('[AUDIO] Outgoing playable audio (non-document) to client. Skipping billing and logging per policy.');
+    return { action: 'IGNORED_PLAYABLE_AUDIO_TO_CLIENT' };
+  }
+
   // Handle video document sent from our side
   if (msg.fromMe && !isSelf && isVideoDocumentMessage(msg)) {
     try {
       const targetChat = msg.id?.remote || msg.to || msg.from;
       const rawRecipient = recipient || targetChat;
       const phone = await resolveCustomerPhone({ client, recipient: rawRecipient, msg });
-      if (phone) {
-        recentOutboundJobTypes.set(phone, { jobType: 'video', time: Date.now() });
-        console.log(`[VIDEO_DISPATCH] Outbound video tracked for +${phone}`);
+      const cleanPhone = phone || (rawRecipient ? rawRecipient.split('@')[0].replace(/\D/g, '') : null);
+
+      if (cleanPhone) {
+        recentOutboundJobTypes.set(cleanPhone, { jobType: 'video', time: Date.now() });
+        console.log(`[VIDEO_DISPATCH] Outbound video tracked for +${cleanPhone}`);
       }
+
+      const autoVideoBillingEnabled = getBotSetting(db, 'auto_video_billing_enabled', true);
+      if (!autoVideoBillingEnabled) {
+        console.log('[VIDEO_BILLING] Auto video billing disabled via bot settings. Skipping billing.');
+        return { action: 'VIDEO_BILLING_DISABLED' };
+      }
+
+      const videoBillAmount = getBotSetting(db, 'default_video_bill_amount', 350) || 350;
+      const billText = formatBillMessage(videoBillAmount);
+      const destinationJid = targetChat || (cleanPhone ? `${cleanPhone}@c.us` : null);
+      const videoMsgId = msg.id?._serialized || msg.id?.id || null;
+
+      // Duplicate check (don't double bill within 20s for same phone)
+      const lastBilled = cleanPhone ? recentAudioBillsPerPhone.get(cleanPhone) : null;
+      const now = Date.now();
+      if (lastBilled && (now - lastBilled.time < 20000) && lastBilled.jobType === 'video') {
+        console.log(`[VIDEO_BILL] Duplicate video detected for +${cleanPhone}. Skipping duplicate billing.`);
+        return { action: 'IGNORED_ALREADY_BILLED' };
+      }
+
+      let contactName = null;
+      try {
+        if (client && typeof client.getContactById === 'function' && destinationJid) {
+          const contact = await client.getContactById(destinationJid);
+          contactName = contact?.name || contact?.pushname || null;
+        }
+      } catch {}
+
+      const record = recordTransaction(db, {
+        phone: cleanPhone,
+        name: contactName,
+        type: 'BILL',
+        amount: videoBillAmount,
+        rawText: billText,
+        messageId: videoMsgId,
+        jobType: 'video'
+      });
+
+      if (cleanPhone) {
+        recentAudioBillsPerPhone.set(cleanPhone, {
+          time: now,
+          amount: videoBillAmount,
+          jobType: 'video',
+          filename: msg.filename || msg._data?.filename || ''
+        });
+      }
+
+      console.log(`[VIDEO_BILL] Recorded video job bill ${videoBillAmount} BDT for +${cleanPhone}${contactName ? ` (${contactName})` : ''}. Current due: ${record.dueAmount} BDT`);
+
+      pendingAutoBills.push({
+        targetChat: destinationJid,
+        targetChatDigits: String(destinationJid).replace(/\D/g, ''),
+        phone: cleanPhone,
+        amount: videoBillAmount,
+        time: Date.now()
+      });
+
+      let sentMsg = null;
+      if (client && typeof client.sendMessage === 'function' && destinationJid) {
+        try {
+          sentMsg = await client.sendMessage(destinationJid, billText);
+        } catch (err) {
+          console.warn(`[VIDEO_BILL] sendMessage to ${destinationJid} failed:`, err.message);
+          if (cleanPhone && `${cleanPhone}@c.us` !== destinationJid) {
+            try {
+              sentMsg = await client.sendMessage(`${cleanPhone}@c.us`, billText);
+            } catch {}
+          }
+        }
+      }
+
+      if (!sentMsg && msg && typeof msg.reply === 'function') {
+        try {
+          sentMsg = await msg.reply(billText);
+        } catch {}
+      }
+
+      if (sentMsg?.id?._serialized) {
+        sentAutoBillMsgIds.add(sentMsg.id._serialized);
+        if (typeof sentMsg.id._serialized === 'string' && sentMsg.id._serialized.includes('_')) {
+          sentAutoBillMsgIds.add(sentMsg.id._serialized.split('_').pop());
+        }
+      }
+      if (sentMsg?.id?.id) {
+        sentAutoBillMsgIds.add(sentMsg.id.id);
+      }
+
+      const sentMessageId = sentMsg?.id?._serialized || sentMsg?.id?.id || (typeof sentMsg?.id === 'string' ? sentMsg.id : null);
+      if (sentMessageId && record?.transactionId) {
+        try {
+          updateTransactionMessageId(db, record.transactionId, sentMessageId);
+        } catch {}
+      }
+
+      console.log(`[VIDEO_BILL] Sent video bill (${billText}) to ${destinationJid}`);
+
+      return {
+        action: 'SENT_VIDEO_BILL',
+        details: {
+          billAmount: videoBillAmount,
+          billText,
+          phone: cleanPhone,
+          destinationJid,
+          messageId: sentMessageId || videoMsgId
+        }
+      };
     } catch (err) {
-      console.warn('[VIDEO] Error tracking video document:', err.message);
+      console.warn('[VIDEO] Error handling video document billing:', err.message);
+      return { action: 'ERROR_VIDEO_BILLING', error: err.message };
     }
   }
 
@@ -2185,6 +2344,15 @@ async function handleMessageCreate({
         }
 
         const cleanPhone = phone || (rawRecipient ? rawRecipient.split('@')[0].replace(/\D/g, '') : null);
+
+        if (cleanPhone) {
+          recentOutboundJobTypes.set(cleanPhone, {
+            jobType: 'voice',
+            durationSeconds: Math.round(duration),
+            time: Date.now()
+          });
+          console.log(`[AUDIO_DELIVERY] Delivered audio duration: ${Math.round(duration)}s noted for +${cleanPhone}`);
+        }
 
         // Safeguard against duplicate billing of bot-forwarded VA audio by duration:
         if (db && cleanPhone) {
@@ -2321,10 +2489,12 @@ async function handleMessageCreate({
     }
 
     let jobType = 'voice';
+    let durationSeconds = null;
     if (parsed.type === 'BILL') {
       const recentJob = recentOutboundJobTypes.get(phone);
       if (recentJob && (Date.now() - recentJob.time < 30 * 60 * 1000)) {
-        jobType = recentJob.jobType;
+        jobType = recentJob.jobType || jobType;
+        durationSeconds = recentJob.durationSeconds || null;
       }
     }
 
@@ -2336,7 +2506,8 @@ async function handleMessageCreate({
       amount: parsed.amount,
       rawText: parsed.rawText,
       messageId: msgId,
-      jobType: parsed.type === 'BILL' ? jobType : null
+      jobType: parsed.type === 'BILL' ? jobType : null,
+      durationSeconds: parsed.type === 'BILL' ? durationSeconds : null
     });
 
     console.log(`[${parsed.type}] ${parsed.amount} BDT recorded for +${phone}${contactName ? ` (${contactName})` : ''}. Current due: ${record.dueAmount} BDT`);
@@ -2457,6 +2628,17 @@ async function handleMessageRevoke({ after, before, client, db }) {
   }
 
   const tx = result.transaction;
+
+  // Clear any pendingAutoBills entry for this phone or target chat so replacement bill is not suppressed as echo
+  if (tx?.phone_number) {
+    const cleanPhone = String(tx.phone_number).replace(/\D/g, '');
+    for (let i = pendingAutoBills.length - 1; i >= 0; i--) {
+      if (pendingAutoBills[i].phone === cleanPhone || pendingAutoBills[i].targetChatDigits === cleanPhone) {
+        pendingAutoBills.splice(i, 1);
+      }
+    }
+  }
+
   console.log(`[REVOKE] Unsent message detected (${tx.message_id || candidateIds[0]}). Removed ${tx.type} of ${tx.amount} BDT for +${tx.phone_number}. New due: ${result.dueAmount} BDT`);
 
   return {

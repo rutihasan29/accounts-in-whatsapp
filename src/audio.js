@@ -134,29 +134,30 @@ function isAudioDocumentMessage(msg) {
     return false;
   }
 
+  // Strictly exclude voice notes / PTT
+  if (msg.isVoice === true || msg.type === 'ptt' || msg._data?.isVoice === true || msg._data?.type === 'ptt') {
+    return false;
+  }
+
   const rawFilename = msg.filename || msg._data?.filename || msg._data?.title || msg.body || '';
   const filename = String(rawFilename).toLowerCase();
   const mimetype = String(msg.mimetype || msg._data?.mimetype || '').toLowerCase();
   const type = String(msg.type || msg._data?.type || '').toLowerCase();
 
-  const isAudioExt = /\.(mp3|wav|m4a|ogg|opus|aac|flac|wma)$/i.test(filename);
-  const isAudioMime = mimetype.startsWith('audio/') || mimetype.includes('audio');
-
-  // If filename clearly has an audio extension, it IS an audio document even if marked voice
-  if (isAudioExt) {
-    return true;
-  }
-
-  // Strictly exclude voice notes / PTT if they don't have an audio file extension
-  if (msg.isVoice === true || msg.type === 'ptt' || msg._data?.isVoice === true || msg._data?.type === 'ptt') {
+  // Strictly exclude playable audio player (the preview type sent in welcome sequence)
+  if (type === 'audio') {
     return false;
   }
 
-  if (type === 'audio') {
-    return true;
+  const isAudioExt = /\.(mp3|wav|m4a|ogg|opus|aac|flac|wma)$/i.test(filename);
+  const isAudioMime = mimetype.startsWith('audio/') || mimetype.includes('audio');
+
+  // Must be document type (or document attachment without explicit type)
+  if (type === 'document' || (!type && (msg.hasMedia || msg._data?.directPath || msg._data?.mediaKey))) {
+    return isAudioExt || isAudioMime;
   }
 
-  return isAudioMime;
+  return false;
 }
 
 function isVideoDocumentMessage(msg) {
@@ -172,7 +173,7 @@ function isVideoDocumentMessage(msg) {
   const isVideoExt = /\.(mp4|mov|mkv|avi|webm|3gp|m4v)$/i.test(filename);
   const isVideoMime = mimetype.startsWith('video/');
 
-  return type === 'video' || ((type === 'document' || !type) && (isVideoExt || isVideoMime));
+  return (type === 'document' || type === 'video' || (!type && hasMedia)) && (isVideoExt || isVideoMime);
 }
 
 /**

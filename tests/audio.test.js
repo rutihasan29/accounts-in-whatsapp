@@ -135,7 +135,7 @@ describe('Audio Module', () => {
       assert.strictEqual(isAudioDocumentMessage(msg), true);
     });
 
-    it('returns true for real whatsapp-web.js Message with type audio and mimetype in _data', () => {
+    it('returns false for playable audio (type: audio, e.g. welcome sequence preview)', () => {
       const msg = {
         hasMedia: true,
         type: 'audio',
@@ -145,7 +145,7 @@ describe('Audio Module', () => {
           mimetype: 'audio/ogg; codecs=opus'
         }
       };
-      assert.strictEqual(isAudioDocumentMessage(msg), true);
+      assert.strictEqual(isAudioDocumentMessage(msg), false);
     });
 
     it('returns true for audio documents with m4a, wav, aac, flac in _data', () => {
