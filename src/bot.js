@@ -85,6 +85,18 @@ const recentOutboundJobTypes = new Map();
 const sentSelfBotMsgIds = new Set();
 const billedAudioMsgIds = new Set();
 const recentAudioBillsPerPhone = new Map();
+const billedVideoMsgIds = new Set();
+const recentVideoBillsPerPhone = new Map();
+const inFlightVideoBills = new Set();
+
+function parseDbDateMs(dateStr) {
+  if (!dateStr) return 0;
+  if (typeof dateStr === 'number') return dateStr;
+  const str = String(dateStr).trim();
+  const isoStr = str.includes('T') ? str : str.replace(' ', 'T') + (str.endsWith('Z') ? '' : 'Z');
+  const parsed = Date.parse(isoStr);
+  return isNaN(parsed) ? new Date(str).getTime() : parsed;
+}
 
 /**
  * Reusable helper to record an audio bill in the database and send the bill message to customer.
@@ -2100,13 +2112,49 @@ async function handleMessageCreate({
 
   // Handle video document sent from our side
   if (msg.fromMe && !isSelf && isVideoDocumentMessage(msg)) {
+    const serializedId = msg.id?._serialized;
+    const stanzaId = msg.id?.id;
+    const stanzaFromSerialized = typeof serializedId === 'string' && serializedId.includes('_') ? serializedId.split('_').pop() : null;
+
+    // 1. Synchronous check: if this video message ID was already billed, ignore immediately
+    if (
+      (serializedId && billedVideoMsgIds.has(serializedId)) ||
+      (stanzaId && billedVideoMsgIds.has(stanzaId)) ||
+      (stanzaFromSerialized && billedVideoMsgIds.has(stanzaFromSerialized))
+    ) {
+      console.log(`[VIDEO] Video document ${serializedId || stanzaId} already billed. Skipping duplicate billing.`);
+      return { action: 'IGNORED_ALREADY_BILLED' };
+    }
+
+    const targetChat = msg.id?.remote || msg.to || msg.from;
+    const rawRecipient = recipient || targetChat;
+    const targetKey = targetChat || rawRecipient || serializedId || stanzaId;
+
+    // 2. In-flight check to prevent race conditions during async phone resolution
+    if (
+      (targetKey && inFlightVideoBills.has(targetKey)) ||
+      (serializedId && inFlightVideoBills.has(serializedId)) ||
+      (stanzaId && inFlightVideoBills.has(stanzaId))
+    ) {
+      console.log(`[VIDEO] Video document ${targetKey || serializedId} currently in-flight. Skipping duplicate.`);
+      return { action: 'IGNORED_ALREADY_BILLED' };
+    }
+
+    if (targetKey) inFlightVideoBills.add(targetKey);
+    if (serializedId) inFlightVideoBills.add(serializedId);
+    if (stanzaId) inFlightVideoBills.add(stanzaId);
+
+    let cleanPhone = null;
     try {
-      const targetChat = msg.id?.remote || msg.to || msg.from;
-      const rawRecipient = recipient || targetChat;
       const phone = await resolveCustomerPhone({ client, recipient: rawRecipient, msg });
-      const cleanPhone = phone || (rawRecipient ? rawRecipient.split('@')[0].replace(/\D/g, '') : null);
+      cleanPhone = phone || (rawRecipient ? rawRecipient.split('@')[0].replace(/\D/g, '') : null);
 
       if (cleanPhone) {
+        if (inFlightVideoBills.has(cleanPhone)) {
+          console.log(`[VIDEO] Video billing for +${cleanPhone} currently in-flight. Skipping duplicate.`);
+          return { action: 'IGNORED_ALREADY_BILLED' };
+        }
+        inFlightVideoBills.add(cleanPhone);
         recentOutboundJobTypes.set(cleanPhone, { jobType: 'video', time: Date.now() });
         console.log(`[VIDEO_DISPATCH] Outbound video tracked for +${cleanPhone}`);
       }
@@ -2117,18 +2165,58 @@ async function handleMessageCreate({
         return { action: 'VIDEO_BILLING_DISABLED' };
       }
 
+      const now = Date.now();
+      const VIDEO_DUPLICATE_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+      const VIDEO_SAME_FILENAME_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
+      const incomingFilename = String(msg.filename || msg._data?.filename || msg.body || '').trim().toLowerCase();
+
+      // 3. In-memory check against recent bills (5-minute window per phone, 30-minute for same filename)
+      const lastBilled = cleanPhone ? (recentVideoBillsPerPhone.get(cleanPhone) || recentAudioBillsPerPhone.get(cleanPhone)) : null;
+      if (lastBilled && lastBilled.jobType === 'video') {
+        const timeSince = now - lastBilled.time;
+        const isSameFilename = Boolean(
+          incomingFilename &&
+          lastBilled.filename &&
+          incomingFilename === String(lastBilled.filename).trim().toLowerCase()
+        );
+        if (timeSince < VIDEO_DUPLICATE_WINDOW_MS || (isSameFilename && timeSince < VIDEO_SAME_FILENAME_WINDOW_MS)) {
+          console.log(`[VIDEO_BILL] Duplicate video detected for +${cleanPhone} (last billed ${Math.round(timeSince / 1000)}s ago, sameFilename=${isSameFilename}). Skipping duplicate billing.`);
+          return { action: 'IGNORED_ALREADY_BILLED' };
+        }
+      }
+
+      // 4. Database check for recent video bill (prevents duplicate after bot restart or long upload delays)
+      if (db && cleanPhone) {
+        try {
+          const recentTx = db.prepare(`
+            SELECT id, created_at, (strftime('%s', 'now') - strftime('%s', created_at)) AS age_sec
+            FROM transactions
+            WHERE phone_number = ? AND job_type = 'video' AND type = 'BILL'
+            ORDER BY id DESC LIMIT 1
+          `).get(cleanPhone);
+
+          if (recentTx) {
+            const txAgeSec = (recentTx.age_sec !== null && recentTx.age_sec !== undefined) ? Number(recentTx.age_sec) : null;
+            const txTimeMs = parseDbDateMs(recentTx.created_at);
+            const jsAgeSec = txTimeMs > 0 ? (now - txTimeMs) / 1000 : null;
+
+            const isRecent = (txAgeSec !== null && Math.abs(txAgeSec) < 300) ||
+                             (jsAgeSec !== null && Math.abs(jsAgeSec) < 300);
+
+            if (isRecent) {
+              console.log(`[VIDEO_BILL] Recent video bill transaction #${recentTx.id} found in DB for +${cleanPhone}. Skipping duplicate billing.`);
+              return { action: 'IGNORED_ALREADY_BILLED' };
+            }
+          }
+        } catch (dbErr) {
+          console.warn('[VIDEO_BILL] Error querying recent video transactions:', dbErr.message);
+        }
+      }
+
       const videoBillAmount = getBotSetting(db, 'default_video_bill_amount', 350) || 350;
       const billText = formatBillMessage(videoBillAmount);
       const destinationJid = targetChat || (cleanPhone ? `${cleanPhone}@c.us` : null);
-      const videoMsgId = msg.id?._serialized || msg.id?.id || null;
-
-      // Duplicate check (don't double bill within 20s for same phone)
-      const lastBilled = cleanPhone ? recentAudioBillsPerPhone.get(cleanPhone) : null;
-      const now = Date.now();
-      if (lastBilled && (now - lastBilled.time < 20000) && lastBilled.jobType === 'video') {
-        console.log(`[VIDEO_BILL] Duplicate video detected for +${cleanPhone}. Skipping duplicate billing.`);
-        return { action: 'IGNORED_ALREADY_BILLED' };
-      }
+      const videoMsgId = serializedId || stanzaId || null;
 
       let contactName = null;
       try {
@@ -2149,13 +2237,19 @@ async function handleMessageCreate({
       });
 
       if (cleanPhone) {
-        recentAudioBillsPerPhone.set(cleanPhone, {
+        const billMeta = {
           time: now,
           amount: videoBillAmount,
           jobType: 'video',
           filename: msg.filename || msg._data?.filename || ''
-        });
+        };
+        recentVideoBillsPerPhone.set(cleanPhone, billMeta);
+        recentAudioBillsPerPhone.set(cleanPhone, billMeta);
       }
+
+      if (serializedId) billedVideoMsgIds.add(serializedId);
+      if (stanzaId) billedVideoMsgIds.add(stanzaId);
+      if (stanzaFromSerialized) billedVideoMsgIds.add(stanzaFromSerialized);
 
       console.log(`[VIDEO_BILL] Recorded video job bill ${videoBillAmount} BDT for +${cleanPhone}${contactName ? ` (${contactName})` : ''}. Current due: ${record.dueAmount} BDT`);
 
@@ -2189,12 +2283,15 @@ async function handleMessageCreate({
 
       if (sentMsg?.id?._serialized) {
         sentAutoBillMsgIds.add(sentMsg.id._serialized);
+        billedVideoMsgIds.add(sentMsg.id._serialized);
         if (typeof sentMsg.id._serialized === 'string' && sentMsg.id._serialized.includes('_')) {
           sentAutoBillMsgIds.add(sentMsg.id._serialized.split('_').pop());
+          billedVideoMsgIds.add(sentMsg.id._serialized.split('_').pop());
         }
       }
       if (sentMsg?.id?.id) {
         sentAutoBillMsgIds.add(sentMsg.id.id);
+        billedVideoMsgIds.add(sentMsg.id.id);
       }
 
       const sentMessageId = sentMsg?.id?._serialized || sentMsg?.id?.id || (typeof sentMsg?.id === 'string' ? sentMsg.id : null);
@@ -2219,6 +2316,11 @@ async function handleMessageCreate({
     } catch (err) {
       console.warn('[VIDEO] Error handling video document billing:', err.message);
       return { action: 'ERROR_VIDEO_BILLING', error: err.message };
+    } finally {
+      if (targetKey) inFlightVideoBills.delete(targetKey);
+      if (serializedId) inFlightVideoBills.delete(serializedId);
+      if (stanzaId) inFlightVideoBills.delete(stanzaId);
+      if (cleanPhone) inFlightVideoBills.delete(cleanPhone);
     }
   }
 
@@ -2625,6 +2727,7 @@ async function handleMessageRevoke({ after, before, client, db }) {
 
   for (const cid of candidateIds) {
     sentAutoBillMsgIds.delete(cid);
+    billedVideoMsgIds.delete(cid);
   }
 
   const tx = result.transaction;
@@ -2632,6 +2735,11 @@ async function handleMessageRevoke({ after, before, client, db }) {
   // Clear any pendingAutoBills entry for this phone or target chat so replacement bill is not suppressed as echo
   if (tx?.phone_number) {
     const cleanPhone = String(tx.phone_number).replace(/\D/g, '');
+    recentVideoBillsPerPhone.delete(cleanPhone);
+    const lastAudioBill = recentAudioBillsPerPhone.get(cleanPhone);
+    if (lastAudioBill && (lastAudioBill.jobType === 'video' || tx.type === 'BILL')) {
+      recentAudioBillsPerPhone.delete(cleanPhone);
+    }
     for (let i = pendingAutoBills.length - 1; i >= 0; i--) {
       if (pendingAutoBills[i].phone === cleanPhone || pendingAutoBills[i].targetChatDigits === cleanPhone) {
         pendingAutoBills.splice(i, 1);
@@ -3145,6 +3253,9 @@ module.exports = {
   pendingAutoBills,
   billedAudioMsgIds,
   recentAudioBillsPerPhone,
+  billedVideoMsgIds,
+  recentVideoBillsPerPhone,
+  inFlightVideoBills,
   sendAndRecordAudioBill,
   isTestEnv,
   createMedia,

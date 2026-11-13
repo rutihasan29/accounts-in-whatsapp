@@ -8,6 +8,7 @@ const {
   initDb,
   createVoiceJobOrder,
   getCustomerTransactions,
+  recordTransaction,
   getBotSetting,
   setBotSetting
 } = require('../src/db');
@@ -233,6 +234,141 @@ describe('Delivery Billing & Duration Logging Suite', () => {
     });
     assert.strictEqual(echoRes.action, 'IGNORED_ECHO_AUTO_BILL');
     assert.strictEqual(getCustomerTransactions(db, '8801700000002').length, 1);
+
+    db.close();
+  });
+
+  it('prevents duplicate video billing when same video document message ID arrives again', async () => {
+    const db = initDb(':memory:');
+    const sentMessages = [];
+    const mockClient = {
+      sendMessage: async (jid, text) => {
+        sentMessages.push({ jid, text });
+        return { id: { _serialized: `true_${jid}_vidbill_dup`, id: 'vidbill_dup' } };
+      },
+      getContactById: async () => ({ name: 'Video Client' })
+    };
+
+    const videoDocMsg = {
+      id: { _serialized: 'true_8801700000004@c.us_viddoc_same_id', id: 'viddoc_same_id' },
+      fromMe: true,
+      from: '8801340517587@c.us',
+      to: '8801700000004@c.us',
+      hasMedia: true,
+      type: 'document',
+      filename: 'report_news.mp4',
+      mimetype: 'video/mp4'
+    };
+
+    // First event: sends bill
+    const res1 = await handleMessageCreate({ msg: videoDocMsg, client: mockClient, db });
+    assert.strictEqual(res1.action, 'SENT_VIDEO_BILL');
+    assert.strictEqual(sentMessages.length, 1);
+    assert.strictEqual(getCustomerTransactions(db, '8801700000004').length, 1);
+
+    // Second event (e.g. upload completed / sync event with same message ID): must be ignored!
+    const res2 = await handleMessageCreate({ msg: videoDocMsg, client: mockClient, db });
+    assert.strictEqual(res2.action, 'IGNORED_ALREADY_BILLED');
+    assert.strictEqual(sentMessages.length, 1, 'Should NOT send second bill message');
+    assert.strictEqual(getCustomerTransactions(db, '8801700000004').length, 1, 'Should NOT record second transaction');
+
+    db.close();
+  });
+
+  it('prevents duplicate video billing when upload completion event arrives 27 seconds later', async () => {
+    const db = initDb(':memory:');
+    const sentMessages = [];
+    const mockClient = {
+      sendMessage: async (jid, text) => {
+        sentMessages.push({ jid, text });
+        return { id: { _serialized: `true_${jid}_vidbill_delay`, id: 'vidbill_delay' } };
+      },
+      getContactById: async () => ({ name: 'Video Client' })
+    };
+
+    const videoMsg1 = {
+      id: { _serialized: 'true_8801700000005@c.us_vid_draft', id: 'vid_draft' },
+      fromMe: true,
+      from: '8801340517587@c.us',
+      to: '8801700000005@c.us',
+      hasMedia: true,
+      type: 'document',
+      filename: 'bulletin_video.mp4',
+      mimetype: 'video/mp4'
+    };
+
+    // First event at t = 0
+    const res1 = await handleMessageCreate({ msg: videoMsg1, client: mockClient, db });
+    assert.strictEqual(res1.action, 'SENT_VIDEO_BILL');
+    assert.strictEqual(sentMessages.length, 1);
+    assert.strictEqual(getCustomerTransactions(db, '8801700000005').length, 1);
+
+    // Second event arrives 27 seconds later with server stanza id
+    // Simulate advancing time past 20s
+    const origDateNow = Date.now;
+    try {
+      Date.now = () => origDateNow() + 27000;
+
+      const videoMsg2 = {
+        id: { _serialized: 'true_8801700000005@c.us_vid_server_ack', id: 'vid_server_ack' },
+        fromMe: true,
+        from: '8801340517587@c.us',
+        to: '8801700000005@c.us',
+        hasMedia: true,
+        type: 'document',
+        filename: 'bulletin_video.mp4',
+        mimetype: 'video/mp4'
+      };
+
+      const res2 = await handleMessageCreate({ msg: videoMsg2, client: mockClient, db });
+      assert.strictEqual(res2.action, 'IGNORED_ALREADY_BILLED');
+      assert.strictEqual(sentMessages.length, 1, 'Should NOT send second bill message at 27s');
+      assert.strictEqual(getCustomerTransactions(db, '8801700000005').length, 1);
+    } finally {
+      Date.now = origDateNow;
+    }
+
+    db.close();
+  });
+
+  it('prevents duplicate video billing when persistent transaction exists in database within 5 minutes', async () => {
+    const db = initDb(':memory:');
+    const sentMessages = [];
+    const mockClient = {
+      sendMessage: async (jid, text) => {
+        sentMessages.push({ jid, text });
+        return { id: { _serialized: `true_${jid}_vidbill_db`, id: 'vidbill_db' } };
+      },
+      getContactById: async () => ({ name: 'Video Client' })
+    };
+
+    // Pre-populate a video bill in DB recorded 1 minute ago
+    recordTransaction(db, {
+      phone: '8801700000006',
+      name: 'Video Client',
+      type: 'BILL',
+      amount: 350,
+      rawText: 'বিল ৩৫০ টাকা',
+      jobType: 'video'
+    });
+    assert.strictEqual(getCustomerTransactions(db, '8801700000006').length, 1);
+
+    // In-memory map is completely clean (e.g. after restart), but DB has recent bill
+    const videoMsg = {
+      id: { _serialized: 'true_8801700000006@c.us_vid_after_restart', id: 'vid_after_restart' },
+      fromMe: true,
+      from: '8801340517587@c.us',
+      to: '8801700000006@c.us',
+      hasMedia: true,
+      type: 'document',
+      filename: 'render.mp4',
+      mimetype: 'video/mp4'
+    };
+
+    const res = await handleMessageCreate({ msg: videoMsg, client: mockClient, db });
+    assert.strictEqual(res.action, 'IGNORED_ALREADY_BILLED');
+    assert.strictEqual(sentMessages.length, 0, 'Should not send duplicate bill when DB has recent video bill');
+    assert.strictEqual(getCustomerTransactions(db, '8801700000006').length, 1);
 
     db.close();
   });
