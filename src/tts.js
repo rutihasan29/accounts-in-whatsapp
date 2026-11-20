@@ -1142,6 +1142,19 @@ async function handleGeneratedVoiceMessage({
     return { action: 'CREDITS_REPORT_SENT', remainingCredits: bal.remainingCredits, approxMinutes: bal.approxMinutes };
   }
 
+  // 10. Group Command: Lip-sync with LatentSync (e.g. reply "gs1" to any audio file)
+  const lipSyncMatch = rawBody.match(/^(?:(?:\/|!)?(gs\d+))$/i);
+  if (lipSyncMatch) {
+    const commandName = lipSyncMatch[1].toLowerCase();
+    const { handleLipSyncCommand } = require('./lipsync');
+    return await handleLipSyncCommand({
+      msg,
+      client,
+      command: commandName,
+      targetChat
+    });
+  }
+
   const scriptText = rawBody;
   if (scriptText.length < 5) {
     return { action: 'IGNORED_SHORT_TEXT' };
