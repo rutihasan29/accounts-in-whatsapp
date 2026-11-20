@@ -238,6 +238,43 @@ describe('Delivery Billing & Duration Logging Suite', () => {
     db.close();
   });
 
+  it('does NOT send video bill twice when client.sendMessage returns undefined (as in WhatsApp Web LID chats)', async () => {
+    const db = initDb(':memory:');
+    const sentMessages = [];
+    const mockClient = {
+      sendMessage: async (jid, text) => {
+        sentMessages.push({ method: 'sendMessage', jid, text });
+        // Real WhatsApp Web returns undefined when sending to certain chats or LID endpoints
+        return undefined;
+      },
+      getContactById: async () => ({ name: 'Video Client' })
+    };
+
+    let replyCount = 0;
+    const videoDocMsg = {
+      id: { _serialized: 'true_147442418872562@lid_vid1', id: 'vid1' },
+      fromMe: true,
+      from: '8801340517587@c.us',
+      to: '147442418872562@lid',
+      hasMedia: true,
+      type: 'document',
+      filename: 'report_news.mp4',
+      mimetype: 'video/mp4',
+      reply: async (text) => {
+        replyCount++;
+        sentMessages.push({ method: 'reply', text });
+        return { id: { _serialized: 'reply_id_1' } };
+      }
+    };
+
+    const res = await handleMessageCreate({ msg: videoDocMsg, client: mockClient, db });
+    assert.strictEqual(res.action, 'SENT_VIDEO_BILL');
+    assert.strictEqual(sentMessages.length, 1, 'Should only send bill once, never twice');
+    assert.strictEqual(replyCount, 0, 'Should not fall back to msg.reply when client.sendMessage succeeded');
+
+    db.close();
+  });
+
   it('prevents duplicate video billing when same video document message ID arrives again', async () => {
     const db = initDb(':memory:');
     const sentMessages = [];

@@ -1,5 +1,5 @@
 @echo off
-title News Voice - Complete System (Bot, CRM, Dashboard & Tunnel)
+title News Voice - Complete System (Bot, CRM, Dashboard ^& Tunnel)
 cd /d "%~dp0"
 
 echo ====================================================

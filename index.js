@@ -79,4 +79,6 @@ process.on('uncaughtException', (err) => {
   console.error('[FATAL] Uncaught Exception:', err);
 });
 
-client.initialize();
+client.initialize().catch((err) => {
+  console.error('[FATAL] client.initialize() rejected:', err);
+});

@@ -42,6 +42,13 @@ const {
   extractDurationFromText
 } = require('./audio');
 const { cleanVoiceoverAudio } = require('./aircheck');
+const {
+  handleGeneratedVoiceMessage,
+  discoverGeneratedVoiceGroup,
+  isCartesiaBotSystemMessage,
+  sentGeneratedVoiceMsgIds,
+  recentSentBotTexts
+} = require('./tts');
 const { sendWelcomeDemo, sentWelcomeDemoMsgIds, activeWelcomeDemoChats } = require('./welcome');
 const { syncExistingInboxContacts } = require('./sync');
 const { classifyChat, isAffirmativeConfirmation, isNegativeConfirmation } = require('./classifier');
@@ -278,7 +285,8 @@ function isBotSystemMessage(text) {
          text.includes('[গ্রাহকের বার্তা / Customer Message]') ||
          text.includes('[ভিডিও গ্রাহকের বার্তা / Video Customer Message]') ||
          text.startsWith('✅ অর্ডার #') ||
-         /\[নতুন\s*ভয়েস\s*অর্ডার(?:\s*#[^\]]+)?\]/i.test(text);
+         /\[নতুন\s*ভয়েস\s*অর্ডার(?:\s*#[^\]]+)?\]/i.test(text) ||
+         isCartesiaBotSystemMessage(text);
 }
 
 const DIGITS_TO_BENGALI = {
@@ -1115,14 +1123,23 @@ async function handleMessageCreate({
   getAudioDurationFromBufferFn = null
 } = {}) {
   const resolveBufferDuration = getAudioDurationFromBufferFn || getAudioDurationFromBuffer;
-  // Ignore echo of bot's own self-chat replies
-  if (msg.id?._serialized && sentSelfBotMsgIds.has(msg.id._serialized)) {
-    sentSelfBotMsgIds.delete(msg.id._serialized);
-    if (msg.id?.id) sentSelfBotMsgIds.delete(msg.id.id);
+  // Ignore echo of bot's own self-chat replies or generated voice replies
+  if (
+    (msg.id?._serialized && (sentSelfBotMsgIds.has(msg.id._serialized) || sentGeneratedVoiceMsgIds.has(msg.id._serialized))) ||
+    (msg.id?.id && (sentSelfBotMsgIds.has(msg.id.id) || sentGeneratedVoiceMsgIds.has(msg.id.id)))
+  ) {
+    if (msg.id?._serialized) {
+      sentSelfBotMsgIds.delete(msg.id._serialized);
+      sentGeneratedVoiceMsgIds.delete(msg.id._serialized);
+    }
+    if (msg.id?.id) {
+      sentSelfBotMsgIds.delete(msg.id.id);
+      sentGeneratedVoiceMsgIds.delete(msg.id.id);
+    }
     return { action: 'IGNORED_SELF_BOT_ECHO' };
   }
-  if (msg.id?.id && sentSelfBotMsgIds.has(msg.id.id)) {
-    sentSelfBotMsgIds.delete(msg.id.id);
+  const rawBodyForEcho = (msg.body || '').trim();
+  if (rawBodyForEcho && recentSentBotTexts && recentSentBotTexts.has(rawBodyForEcho)) {
     return { action: 'IGNORED_SELF_BOT_ECHO' };
   }
 
@@ -1133,9 +1150,24 @@ async function handleMessageCreate({
     console.log(`[MSG_CREATE:OUTGOING] type=${msgType}, remote=${remoteChat}${msgFilename ? `, filename="${msgFilename}"` : ''}, body="${(msg.body || '').slice(0, 40)}"`);
   }
 
-  // 0. Completely ignore any messages from WhatsApp groups, broadcast lists, or newsletters.
-  // Group messages must NEVER be considered by AI, nor escalated to VE3, nor recorded as customer leads.
+  // 0. Group messages: check if this is the "generated voice" group chat for on-demand Cartesia TTS.
+  // Other group messages must NEVER be considered by AI, nor escalated to VE3, nor recorded as customer leads.
   if (isGroupMessage(msg)) {
+    console.log(`[GROUP_MSG] Remote: ${remoteChat}, type: ${msgType}, fromMe: ${msg.fromMe}, body: "${(msg.body || '').slice(0, 50)}"`);
+    if (isBotSystemMessage(msg.body) || isCartesiaBotSystemMessage(msg.body)) {
+      console.log(`[GENERATED_VOICE] Ignoring bot system message in group ${remoteChat}: "${(msg.body || '').slice(0, 40)}..."`);
+      return { action: 'IGNORED_BOT_SYSTEM_MESSAGE' };
+    }
+    try {
+      const genVoiceRes = await handleGeneratedVoiceMessage({ msg, client, db });
+      if (genVoiceRes && genVoiceRes.action !== 'NOT_GENERATED_VOICE') {
+        console.log(`[GENERATED_VOICE] Action for ${remoteChat}: ${genVoiceRes.action} (file: ${genVoiceRes.filename || 'n/a'})`);
+        return genVoiceRes;
+      }
+      console.log(`[GENERATED_VOICE] Group ${remoteChat} (resolved name: "${genVoiceRes?.resolvedName || ''}") did not match target group or was ignored.`);
+    } catch (err) {
+      console.error('[GENERATED_VOICE] Error processing group message:', err);
+    }
     return { action: 'IGNORED_GROUP' };
   }
 
@@ -2080,6 +2112,7 @@ async function handleMessageCreate({
       checkFilename.includes('voice2') ||
       checkFilename.includes('voice3') ||
       checkFilename.includes('voice4') ||
+      checkFilename.includes('voice_demo') ||
       checkFilename.includes('demo');
 
     if (isDemo) {
@@ -2261,23 +2294,27 @@ async function handleMessageCreate({
         time: Date.now()
       });
 
+      let sent = false;
       let sentMsg = null;
       if (client && typeof client.sendMessage === 'function' && destinationJid) {
         try {
           sentMsg = await client.sendMessage(destinationJid, billText);
+          sent = true;
         } catch (err) {
           console.warn(`[VIDEO_BILL] sendMessage to ${destinationJid} failed:`, err.message);
           if (cleanPhone && `${cleanPhone}@c.us` !== destinationJid) {
             try {
               sentMsg = await client.sendMessage(`${cleanPhone}@c.us`, billText);
+              sent = true;
             } catch {}
           }
         }
       }
 
-      if (!sentMsg && msg && typeof msg.reply === 'function') {
+      if (!sent && msg && typeof msg.reply === 'function') {
         try {
           sentMsg = await msg.reply(billText);
+          sent = true;
         } catch {}
       }
 
@@ -2348,6 +2385,7 @@ async function handleMessageCreate({
       checkFilename.includes('voice2') ||
       checkFilename.includes('voice3') ||
       checkFilename.includes('voice4') ||
+      checkFilename.includes('voice_demo') ||
       checkFilename.includes('demo')
     ) {
       console.log(`[AUDIO] Outgoing audio "${checkFilename}" is identified as demo voiceover. Skipping billing.`);
@@ -3128,6 +3166,11 @@ function setupBotHandlers({ client, db }) {
     } catch (e) {
       console.warn('[RECOVERY] Error recovering pending voice jobs on ready:', e.message);
     }
+
+    // Auto-discover and pre-cache "generated voice" team group chat
+    try {
+      await discoverGeneratedVoiceGroup(client);
+    } catch {}
 
     // Catch up unread customer messages sent while bot was offline
     try {

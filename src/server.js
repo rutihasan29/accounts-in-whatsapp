@@ -312,6 +312,27 @@ function startWebServer({ db, client = null, port = PORT, onRestart = null } = {
       return;
     }
 
+    // API: Extract delivered media durations directly from WhatsApp Web
+    if (pathname === '/api/extract-client-media-durations') {
+      try {
+        if (!client) {
+          res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ status: 'error', message: 'WhatsApp client is not connected' }));
+          return;
+        }
+        delete require.cache[require.resolve('./extractDurations')];
+        const { extractDeliveredMediaDurations } = require('./extractDurations');
+        const results = await extractDeliveredMediaDurations({ client });
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'ok', data: results }));
+      } catch (err) {
+        console.error('[EXTRACT ERROR]', err);
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', message: err.message, stack: err.stack }));
+      }
+      return;
+    }
+
     // API: Verify Admin PIN
     if (pathname === '/api/auth/verify-pin' && method === 'POST') {
       try {

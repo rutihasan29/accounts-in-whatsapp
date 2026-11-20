@@ -51,6 +51,115 @@ describe('Bot Message Router', () => {
     assert.strictEqual(res.action, 'IGNORED_GROUP');
   });
 
+  it('processes Bengali script in "generated voice" group using Cartesia and delivers .wav document', async () => {
+    const db = initDb(':memory:');
+    const groupJid = '120363111222333@g.us';
+    const chat = { id: { _serialized: groupJid }, name: 'generated voice', isGroup: true };
+    let sentMedia = null;
+    let sentOptions = null;
+    let sentTarget = null;
+
+    const mockClient = {
+      sendMessage: async (target, media, options) => {
+        sentTarget = target;
+        sentMedia = media;
+        sentOptions = options;
+        return { id: { _serialized: 'msg-doc-999' } };
+      }
+    };
+
+    const msg = {
+      id: { _serialized: 'incoming-script-1', remote: groupJid },
+      type: 'chat',
+      body: 'মৌলভীবাজারের জুড়ী নদীতে আকস্মিক পানি বৃদ্ধি পেয়েছে।',
+      to: groupJid,
+      from: '8801700000002@c.us',
+      getChat: async () => chat
+    };
+
+    const res = await handleMessageCreate({ msg, client: mockClient, db });
+    assert.strictEqual(res.action, 'GENERATED_VOICE_SENT');
+    assert.strictEqual(sentTarget, groupJid);
+    assert.strictEqual(sentOptions.sendMediaAsDocument, true);
+    assert.strictEqual(sentMedia.mimetype, 'audio/mpeg');
+    assert.ok(sentMedia.filename.includes('মৌলভীবাজারের'));
+    assert.ok(sentMedia.filename.endsWith('.mp3'));
+
+    // Verify no customer billing or transactions were created
+    const transactions = db.prepare('SELECT * FROM transactions').all();
+    assert.strictEqual(transactions.length, 0);
+  });
+
+  it('strictly ignores bot-generated messages and delivery captions in "generated voice" group', async () => {
+    const db = initDb(':memory:');
+    const groupJid = '120363111222333@g.us';
+    const chat = { id: { _serialized: groupJid }, name: 'generated voice', isGroup: true };
+    const { formatCartesiaDeliveryReport } = require('../src/tts');
+
+    // Case 1: Delivery report caption message
+    const captionMsg = {
+      id: { _serialized: 'bot-delivery-report-msg', remote: groupJid },
+      type: 'chat',
+      body: formatCartesiaDeliveryReport({ voice: 'malia', durationSeconds: 30, remainingCredits: 500000 }),
+      fromMe: true,
+      to: groupJid,
+      from: '8801999999999@c.us',
+      getChat: async () => chat
+    };
+    const res1 = await handleMessageCreate({ msg: captionMsg, client: {}, db });
+    assert.strictEqual(res1.action, 'IGNORED_BOT_SYSTEM_MESSAGE');
+
+    // Case 2: Voice switch confirmation message
+    const switchMsg = {
+      id: { _serialized: 'bot-switch-report-msg', remote: groupJid },
+      type: 'chat',
+      body: '✅ গ্রুপের ডিফল্ট ভয়েস পরিবর্তন করা হয়েছে: *মালিয়া (Malia)*\nএখন থেকে সরাসরি যেকোনো স্ক্রিপ্ট পাঠালে মালিয়ার কণ্ঠে ভয়েস তৈরি হবে।',
+      fromMe: true,
+      to: groupJid,
+      from: '8801999999999@c.us',
+      getChat: async () => chat
+    };
+    const res2 = await handleMessageCreate({ msg: switchMsg, client: {}, db });
+    assert.strictEqual(res2.action, 'IGNORED_BOT_SYSTEM_MESSAGE');
+
+    // Case 3: Interactive help guide
+    const helpMsg = {
+      id: { _serialized: 'bot-help-report-msg', remote: groupJid },
+      type: 'chat',
+      body: '🎙️ *কার্তেসিয়া এআই ভয়েস কমান্ড গাইড:*\n• ডিফল্ট পরিবর্তন করতে:\n• সরাসরি যেকোনো সাধারণ স্ক্রিপ্ট পাঠালে',
+      fromMe: true,
+      to: groupJid,
+      from: '8801999999999@c.us',
+      getChat: async () => chat
+    };
+    const res3 = await handleMessageCreate({ msg: helpMsg, client: {}, db });
+    assert.strictEqual(res3.action, 'IGNORED_BOT_SYSTEM_MESSAGE');
+  });
+
+  it('strictly ignores recent bot-sent text messages in "generated voice" group via echo suppression', async () => {
+    const db = initDb(':memory:');
+    const groupJid = '120363111222333@g.us';
+    const chat = { id: { _serialized: groupJid }, name: 'generated voice', isGroup: true };
+    const { recentSentBotTexts } = require('../src/tts');
+
+    const echoText = 'একটি বিশেষ ঘোষণা: কার্তেসিয়া ভয়েস সার্ভিস প্রস্তুত।';
+    recentSentBotTexts.add(echoText);
+
+    const echoMsg = {
+      id: { _serialized: 'bot-outgoing-echo-msg', remote: groupJid },
+      type: 'chat',
+      body: echoText,
+      fromMe: true,
+      to: groupJid,
+      from: '8801999999999@c.us',
+      getChat: async () => chat
+    };
+
+    const res = await handleMessageCreate({ msg: echoMsg, client: {}, db });
+    assert.strictEqual(res.action, 'IGNORED_SELF_BOT_ECHO');
+    recentSentBotTexts.delete(echoText);
+  });
+
   it('strictly ignores inbound group messages and never calls classifier or escalates', async () => {
     const db = initDb(':memory:');
     let classifierCalled = false;

@@ -5,15 +5,11 @@
   },
   {
     "type": "audio",
-    "filename": "voice3.mp3"
+    "filename": "voice_demo_1.mp3"
   },
   {
     "type": "audio",
-    "filename": "voice4.mp3"
-  },
-  {
-    "type": "audio",
-    "filename": "voice1.mp3"
+    "filename": "voice_demo_2.mp3"
   },
   {
     "type": "link",

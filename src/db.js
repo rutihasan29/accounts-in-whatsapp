@@ -222,7 +222,18 @@ function initDb(dbPath) {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS cartesia_usage (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      script_headline TEXT,
+      voice TEXT,
+      char_count INTEGER,
+      duration_seconds REAL,
+      credits_used INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE INDEX IF NOT EXISTS idx_alerts_created_at ON system_alerts(created_at);
+    CREATE INDEX IF NOT EXISTS idx_cartesia_created_at ON cartesia_usage(created_at);
 
     CREATE INDEX IF NOT EXISTS idx_transactions_phone ON transactions(phone_number);
     CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type);
@@ -1218,7 +1229,12 @@ const DEFAULT_BOT_SETTINGS = Object.freeze({
   auto_video_billing_enabled: true,
   default_video_bill_amount: 350,
   video_customer_escalation_enabled: true,
-  ve3_escalation_enabled: true
+  ve3_escalation_enabled: true,
+  cartesia_default_voice: 'dalia',
+  cartesia_default_speed: 1.0,
+  cartesia_default_format: 'mp3',
+  cartesia_starting_credits: 500000,
+  cartesia_current_credits: 500000
 });
 
 function parseSettingValue(rawVal) {
@@ -1514,6 +1530,208 @@ function getWhatsappCustomerNote(db, phone) {
   }
 }
 
+/**
+ * Records Cartesia TTS usage and decrements current credits in bot settings.
+ */
+function recordCartesiaUsage(db, {
+  scriptHeadline = '',
+  voice = 'dalia',
+  charCount = 0,
+  durationSeconds = 0,
+  creditsUsed = null
+} = {}) {
+  const chars = typeof charCount === 'number' && !isNaN(charCount) ? charCount : 0;
+  const credits = typeof creditsUsed === 'number' && !isNaN(creditsUsed) ? creditsUsed : chars;
+  const dur = typeof durationSeconds === 'number' && !isNaN(durationSeconds) ? durationSeconds : 0;
+
+  if (db && typeof db.prepare === 'function') {
+    try {
+      db.prepare(`
+        INSERT INTO cartesia_usage (script_headline, voice, char_count, duration_seconds, credits_used)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(scriptHeadline || '', voice || 'dalia', chars, dur, credits);
+    } catch (err) {
+      console.warn('[DB] Failed to insert cartesia_usage record:', err.message);
+    }
+  }
+
+  const current = getCartesiaBalance(db);
+  const newBalance = Math.max(0, (current?.remainingCredits ?? 500000) - credits);
+  if (db && typeof setBotSetting === 'function') {
+    try {
+      setBotSetting(db, 'cartesia_current_credits', newBalance);
+    } catch {}
+  }
+
+  const approxMinutes = Math.round((newBalance / 750) * 10) / 10;
+  return {
+    creditsUsed: credits,
+    charCount: chars,
+    durationSeconds: dur,
+    remainingCredits: newBalance,
+    approxMinutes
+  };
+}
+
+/**
+ * Gets remaining Cartesia credits and calculated approximate minutes of Bengali news script.
+ */
+function getCartesiaBalance(db, defaultStarting = 500000) {
+  let remainingCredits = defaultStarting;
+  let totalUsed = 0;
+
+  if (db && typeof db.prepare === 'function') {
+    try {
+      const stored = getBotSetting(db, 'cartesia_current_credits', null);
+      if (stored !== null && !isNaN(Number(stored))) {
+        remainingCredits = Number(stored);
+      } else {
+        const usedRow = db.prepare('SELECT COALESCE(SUM(credits_used), 0) AS total_used FROM cartesia_usage').get();
+        totalUsed = usedRow?.total_used || 0;
+        const starting = Number(getBotSetting(db, 'cartesia_starting_credits', defaultStarting));
+        remainingCredits = Math.max(0, starting - totalUsed);
+        setBotSetting(db, 'cartesia_current_credits', remainingCredits);
+      }
+    } catch (err) {
+      console.warn('[DB] getCartesiaBalance fallback:', err.message);
+    }
+  }
+
+  const approxMinutes = Math.round((remainingCredits / 750) * 10) / 10;
+  return {
+    remainingCredits,
+    approxMinutes,
+    totalUsed
+  };
+}
+
+/**
+ * Updates current Cartesia credits balance to an explicit value (e.g. from /credits command).
+ */
+function setCartesiaBalance(db, amount) {
+  const num = typeof amount === 'number' ? amount : parseInt(String(amount).replace(/\D/g, ''), 10);
+  const cleanAmount = isNaN(num) || num < 0 ? 0 : num;
+
+  if (db && typeof setBotSetting === 'function') {
+    try {
+      setBotSetting(db, 'cartesia_current_credits', cleanAmount);
+      setBotSetting(db, 'cartesia_credits_set_at', new Date().toISOString());
+    } catch (err) {
+      console.warn('[DB] setCartesiaBalance error:', err.message);
+    }
+  }
+
+  const approxMinutes = Math.round((cleanAmount / 750) * 10) / 10;
+  return {
+    remainingCredits: cleanAmount,
+    approxMinutes
+  };
+}
+
+/**
+ * Gets the current default voice for the group ('dalia' or 'malia').
+ */
+function getCartesiaDefaultVoice(db) {
+  if (!db) return 'dalia';
+  try {
+    const v = getBotSetting(db, 'cartesia_default_voice', 'dalia');
+    return v === 'malia' ? 'malia' : 'dalia';
+  } catch {
+    return 'dalia';
+  }
+}
+
+/**
+ * Sets the default voice for the group ('dalia' or 'malia').
+ */
+function setCartesiaDefaultVoice(db, voice) {
+  const cleanVoice = String(voice || '').toLowerCase().trim();
+  const targetVoice = cleanVoice === 'malia' || cleanVoice === 'মালিয়া' || cleanVoice === 'মালিয়া' || cleanVoice === '2' || cleanVoice === '২' ? 'malia' : 'dalia';
+  if (db && typeof setBotSetting === 'function') {
+    try {
+      setBotSetting(db, 'cartesia_default_voice', targetVoice);
+    } catch (err) {
+      console.warn('[DB] setCartesiaDefaultVoice error:', err.message);
+    }
+  }
+  return targetVoice;
+}
+
+/**
+ * Gets the current default voice speed for Cartesia in the group (clamped to 0.6 - 1.5).
+ */
+function getCartesiaDefaultSpeed(db) {
+  if (!db) return 1.0;
+  try {
+    const s = getBotSetting(db, 'cartesia_default_speed', 1.0);
+    const num = parseFloat(s);
+    if (isNaN(num)) return 1.0;
+    return Math.min(1.5, Math.max(0.6, Math.round(num * 100) / 100));
+  } catch {
+    return 1.0;
+  }
+}
+
+/**
+ * Sets the default voice speed for Cartesia in the group (clamped to 0.6 - 1.5).
+ */
+function setCartesiaDefaultSpeed(db, speed) {
+  let num;
+  if (typeof speed === 'number') {
+    num = speed;
+  } else {
+    const bnMap = { '০': '0', '১': '1', '২': '2', '৩': '3', '৪': '4', '৫': '5', '৬': '6', '৭': '7', '৮': '8', '৯': '9' };
+    const converted = String(speed || '')
+      .replace(/[০-৯]/g, d => bnMap[d] || d)
+      .replace(/x$/i, '')
+      .trim();
+    num = parseFloat(converted);
+  }
+  const cleanNum = isNaN(num) ? 1.0 : Math.min(1.5, Math.max(0.6, Math.round(num * 100) / 100));
+  if (db && typeof setBotSetting === 'function') {
+    try {
+      setBotSetting(db, 'cartesia_default_speed', cleanNum);
+    } catch (err) {
+      console.warn('[DB] setCartesiaDefaultSpeed error:', err.message);
+    }
+  }
+  return cleanNum;
+}
+
+/**
+ * Gets the current default audio container format ('mp3' or 'wav').
+ */
+function getCartesiaDefaultFormat(db) {
+  let fallback = 'mp3';
+  try {
+    const config = require('./config');
+    fallback = config.CARTESIA_OUTPUT_FORMAT || 'mp3';
+  } catch {}
+  if (!db) return fallback;
+  try {
+    const f = getBotSetting(db, 'cartesia_default_format', fallback);
+    return String(f).toLowerCase().trim() === 'wav' ? 'wav' : 'mp3';
+  } catch {
+    return 'mp3';
+  }
+}
+
+/**
+ * Sets the default audio container format ('mp3' or 'wav').
+ */
+function setCartesiaDefaultFormat(db, format) {
+  const cleanFmt = String(format || '').toLowerCase().trim();
+  const targetFormat = cleanFmt === 'wav' || cleanFmt === 'ওয়েভ' || cleanFmt === 'ওয়েভ' ? 'wav' : 'mp3';
+  if (db && typeof setBotSetting === 'function') {
+    try {
+      setBotSetting(db, 'cartesia_default_format', targetFormat);
+    } catch (err) {
+      console.warn('[DB] setCartesiaDefaultFormat error:', err.message);
+    }
+  }
+  return targetFormat;
+}
+
 module.exports = {
   initDb,
   saveWhatsappCustomerNote,
@@ -1564,5 +1782,14 @@ module.exports = {
   getCachedStaffLid,
   getAllCachedStaffLids,
   recordSystemAlert,
-  getRecentSystemAlerts
+  getRecentSystemAlerts,
+  recordCartesiaUsage,
+  getCartesiaBalance,
+  setCartesiaBalance,
+  getCartesiaDefaultVoice,
+  setCartesiaDefaultVoice,
+  getCartesiaDefaultSpeed,
+  setCartesiaDefaultSpeed,
+  getCartesiaDefaultFormat,
+  setCartesiaDefaultFormat
 };

@@ -17,18 +17,13 @@ const DEFAULT_WELCOME_MESSAGES = [
   },
   {
     type: 'audio',
-    filename: 'voice3.mp3',
-    filePath: path.join(__dirname, '..', 'voice3.mp3')
+    filename: 'voice_demo_1.mp3',
+    filePath: path.join(__dirname, '..', 'voice_demo_1.mp3')
   },
   {
     type: 'audio',
-    filename: 'voice4.mp3',
-    filePath: path.join(__dirname, '..', 'voice4.mp3')
-  },
-  {
-    type: 'audio',
-    filename: 'voice1.mp3',
-    filePath: path.join(__dirname, '..', 'voice1.mp3')
+    filename: 'voice_demo_2.mp3',
+    filePath: path.join(__dirname, '..', 'voice_demo_2.mp3')
   },
   {
     type: 'link',
