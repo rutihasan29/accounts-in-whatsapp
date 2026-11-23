@@ -21,6 +21,7 @@ const {
   setBotSetting,
   DEFAULT_BOT_SETTINGS
 } = require('./db');
+const { getBusinessKpiReport } = require('./metrics');
 const { PORT, DASHBOARD_PIN } = require('./config');
 const { syncExistingInboxContacts } = require('./sync');
 const { resolveCustomerPhone } = require('./bot');
@@ -733,6 +734,19 @@ function startWebServer({ db, client = null, port = PORT, onRestart = null } = {
         const baselines = getSimulationBaselines(db);
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify(baselines));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+      return;
+    }
+
+    // API: Executive KPI & ROI - GET unified health metrics
+    if (pathname === '/api/kpi' && method === 'GET') {
+      try {
+        const report = getBusinessKpiReport(db);
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify(report));
       } catch (err) {
         res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: err.message }));
