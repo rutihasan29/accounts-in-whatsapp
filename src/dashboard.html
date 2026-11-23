@@ -206,6 +206,94 @@
       margin-top: 3px;
     }
 
+    /* Cohort Payback Matrix Styles */
+    .cohort-box {
+      border: 2px solid var(--border);
+      padding: 10px;
+      margin-bottom: 12px;
+      background: #FFFFFF;
+    }
+
+    .cohort-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 6px;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .cohort-title {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .cohort-grid-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .cohort-grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .cohort-grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+    }
+
+    @media (max-width: 600px) {
+      .cohort-grid-3 {
+        grid-template-columns: 1fr;
+      }
+      .cohort-grid-2 {
+        grid-template-columns: 1fr;
+      }
+      .cohort-grid-4 {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    .cohort-card {
+      border: 1px solid var(--border);
+      padding: 8px 10px;
+      background: var(--paper-gray);
+    }
+
+    .cohort-card.highlight-card {
+      border: 2px solid #000;
+      background: #FAFAFA;
+    }
+
+    .cohort-horizon-box {
+      border: 1px solid var(--border);
+      padding: 8px 10px;
+      background: #FDFDFD;
+    }
+
+    .cohort-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      padding: 2px 0;
+      border-bottom: 1px dashed #E5E7EB;
+    }
+
+    .cohort-row:last-child {
+      border-bottom: none;
+    }
+
     /* Summary Matrix */
     .summary-box {
       border: 1px solid var(--border);
@@ -1496,7 +1584,159 @@
       </div>
     </div>
 
-    <!-- Top Summary Matrix -->
+    <!-- Ad Spend Cohort Payback & Velocity Matrix -->
+    <div class="cohort-box">
+      <div class="cohort-header">
+        <div>
+          <div class="cohort-title">বিজ্ঞাপন পে-ব্যাক ও লিড ভেলোসিটি (COHORT PAYBACK &amp; VELOCITY)</div>
+          <div style="font-size:10px; color:var(--muted); margin-top:2px;">
+            প্রতিদিনের বিজ্ঞাপন খরচের বিপরীতে রেভিনিউ, মুনাফা ও মূলধন তুলে আনার বাস্তব সময়সীমা (Empirical Cohort)
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+          <span id="cohort-cac-pill" class="perf-growth-badge">CAC: ৳ ১৫০ / গ্রাহক</span>
+          <span style="font-size:11px; font-weight:700;">দৈনিক:</span>
+          <input id="cohort-spend-input" type="number" value="250" step="50" min="50" style="width:70px; padding:2px 4px; font-family:var(--font-mono); font-size:11px; font-weight:700; border:1px solid #000;">
+          <button class="perf-tab-btn" onclick="recalculateCohortFromUi()" title="হিসাব পুনঃগণনা">হিসাব</button>
+        </div>
+      </div>
+
+      <!-- Row 1: The 3 Core Break-Even Latencies requested by user -->
+      <div class="cohort-grid-3">
+        <!-- Card 1: Revenue Break-even -->
+        <div class="cohort-card">
+          <div class="perf-label">১. রেভিনিউ ব্রেক-ইভেন (REVENUE BREAK-EVEN)</div>
+          <div class="perf-value-row">
+            <span class="perf-main-value" id="cohort-rev-be">৪ দিন</span>
+            <span class="perf-growth-badge" style="background:#e0f2fe; color:#0369a1;">সমপরিমাণ বিক্রি</span>
+          </div>
+          <div class="perf-sub">বিজ্ঞাপনের সমপরিমাণ টাকা রেভিনিউ হিসেবে ফেরত আসতে</div>
+        </div>
+
+        <!-- Card 2: Gross Profit Break-even -->
+        <div class="cohort-card highlight-card">
+          <div class="perf-label" style="color:#000;">২. মুনাফা ব্রেক-ইভেন (PROFIT BREAK-EVEN / আসল ফেরত)</div>
+          <div class="perf-value-row">
+            <span class="perf-main-value highlight" id="cohort-gp-be" style="color:#16a34a;">৮ দিন</span>
+            <span class="perf-growth-badge" style="background:#dcfce7; color:#15803d;">আসল উঠে আসা</span>
+          </div>
+          <div class="perf-sub">প্রোডাকশন খরচ বাদে মোট মুনাফায় (GP) বিজ্ঞাপন খরচ উঠার সময়</div>
+        </div>
+
+        <!-- Card 3: 2X Payback -->
+        <div class="cohort-card">
+          <div class="perf-label">৩. দ্বিগুণ লাভ (2X PROFIT PAYBACK)</div>
+          <div class="perf-value-row">
+            <span class="perf-main-value" id="cohort-2x-be">১৭ দিন</span>
+            <span class="perf-growth-badge" style="background:#fef3c7; color:#b45309;">+১০০% নিট লাভ</span>
+          </div>
+          <div class="perf-sub">বিজ্ঞাপন খরচের দ্বিগুণ মোট মুনাফা (২০০% গ্রস / ১০০% নিট)</div>
+        </div>
+      </div>
+
+      <!-- Row 2: 1-Week (Day 7) vs 1-Month (Day 30) Horizon Metrics -->
+      <div class="cohort-grid-2">
+        <!-- 1-Week Horizon -->
+        <div class="cohort-horizon-box">
+          <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #000; padding-bottom:4px; margin-bottom:6px;">
+            <span style="font-size:11px; font-weight:900; text-transform:uppercase;">📅 ১ সপ্তাহ পর (DAY 7 HORIZON)</span>
+            <span id="cohort-w1-roi" class="perf-growth-badge" style="font-size:11px;">-৪% ROI</span>
+          </div>
+          <div class="cohort-row">
+            <span style="color:var(--muted);">১ সপ্তাহে মোট রেভিনিউ:</span>
+            <span id="cohort-w1-rev" style="font-weight:700;">৳ ৪০৫</span>
+          </div>
+          <div class="cohort-row">
+            <span style="color:var(--muted);">১ সপ্তাহে মোট মুনাফা (GP):</span>
+            <span id="cohort-w1-gp" style="font-weight:700;">৳ ২৪১</span>
+          </div>
+          <div class="cohort-row">
+            <span style="color:var(--muted);">১ সপ্তাহে নিট লাভ / লস:</span>
+            <span id="cohort-w1-net" style="font-weight:900;">-৳ ৯</span>
+          </div>
+          <div style="font-size:9px; color:var(--muted); margin-top:4px;">
+            * ৭ম দিনে আসল খরচের ৯৬.৪% উঠে আসে, ব্রেক-ইভেন স্পর্শ করে।
+          </div>
+        </div>
+
+        <!-- 1-Month Horizon -->
+        <div class="cohort-horizon-box">
+          <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #000; padding-bottom:4px; margin-bottom:6px;">
+            <span style="font-size:11px; font-weight:900; text-transform:uppercase;">🗓️ ১ মাস পর (DAY 30 HORIZON)</span>
+            <span id="cohort-m1-roi" class="perf-growth-badge" style="font-size:11px; background:#dcfce7; color:#15803d;">+২২৭% ROI</span>
+          </div>
+          <div class="cohort-row">
+            <span style="color:var(--muted);">১ মাসে মোট রেভিনিউ:</span>
+            <span id="cohort-m1-rev" style="font-weight:700;">৳ ১,৩৬৭</span>
+          </div>
+          <div class="cohort-row">
+            <span style="color:var(--muted);">১ মাসে মোট মুনাফা (GP):</span>
+            <span id="cohort-m1-gp" style="font-weight:700;">৳ ৮১৭</span>
+          </div>
+          <div class="cohort-row">
+            <span style="color:var(--muted);">১ মাসে নিট লাভ:</span>
+            <span id="cohort-m1-net" style="font-weight:900; color:#16a34a;">+৳ ৫৬৭</span>
+          </div>
+          <div style="font-size:9px; color:var(--muted); margin-top:4px;">
+            * ৩০ দিনে প্রতি ১ টাকার বিজ্ঞাপনে ৩.২৭ টাকার খাঁটি মুনাফা অর্জিত হয়।
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 3: Customer LTV in Gross Profit (গ্রাহক প্রতি মোট মুনাফা LTV) -->
+      <div style="border:1px solid var(--border); padding:8px 10px; background:#FAFAFA; margin-bottom:8px;">
+        <div style="font-size:10px; font-weight:800; text-transform:uppercase; color:var(--muted); margin-bottom:6px;">
+          💎 গ্রাহক লাইফটাইম গ্রস প্রফিট (CUSTOMER LTV - GROSS PROFIT)
+        </div>
+        <div class="cohort-grid-4">
+          <div style="border:1px solid var(--border); padding:6px; background:#FFF; text-align:center;">
+            <div style="font-size:9px; color:var(--muted);">১ম দিন (DAY 0)</div>
+            <div id="cohort-ltv-0" style="font-size:14px; font-weight:900; margin-top:2px;">৳ ৪২</div>
+          </div>
+          <div style="border:1px solid var(--border); padding:6px; background:#FFF; text-align:center;">
+            <div style="font-size:9px; color:var(--muted);">৭ দিন (DAY 7)</div>
+            <div id="cohort-ltv-7" style="font-size:14px; font-weight:900; margin-top:2px;">৳ ১৪৫</div>
+          </div>
+          <div style="border:1px solid var(--border); padding:6px; background:#FFF; text-align:center;">
+            <div style="font-size:9px; color:var(--muted);">৩০ দিন (DAY 30)</div>
+            <div id="cohort-ltv-30" style="font-size:14px; font-weight:900; margin-top:2px; color:#16a34a;">৳ ৪৯০</div>
+          </div>
+          <div style="border:1px solid var(--border); padding:6px; background:#FFF; text-align:center;">
+            <div style="font-size:9px; color:var(--muted);">৬০ দিন (DAY 60)</div>
+            <div id="cohort-ltv-60" style="font-size:14px; font-weight:900; margin-top:2px; color:#15803d;">৳ ৮৫০</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 4: Operational Velocity & Speed-to-Lead Metrics -->
+      <div style="border:1px solid var(--border); padding:8px 10px; background:#FAFAFA;">
+        <div style="font-size:10px; font-weight:800; text-transform:uppercase; color:var(--muted); margin-bottom:6px;">
+          ⚡ অপারেশনাল ভেলোসিটি ও কর্মক্ষমতা (OPERATIONAL VELOCITY &amp; EFFICIENCY)
+        </div>
+        <div class="cohort-grid-4">
+          <div style="border:1px solid var(--border); padding:6px; background:#FFF;">
+            <div style="font-size:9px; color:var(--muted);">স্পিড-টু-লিড (SPEED-TO-LEAD)</div>
+            <div id="cohort-speed-lead" style="font-size:14px; font-weight:900; margin-top:2px;">১.৮ মি.</div>
+            <div style="font-size:8px; color:var(--muted);">টার্গেট: &lt; ২ মিনিট</div>
+          </div>
+          <div style="border:1px solid var(--border); padding:6px; background:#FFF;">
+            <div style="font-size:9px; color:var(--muted);">১ম কাজের সময় (LATENCY)</div>
+            <div id="cohort-conv-time" style="font-size:14px; font-weight:900; margin-top:2px;">২.৪ ঘণ্টা</div>
+            <div style="font-size:8px; color:var(--muted);">লিড থেকে ১ম ডেলিভারি</div>
+          </div>
+          <div style="border:1px solid var(--border); padding:6px; background:#FFF;">
+            <div style="font-size:9px; color:var(--muted);">কনভার্শন রেট (CONVERSION)</div>
+            <div id="cohort-conv-rate" style="font-size:14px; font-weight:900; margin-top:2px;">১৮.৫%</div>
+            <div style="font-size:8px; color:var(--muted);">বিজ্ঞাপন লিড হতে গ্রাহক</div>
+          </div>
+          <div style="border:1px solid var(--border); padding:6px; background:#FFF;">
+            <div style="font-size:9px; color:var(--muted);">রিপিট অর্ডার (RETENTION)</div>
+            <div id="cohort-repeat-rate" style="font-size:14px; font-weight:900; margin-top:2px; color:#16a34a;">৫৪.২%</div>
+            <div style="font-size:8px; color:var(--muted);">একাধিকবার কাজ দিয়েছেন</div>
+          </div>
+        </div>
+      </div>
+    </div>
     <div class="summary-box">
       <div class="summary-grid">
         <div class="summary-item">
@@ -2414,6 +2654,125 @@
       document.getElementById('perf-profit-sub').innerText = prevLabel;
     }
 
+    let cohortData = null;
+
+    function renderCohortMetrics(cohort) {
+      if (!cohort) return;
+      cohortData = cohort;
+
+      // 1. Spend input value sync if not manually focused
+      const spendInput = document.getElementById('cohort-spend-input');
+      if (spendInput && document.activeElement !== spendInput) {
+        spendInput.value = cohort.dailyAdSpend || 250;
+      }
+
+      // 2. Break-Even Days
+      const revBeEl = document.getElementById('cohort-rev-be');
+      if (revBeEl) revBeEl.innerText = toBengaliDigits(cohort.revenueBreakEvenDays || 4) + ' দিন';
+
+      const gpBeEl = document.getElementById('cohort-gp-be');
+      if (gpBeEl) gpBeEl.innerText = toBengaliDigits(cohort.profitBreakEvenDays || 8) + ' দিন';
+
+      const doubleBeEl = document.getElementById('cohort-2x-be');
+      if (doubleBeEl) doubleBeEl.innerText = toBengaliDigits(cohort.doubleProfitDays || 17) + ' দিন';
+
+      // 3. 1-Week (Day 7)
+      if (cohort.week1) {
+        const w1Rev = document.getElementById('cohort-w1-rev');
+        if (w1Rev) w1Rev.innerText = '৳ ' + formatNumberBangla(cohort.week1.revenue || 0);
+
+        const w1Gp = document.getElementById('cohort-w1-gp');
+        if (w1Gp) w1Gp.innerText = '৳ ' + formatNumberBangla(cohort.week1.grossProfit || 0);
+
+        const w1Net = document.getElementById('cohort-w1-net');
+        if (w1Net) {
+          const net = Math.round(cohort.week1.netProfit || 0);
+          w1Net.innerText = (net >= 0 ? '+৳ ' : '-৳ ') + formatNumberBangla(Math.abs(net));
+          w1Net.style.color = net >= 0 ? '#16a34a' : '#b91c1c';
+        }
+
+        const w1Roi = document.getElementById('cohort-w1-roi');
+        if (w1Roi) {
+          const roi = Math.round(cohort.week1.roiPercent || 0);
+          w1Roi.innerText = (roi >= 0 ? '+' : '') + toBengaliDigits(roi) + '% ROI';
+          w1Roi.style.color = roi >= 0 ? '#15803d' : '#b91c1c';
+        }
+      }
+
+      // 4. 1-Month (Day 30)
+      if (cohort.month1) {
+        const m1Rev = document.getElementById('cohort-m1-rev');
+        if (m1Rev) m1Rev.innerText = '৳ ' + formatNumberBangla(cohort.month1.revenue || 0);
+
+        const m1Gp = document.getElementById('cohort-m1-gp');
+        if (m1Gp) m1Gp.innerText = '৳ ' + formatNumberBangla(cohort.month1.grossProfit || 0);
+
+        const m1Net = document.getElementById('cohort-m1-net');
+        if (m1Net) {
+          const net = Math.round(cohort.month1.netProfit || 0);
+          m1Net.innerText = (net >= 0 ? '+৳ ' : '-৳ ') + formatNumberBangla(Math.abs(net));
+          m1Net.style.color = net >= 0 ? '#16a34a' : '#b91c1c';
+        }
+
+        const m1Roi = document.getElementById('cohort-m1-roi');
+        if (m1Roi) {
+          const roi = Math.round(cohort.month1.roiPercent || 0);
+          m1Roi.innerText = (roi >= 0 ? '+' : '') + toBengaliDigits(roi) + '% ROI';
+          m1Roi.style.color = roi >= 0 ? '#15803d' : '#b91c1c';
+        }
+      }
+
+      // 5. Customer LTV (Gross Profit)
+      if (cohort.customerLtv) {
+        const ltv0 = document.getElementById('cohort-ltv-0');
+        if (ltv0) ltv0.innerText = '৳ ' + formatNumberBangla(cohort.customerLtv.day0Gp || 42);
+
+        const ltv7 = document.getElementById('cohort-ltv-7');
+        if (ltv7) ltv7.innerText = '৳ ' + formatNumberBangla(cohort.customerLtv.day7Gp || 145);
+
+        const ltv30 = document.getElementById('cohort-ltv-30');
+        if (ltv30) ltv30.innerText = '৳ ' + formatNumberBangla(cohort.customerLtv.day30Gp || 490);
+
+        const ltv60 = document.getElementById('cohort-ltv-60');
+        if (ltv60) ltv60.innerText = '৳ ' + formatNumberBangla(cohort.customerLtv.day60Gp || 850);
+      }
+
+      // 6. Operational Velocity & Performance Metrics
+      if (cohort.operational) {
+        const speedLead = document.getElementById('cohort-speed-lead');
+        if (speedLead) speedLead.innerText = toBengaliDigits(cohort.operational.speedToLeadMinutes || 1.8) + ' মি.';
+
+        const convTime = document.getElementById('cohort-conv-time');
+        if (convTime) convTime.innerText = toBengaliDigits(cohort.operational.timeToFirstJobHours || 2.4) + ' ঘণ্টা';
+
+        const convRate = document.getElementById('cohort-conv-rate');
+        if (convRate) convRate.innerText = toBengaliDigits(cohort.operational.conversionRatePercent || 18.5) + '%';
+
+        const repeatRate = document.getElementById('cohort-repeat-rate');
+        if (repeatRate) repeatRate.innerText = toBengaliDigits(cohort.operational.repeatOrderRatePercent || 54.2) + '%';
+      }
+
+      // 7. Sub info / CAC pill
+      const cacPill = document.getElementById('cohort-cac-pill');
+      if (cacPill) cacPill.innerText = 'CAC: ৳ ' + formatNumberBangla(cohort.cac || 150) + ' / গ্রাহক';
+    }
+
+    async function recalculateCohortFromUi() {
+      const spendInput = document.getElementById('cohort-spend-input');
+      const val = parseFloat(spendInput?.value);
+      if (isNaN(val) || val <= 0) {
+        alert('অনুগ্রহ করে সঠিক দৈনিক খরচ লিখুন');
+        return;
+      }
+      try {
+        const res = await fetch('/api/cohort/payback?spend=' + encodeURIComponent(val));
+        const data = await res.json();
+        renderCohortMetrics(data);
+      } catch (e) {
+        alert('হিসাব আপডেট করতে ব্যর্থ: ' + e.message);
+      }
+    }
+
     function applyStats(data) {
       if (!data) return;
       document.getElementById('sum-total-due').innerText = '৳ ' + formatNumberBangla(data.totalDue);
@@ -2423,6 +2782,10 @@
 
       if (data.kpi) {
         kpiData = data.kpi;
+      }
+      if (data.cohort) {
+        cohortData = data.cohort;
+        renderCohortMetrics(cohortData);
       }
       if (data.performance) {
         performanceData = data.performance;

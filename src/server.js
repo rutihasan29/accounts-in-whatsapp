@@ -22,6 +22,7 @@ const {
   DEFAULT_BOT_SETTINGS
 } = require('./db');
 const { getBusinessKpiReport } = require('./metrics');
+const { getCohortPaybackAnalysis } = require('./cohort');
 const { PORT, DASHBOARD_PIN } = require('./config');
 const { syncExistingInboxContacts } = require('./sync');
 const { resolveCustomerPhone } = require('./bot');
@@ -111,6 +112,12 @@ function renderHtmlPage(options = {}) {
   if (db) {
     try {
       const stats = getDashboardStats(db);
+      try {
+        stats.kpi = getBusinessKpiReport(db);
+        stats.cohort = getCohortPaybackAnalysis(db);
+      } catch (e) {
+        console.error('Error pre-rendering KPI/cohort in dashboard:', e.message);
+      }
       const customers = getAllCustomersSummary(db);
       const simBaselines = getSimulationBaselines(db);
       const adSpendSummary = getAdSpendSummary(db);
@@ -607,8 +614,25 @@ function startWebServer({ db, client = null, port = PORT, onRestart = null } = {
       try {
         const stats = getDashboardStats(db);
         stats.kpi = getBusinessKpiReport(db);
+        stats.cohort = getCohortPaybackAnalysis(db);
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify(stats));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+      return;
+    }
+
+    // API: Cohort Payback & Ad Spend Velocity
+    if (pathname === '/api/cohort/payback' && method === 'GET') {
+      try {
+        const parsedUrl = url.parse(req.url, true);
+        const spend = parsedUrl.query.spend ? parseFloat(parsedUrl.query.spend) : null;
+        const cac = parsedUrl.query.cac ? parseFloat(parsedUrl.query.cac) : null;
+        const result = getCohortPaybackAnalysis(db, { dailyAdSpend: spend, customCac: cac });
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify(result));
       } catch (err) {
         res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: err.message }));
