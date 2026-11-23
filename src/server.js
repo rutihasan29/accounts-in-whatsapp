@@ -606,11 +606,59 @@ function startWebServer({ db, client = null, port = PORT, onRestart = null } = {
     if (pathname === '/api/stats' && method === 'GET') {
       try {
         const stats = getDashboardStats(db);
+        stats.kpi = getBusinessKpiReport(db);
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify(stats));
       } catch (err) {
         res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: err.message }));
+      }
+      return;
+    }
+
+    // API: Trigger Meta Ads Sync
+    if (pathname === '/api/sync-fb-ads' && method === 'POST') {
+      try {
+        const { syncAdSpendToDb } = require('./fb-ads');
+        const result = await syncAdSpendToDb(db, { datePreset: 'this_month' });
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'ok', result }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', error: err.message }));
+      }
+      return;
+    }
+
+    // API: Trigger Ground-Truth Job Audit
+    if (pathname === '/api/audit-jobs' && method === 'POST') {
+      try {
+        const { auditChatsDeterministic, initAuditDb } = require('./auditor');
+        initAuditDb(db);
+        const dumpPath = path.join(__dirname, '..', 'scratch', 'all_target_chat_messages.json');
+        let unbilledTotal = 0;
+        let jobsTotal = 0;
+        if (fs.existsSync(dumpPath)) {
+          const rawChats = JSON.parse(fs.readFileSync(dumpPath, 'utf8'));
+          const audit = auditChatsDeterministic(rawChats);
+          const upsertStmt = db.prepare(`
+            INSERT INTO job_audit_logs (phone_number, jobs_delivered, total_billed, unbilled_leakage, details_json, created_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          `);
+          const runSave = db.transaction(() => {
+            for (const r of audit.results) {
+              upsertStmt.run(r.phone, r.jobs_delivered, r.total_billed, r.unbilled_leakage_amount, JSON.stringify(r.jobs || []));
+              unbilledTotal += r.unbilled_leakage_amount;
+              jobsTotal += r.jobs_delivered;
+            }
+          });
+          runSave();
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'ok', jobsTotal, unbilledTotal }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', error: err.message }));
       }
       return;
     }

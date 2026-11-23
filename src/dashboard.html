@@ -1410,15 +1410,18 @@
     <!-- Business Performance KPI Matrix (Daily / Weekly / Monthly) -->
     <div class="perf-box">
       <div class="perf-header">
-        <div class="perf-title">ব্যবসায়িক পারফরম্যান্স (BUSINESS PERFORMANCE)</div>
+        <div class="perf-title">ব্যবসায়িক পারফরম্যান্স ও আরওআই (PERFORMANCE &amp; ROI)</div>
         <div class="perf-tabs">
           <button class="perf-tab-btn active" data-period="daily" onclick="setPerfPeriod('daily')">দৈনিক</button>
           <button class="perf-tab-btn" data-period="weekly" onclick="setPerfPeriod('weekly')">সাপ্তাহিক</button>
           <button class="perf-tab-btn" data-period="monthly" onclick="setPerfPeriod('monthly')">মাসিক</button>
+          <button class="perf-tab-btn" style="background:#f3f4f6;" onclick="syncMetaAdsFromUi(event)" title="Sync Meta Ads">🔄 ADS</button>
+          <button class="perf-tab-btn" style="background:#f3f4f6;" onclick="runAuditFromUi(event)" title="Audit Jobs">🔍 AUDIT</button>
         </div>
       </div>
       
       <div class="perf-grid">
+        <!-- Card 1: Completed Jobs -->
         <div class="perf-card">
           <div class="perf-label">মোট কাজ (TOTAL JOBS)</div>
           <div class="perf-value-row">
@@ -1428,8 +1431,19 @@
           <div class="perf-sub" id="perf-jobs-sub">গতকালের তুলনায়</div>
         </div>
 
+        <!-- Card 2: Billed Revenue -->
         <div class="perf-card">
-          <div class="perf-label">মোট মুনাফা (GROSS PROFIT: অডিও ৬০% • ভিডিও ৩৪%)</div>
+          <div class="perf-label">বিল ও আদায় (BILLED / PAID)</div>
+          <div class="perf-value-row">
+            <span class="perf-main-value" id="perf-revenue-amount">৳ ০</span>
+            <span class="perf-growth-badge" id="perf-revenue-growth">০%</span>
+          </div>
+          <div class="perf-sub" id="perf-revenue-sub">আদায়: ৳ ০</div>
+        </div>
+
+        <!-- Card 3: Gross Profit -->
+        <div class="perf-card">
+          <div class="perf-label">মোট মুনাফা (GROSS PROFIT: ৬০% • ৩৪%)</div>
           <div class="perf-value-row">
             <span class="perf-main-value highlight" id="perf-profit-amount">৳ ০</span>
             <span class="perf-growth-badge" id="perf-profit-growth">০%</span>
@@ -1437,6 +1451,27 @@
           <div class="perf-sub" id="perf-profit-sub">গতকালের তুলনায়</div>
         </div>
 
+        <!-- Card 4: Meta Ad Spend -->
+        <div class="perf-card">
+          <div class="perf-label">বিজ্ঞাপন ব্যয় (META AD SPEND)</div>
+          <div class="perf-value-row">
+            <span class="perf-main-value" id="perf-ad-spend">৳ ০</span>
+            <span class="perf-growth-badge" id="perf-ad-cpl">CPL: ৳ ০</span>
+          </div>
+          <div class="perf-sub" id="perf-ad-cac">CAC: ৳ ০ / ক্লায়েন্ট</div>
+        </div>
+
+        <!-- Card 5: ROAS & Net ROI -->
+        <div class="perf-card">
+          <div class="perf-label">আরওআই ও রিটার্ন (ROAS &amp; ROI)</div>
+          <div class="perf-value-row">
+            <span class="perf-main-value highlight" id="perf-roi-amount">০%</span>
+            <span class="perf-growth-badge" id="perf-roas-badge">0x ROAS</span>
+          </div>
+          <div class="perf-sub" id="perf-net-profit">নিট লাভ: ৳ ০</div>
+        </div>
+
+        <!-- Card 6: Customer Conversion -->
         <div class="perf-card span-mobile">
           <div class="perf-label">গ্রাহক রূপান্তর (CONVERSION)</div>
           <div class="perf-value-row">
@@ -1444,6 +1479,19 @@
             <span class="perf-growth-badge" id="perf-conv-ratio">(০/০ লিড)</span>
           </div>
           <div class="perf-sub" id="perf-conv-speed">গড় রূপান্তর: --</div>
+        </div>
+      </div>
+
+      <!-- Leakage Alert Card -->
+      <div id="perf-leakage-card" style="display:none; margin-top:8px; border:2px solid #b91c1c; background:#fef2f2; padding:8px 10px;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div style="font-weight:900; color:#b91c1c; font-size:11px; text-transform:uppercase;">
+            ⚠️ রাজস্ব লিকেজ সতর্কতা (UNBILLED STAFF LEAKAGE)
+          </div>
+          <span id="perf-leakage-amount" style="font-size:14px; font-weight:900; color:#b91c1c;">৳ ০</span>
+        </div>
+        <div style="font-size:10px; color:#7f1d1d; margin-top:2px;">
+          কর্মীরা অডিও/ভিডিও ডেলিভারি দিয়েও গ্রাহককে বিল মেসেজ পাঠাননি। মিডিয়া ফাইল থেকে শনাক্ত করা হয়েছে।
         </div>
       </div>
     </div>
@@ -2265,6 +2313,8 @@
     setInterval(updateClock, 1000);
     updateClock();
 
+    let kpiData = null;
+
     function setPerfPeriod(period) {
       currentPerfPeriod = period;
       document.querySelectorAll('.perf-tab-btn').forEach(btn => {
@@ -2274,6 +2324,73 @@
     }
 
     function renderPerformanceMetrics() {
+      let prevLabel = 'গতকালের তুলনায়';
+      if (currentPerfPeriod === 'weekly') prevLabel = 'গত সপ্তাহের তুলনায়';
+      if (currentPerfPeriod === 'monthly') prevLabel = 'গত মাসের তুলনায়';
+
+      // If unified KPI data is available
+      if (kpiData) {
+        let cur = kpiData.daily?.today;
+        let prev = kpiData.daily?.yesterday;
+        let revGrowth = kpiData.daily?.revenueGrowthRate;
+        let jobsGrowth = kpiData.daily?.jobsGrowthRate;
+        let profitGrowth = 0;
+
+        if (currentPerfPeriod === 'weekly') {
+          cur = kpiData.weekly?.thisWeek;
+          prev = kpiData.weekly?.lastWeek;
+          revGrowth = kpiData.weekly?.revenueGrowthRate;
+          jobsGrowth = kpiData.weekly?.jobsGrowthRate;
+          profitGrowth = kpiData.weekly?.profitGrowthRate;
+        } else if (currentPerfPeriod === 'monthly') {
+          cur = kpiData.monthly?.thisMonth;
+          prev = kpiData.monthly?.lastMonth;
+          revGrowth = kpiData.monthly?.revenueGrowthRate;
+          jobsGrowth = kpiData.monthly?.jobsGrowthRate;
+          profitGrowth = kpiData.monthly?.profitGrowthRate;
+        }
+
+        if (cur) {
+          document.getElementById('perf-jobs-count').innerText = toBengaliDigits(cur.jobsCount || 0) + ' টি';
+          document.getElementById('perf-jobs-growth').innerText = formatGrowthBangla(jobsGrowth);
+          document.getElementById('perf-jobs-sub').innerText = prevLabel;
+
+          document.getElementById('perf-revenue-amount').innerText = '৳ ' + formatNumberBangla(cur.billedRevenue || 0);
+          document.getElementById('perf-revenue-growth').innerText = formatGrowthBangla(revGrowth);
+          document.getElementById('perf-revenue-sub').innerText = 'আদায়: ৳ ' + formatNumberBangla(cur.paidRevenue || 0);
+
+          document.getElementById('perf-profit-amount').innerText = '৳ ' + formatNumberBangla(cur.grossProfit || 0);
+          document.getElementById('perf-profit-growth').innerText = formatGrowthBangla(profitGrowth);
+          document.getElementById('perf-profit-sub').innerText = prevLabel;
+
+          document.getElementById('perf-ad-spend').innerText = '৳ ' + formatNumberBangla(cur.adSpend || 0);
+          document.getElementById('perf-ad-cpl').innerText = cur.cpl ? 'CPL: ৳ ' + formatNumberBangla(cur.cpl) : 'CPL: --';
+          document.getElementById('perf-ad-cac').innerText = cur.cac ? 'CAC: ৳ ' + formatNumberBangla(cur.cac) : 'CAC: --';
+
+          const roiNum = Math.round(cur.netRoiPercent || 0);
+          document.getElementById('perf-roi-amount').innerText = (roiNum > 0 ? '+' : '') + toBengaliDigits(roiNum) + '% ROI';
+          document.getElementById('perf-roas-badge').innerText = (cur.roas || 0) + 'x ROAS';
+          document.getElementById('perf-net-profit').innerText = 'নিট লাভ: ৳ ' + formatNumberBangla(cur.netProfit || 0);
+
+          let convRate = 0;
+          if (cur.totalLeads > 0) convRate = Math.round(((cur.convertedClients || 0) / cur.totalLeads) * 100);
+          document.getElementById('perf-conv-rate').innerText = toBengaliDigits(convRate) + '%';
+          document.getElementById('perf-conv-ratio').innerText = '(' + toBengaliDigits(cur.convertedClients || 0) + '/' + toBengaliDigits(cur.totalLeads || 0) + ' লিড)';
+
+          const leakCard = document.getElementById('perf-leakage-card');
+          if (leakCard) {
+            if (cur.unbilledLeakage > 0) {
+              leakCard.style.display = 'block';
+              document.getElementById('perf-leakage-amount').innerText = '৳ ' + formatNumberBangla(cur.unbilledLeakage);
+            } else {
+              leakCard.style.display = 'none';
+            }
+          }
+          return;
+        }
+      }
+
+      // Fallback to legacy performanceData
       if (!performanceData) return;
       const metrics = performanceData[currentPerfPeriod] || performanceData.daily;
       if (!metrics) return;
@@ -2293,10 +2410,6 @@
       const speedStr = conv.avgDurationSeconds > 0 ? formatTurnaroundBangla(conv.avgDurationSeconds) : '--';
       document.getElementById('perf-conv-speed').innerText = 'গড় রূপান্তর: ' + speedStr;
 
-      let prevLabel = 'গতকালের তুলনায়';
-      if (currentPerfPeriod === 'weekly') prevLabel = 'গত সপ্তাহের তুলনায়';
-      if (currentPerfPeriod === 'monthly') prevLabel = 'গত মাসের তুলনায়';
-
       document.getElementById('perf-jobs-sub').innerText = prevLabel;
       document.getElementById('perf-profit-sub').innerText = prevLabel;
     }
@@ -2308,9 +2421,52 @@
       document.getElementById('sum-today-collected').innerText = '৳ ' + formatNumberBangla(data.todayCollected);
       document.getElementById('sum-today-billed').innerText = '৳ ' + formatNumberBangla(data.todayBilled);
 
+      if (data.kpi) {
+        kpiData = data.kpi;
+      }
       if (data.performance) {
         performanceData = data.performance;
-        renderPerformanceMetrics();
+      }
+      renderPerformanceMetrics();
+    }
+
+    async function syncMetaAdsFromUi(ev) {
+      const btn = ev?.target;
+      const oldText = btn ? btn.innerText : '';
+      if (btn) btn.innerText = '⌛...';
+      try {
+        const res = await fetch('/api/sync-fb-ads', { method: 'POST' });
+        const json = await res.json();
+        if (json.status === 'ok') {
+          alert('✅ Meta Ads সিঙ্ক সফল!\nমোট খরচ: $' + json.result.totalSpendUSD + ' (' + json.result.totalSpendBDT + ' BDT)\nমেসেজিং চ্যাট: ' + json.result.totalConversations);
+          await loadStats();
+        } else {
+          alert('❌ সিঙ্ক ব্যর্থ: ' + (json.error || 'Unknown error'));
+        }
+      } catch (e) {
+        alert('❌ এরর: ' + e.message);
+      } finally {
+        if (btn) btn.innerText = oldText;
+      }
+    }
+
+    async function runAuditFromUi(ev) {
+      const btn = ev?.target;
+      const oldText = btn ? btn.innerText : '';
+      if (btn) btn.innerText = '⌛...';
+      try {
+        const res = await fetch('/api/audit-jobs', { method: 'POST' });
+        const json = await res.json();
+        if (json.status === 'ok') {
+          alert('✅ জব অডিট সম্পন্ন!\nমোট কাজ (মিডিয়া ফাইল অনুযায়ী): ' + json.jobsTotal + ' টি\nকর্মীদের আনবিল্ড লিকেজ: ৳ ' + json.unbilledTotal);
+          await loadStats();
+        } else {
+          alert('❌ অডিট ব্যর্থ: ' + (json.error || 'Unknown error'));
+        }
+      } catch (e) {
+        alert('❌ এরর: ' + e.message);
+      } finally {
+        if (btn) btn.innerText = oldText;
       }
     }
 
