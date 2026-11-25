@@ -24,7 +24,7 @@ const {
 const { getBusinessKpiReport } = require('./metrics');
 const { getCohortPaybackAnalysis } = require('./cohort');
 const { getMetricsAnalytics } = require('./metrics-roi');
-const { syncChatMetricsToDb } = require('./metrics-traverser');
+const { syncChatMetricsToDb, extractLiveWhatsAppChats } = require('./metrics-traverser');
 const { PORT, DASHBOARD_PIN } = require('./config');
 const { syncExistingInboxContacts } = require('./sync');
 const { resolveCustomerPhone } = require('./bot');
@@ -436,12 +436,54 @@ function startWebServer({ db, client = null, port = PORT, onRestart = null } = {
       return;
     }
 
-    // API: Re-sync chat transcripts to dedicated metrics tables
-    if (pathname === '/api/metrics/sync' && method === 'POST') {
+    // API: Re-sync chat transcripts to dedicated metrics tables & live WhatsApp Web
+    if ((pathname === '/api/metrics/sync' || pathname === '/api/metrics/sync-live') && method === 'POST') {
       try {
+        const body = await readJsonBody(req).catch(() => ({}));
+        let liveSynced = false;
+        let liveChatCount = 0;
+
+        // 1. If payload contains uploaded chats or custom json
+        if (body.chats && Array.isArray(body.chats) && body.chats.length > 0) {
+          const livePath = path.join(__dirname, '..', 'data', 'latest_live_chats.json');
+          fs.writeFileSync(livePath, JSON.stringify(body.chats, null, 2), 'utf8');
+          liveSynced = true;
+          liveChatCount = body.chats.length;
+        } else if (client && client.pupPage && typeof client.pupPage.evaluate === 'function') {
+          // 2. If WhatsApp client is connected and ready, attempt in-page live extraction
+          try {
+            const extracted = await extractLiveWhatsAppChats(client);
+            if (extracted && extracted.length > 0) {
+              const livePath = path.join(__dirname, '..', 'data', 'latest_live_chats.json');
+              fs.writeFileSync(livePath, JSON.stringify(extracted, null, 2), 'utf8');
+              liveSynced = true;
+              liveChatCount = extracted.length;
+            }
+          } catch (liveErr) {
+            console.warn('[METRICS_SYNC] Live extraction warning:', liveErr.message);
+          }
+        }
+
+        // Run traversal across all available and newly merged transcripts
         const result = syncChatMetricsToDb(db, { cleanSync: true });
+        const qrInfo = getQrStatus();
+
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({ status: 'ok', success: true, result }));
+        res.end(JSON.stringify({
+          status: 'ok',
+          success: true,
+          liveSynced,
+          liveChatCount,
+          qrRequired: !liveSynced && qrInfo.status !== 'READY',
+          qrStatus: qrInfo.status,
+          qrUrl: '/qr',
+          result,
+          message: liveSynced
+            ? `সফলভাবে ${liveChatCount}টি চ্যাট থেকে লাইভ ডেটা সিঙ্ক করা হয়েছে!`
+            : (qrInfo.status === 'READY'
+                ? `ডেটাবেজে সকল উপলব্ধ চ্যাট সফলভাবে সিঙ্ক হয়েছে (${result.totalJobs}টি কাজ)।`
+                : `ডেটাবেজে সকল উপলব্ধ চ্যাট সিঙ্ক হয়েছে (${result.totalJobs}টি কাজ, ১৪ নভেম্বর পর্যন্ত)। আজকের লাইভ ডেটা পেতে দয়া করে /qr পেজ থেকে WhatsApp কিউআর কোড স্ক্যান করুন।`)
+        }));
       } catch (err) {
         res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ status: 'error', error: err.message }));

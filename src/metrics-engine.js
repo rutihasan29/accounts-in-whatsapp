@@ -28,34 +28,80 @@ function normalizeDigits(str) {
 }
 
 /**
- * Resolve path to the chat transcript dataset.
+ * Locate all available chat transcript JSON files across the workspace.
  */
-function getChatTranscriptPath() {
+function getTranscriptCandidatePaths() {
+  const baseDir = path.join(__dirname, '..');
   const possiblePaths = [
-    path.join(__dirname, '..', 'data', 'all_target_chat_messages.json'),
-    'C:/Users/ASUS/.gemini/antigravity-cli/brain/e2efe527-a091-4c47-8987-e835c828fac5/scratch/all_target_chat_messages.json',
-    path.join(__dirname, '..', 'data', 'whatsapp_nov1_contacts_final.json')
+    path.join(baseDir, 'data', 'latest_live_chats.json'),
+    path.join(baseDir, 'data', 'whatsapp_oct26_ui_traverse_raw.json'),
+    path.join(baseDir, 'data', 'all_target_chat_messages.json'),
+    path.join(baseDir, 'data', 'recent_chat_messages.json'),
+    'C:/Users/ASUS/.gemini/antigravity-cli/brain/e2efe527-a091-4c47-8987-e835c828fac5/scratch/all_target_chat_messages.json'
   ];
-  for (const p of possiblePaths) {
-    if (fs.existsSync(p)) return p;
-  }
-  return null;
+  return possiblePaths.filter(p => fs.existsSync(p));
 }
 
 /**
- * Load raw chat transcripts.
+ * Load and merge raw chat transcripts with deduplication across multiple dumps.
  */
 function loadChatTranscripts() {
-  const p = getChatTranscriptPath();
-  if (!p) return [];
-  try {
-    const raw = fs.readFileSync(p, 'utf8');
-    const data = JSON.parse(raw);
-    return Array.isArray(data) ? data : [];
-  } catch (err) {
-    console.error('Failed reading chat transcripts:', err.message);
-    return [];
+  const filePaths = getTranscriptCandidatePaths();
+  if (filePaths.length === 0) return [];
+
+  const chatMap = new Map();
+  for (const fp of filePaths) {
+    try {
+      const raw = fs.readFileSync(fp, 'utf8');
+      const data = JSON.parse(raw);
+      if (!Array.isArray(data)) continue;
+
+      for (const item of data) {
+        if (!item || (!item.phone && !item.rawId)) continue;
+        const key = String(item.phone || item.rawId).replace(/\D/g, '') || item.rawId;
+        if (!key) continue;
+
+        if (!chatMap.has(key)) {
+          chatMap.set(key, {
+            phone: item.phone || key,
+            name: item.name || '',
+            rawId: item.rawId || key,
+            firstContactIso: item.firstContactIso || null,
+            messages: []
+          });
+        }
+
+        const entry = chatMap.get(key);
+        if (!entry.name && item.name) entry.name = item.name;
+        if (!entry.firstContactIso && item.firstContactIso) entry.firstContactIso = item.firstContactIso;
+
+        const seenMsgKeys = new Set(
+          entry.messages.map(m => m.id || `${m.t}|${m.fromMe ? 1 : 0}|${m.type}|${m.filename || ''}|${m.duration || ''}|${m.body || ''}`)
+        );
+
+        for (const m of (item.messages || [])) {
+          if (!m) continue;
+          const mKey = m.id || `${m.t}|${m.fromMe ? 1 : 0}|${m.type}|${m.filename || ''}|${m.duration || ''}|${m.body || ''}`;
+          if (!seenMsgKeys.has(mKey)) {
+            entry.messages.push(m);
+            seenMsgKeys.add(mKey);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[METRICS_ENGINE] Failed reading chat transcripts:', fp, err.message);
+    }
   }
+
+  for (const entry of chatMap.values()) {
+    entry.messages.sort((a, b) => {
+      const ta = a.t || (a.isoTime ? new Date(a.isoTime).getTime() / 1000 : 0);
+      const tb = b.t || (b.isoTime ? new Date(b.isoTime).getTime() / 1000 : 0);
+      return ta - tb;
+    });
+  }
+
+  return Array.from(chatMap.values());
 }
 
 /**

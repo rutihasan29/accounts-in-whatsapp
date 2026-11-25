@@ -161,6 +161,30 @@ test('Server /metrics and /api/metrics endpoints work correctly', async (t) => {
     const emptyJson = await emptyRes.json();
     assert.equal(emptyJson.productionAudit.totalMediaDelivered, 0);
 
+    // 5. POST /api/metrics/sync with payload
+    const syncRes = await fetch(`http://localhost:${testPort}/api/metrics/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chats: [{
+          phone: '8801999999999',
+          name: 'Sync Test Client',
+          messages: [{
+            id: 'm1',
+            fromMe: true,
+            type: 'audio',
+            t: 1794700000,
+            isoTime: '2026-11-15T10:00:00.000Z',
+            hasMedia: true
+          }]
+        }]
+      })
+    });
+    assert.equal(syncRes.status, 200);
+    const syncJson = await syncRes.json();
+    assert.equal(syncJson.status, 'ok');
+    assert.equal(syncJson.success, true);
+
   } finally {
     await new Promise(resolve => server.close(resolve));
     db.close();

@@ -33,34 +33,81 @@ function parseIso(isoStr) {
 }
 
 /**
- * Locate chat transcripts JSON file.
+ * Locate all available chat transcript JSON files across the workspace.
  */
-function getChatTranscriptPath() {
+function getTranscriptCandidatePaths() {
+  const baseDir = path.join(__dirname, '..');
   const possiblePaths = [
-    path.join(__dirname, '..', 'data', 'all_target_chat_messages.json'),
-    'C:/Users/ASUS/.gemini/antigravity-cli/brain/e2efe527-a091-4c47-8987-e835c828fac5/scratch/all_target_chat_messages.json',
-    path.join(__dirname, '..', 'data', 'whatsapp_nov1_contacts_final.json')
+    path.join(baseDir, 'data', 'latest_live_chats.json'),
+    path.join(baseDir, 'data', 'whatsapp_oct26_ui_traverse_raw.json'),
+    path.join(baseDir, 'data', 'all_target_chat_messages.json'),
+    path.join(baseDir, 'data', 'recent_chat_messages.json'),
+    'C:/Users/ASUS/.gemini/antigravity-cli/brain/e2efe527-a091-4c47-8987-e835c828fac5/scratch/all_target_chat_messages.json'
   ];
-  for (const p of possiblePaths) {
-    if (fs.existsSync(p)) return p;
-  }
-  return null;
+  return possiblePaths.filter(p => fs.existsSync(p));
 }
 
 /**
- * Load chat transcripts from disk.
+ * Load and merge all chat transcripts from disk with deduplication across multiple dumps.
  */
 function loadChatTranscripts() {
-  const p = getChatTranscriptPath();
-  if (!p) return [];
-  try {
-    const raw = fs.readFileSync(p, 'utf8');
-    const data = JSON.parse(raw);
-    return Array.isArray(data) ? data : [];
-  } catch (err) {
-    console.error('[TRAVERSER] Failed reading chat transcripts:', err.message);
-    return [];
+  const filePaths = getTranscriptCandidatePaths();
+  if (filePaths.length === 0) return [];
+
+  const chatMap = new Map();
+  for (const fp of filePaths) {
+    try {
+      const raw = fs.readFileSync(fp, 'utf8');
+      const data = JSON.parse(raw);
+      if (!Array.isArray(data)) continue;
+
+      for (const item of data) {
+        if (!item || (!item.phone && !item.rawId)) continue;
+        const key = String(item.phone || item.rawId).replace(/\D/g, '') || item.rawId;
+        if (!key) continue;
+
+        if (!chatMap.has(key)) {
+          chatMap.set(key, {
+            phone: item.phone || key,
+            name: item.name || '',
+            rawId: item.rawId || key,
+            firstContactIso: item.firstContactIso || null,
+            messages: []
+          });
+        }
+
+        const entry = chatMap.get(key);
+        if (!entry.name && item.name) entry.name = item.name;
+        if (!entry.firstContactIso && item.firstContactIso) entry.firstContactIso = item.firstContactIso;
+
+        const seenMsgKeys = new Set(
+          entry.messages.map(m => m.id || `${m.t}|${m.fromMe ? 1 : 0}|${m.type}|${m.filename || ''}|${m.duration || ''}|${m.body || ''}`)
+        );
+
+        for (const m of (item.messages || [])) {
+          if (!m) continue;
+          const mKey = m.id || `${m.t}|${m.fromMe ? 1 : 0}|${m.type}|${m.filename || ''}|${m.duration || ''}|${m.body || ''}`;
+          if (!seenMsgKeys.has(mKey)) {
+            entry.messages.push(m);
+            seenMsgKeys.add(mKey);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[TRAVERSER] Error reading transcript file:', fp, err.message);
+    }
   }
+
+  // Sort messages in each chat chronologically
+  for (const entry of chatMap.values()) {
+    entry.messages.sort((a, b) => {
+      const ta = a.t || (a.isoTime ? new Date(a.isoTime).getTime() / 1000 : 0);
+      const tb = b.t || (b.isoTime ? new Date(b.isoTime).getTime() / 1000 : 0);
+      return ta - tb;
+    });
+  }
+
+  return Array.from(chatMap.values());
 }
 
 /**
@@ -264,9 +311,87 @@ function syncChatMetricsToDb(db, options = {}) {
   };
 }
 
+/**
+ * Backwards compatibility helper returning primary transcript path.
+ */
+function getChatTranscriptPath() {
+  const paths = getTranscriptCandidatePaths();
+  return paths[0] || null;
+}
+
+/**
+ * In-page WhatsApp Web message extractor for live sync.
+ */
+async function extractLiveWhatsAppChats(client) {
+  if (!client?.pupPage || typeof client.pupPage.evaluate !== 'function') {
+    return [];
+  }
+  try {
+    const res = await client.pupPage.evaluate(async () => {
+      const chatCollection = window.require('WAWebCollections')?.Chat;
+      if (!chatCollection) return [];
+      const allModels = chatCollection.getModelsArray();
+      const results = [];
+      for (const chat of allModels) {
+        const rawId = chat.id?._serialized || '';
+        if (!rawId || chat.isGroup || chat.isBroadcast || rawId.endsWith('@g.us') || rawId.endsWith('@broadcast') || rawId.endsWith('@newsletter')) {
+          continue;
+        }
+
+        let phone = null;
+        if (rawId.endsWith('@c.us') || rawId.endsWith('@s.whatsapp.net')) {
+          phone = rawId.split('@')[0].split(':')[0].replace(/\D/g, '');
+        } else if (rawId.endsWith('@lid')) {
+          try {
+            const widFactory = window.require('WAWebWidFactory');
+            const targetWid = widFactory.createWid(rawId);
+            const contactApi = window.require('WAWebApiContact');
+            if (contactApi?.getPhoneNumber) {
+              const pWid = contactApi.getPhoneNumber(targetWid);
+              if (pWid?.user) phone = pWid.user;
+            }
+          } catch {}
+          if (!phone) phone = rawId.split('@')[0].split(':')[0].replace(/\D/g, '');
+        }
+
+        const msgs = chat.msgs?.getModelsArray() || [];
+        const extractedMsgs = msgs.map(m => ({
+          id: m.id?._serialized,
+          t: m.t,
+          isoTime: m.t ? new Date(m.t * 1000).toISOString() : null,
+          fromMe: Boolean(m.id?.fromMe),
+          type: m.type,
+          body: m.body || '',
+          caption: m.caption || '',
+          filename: m.filename || '',
+          duration: m.duration || m._data?.duration || 0,
+          hasMedia: Boolean(m.isMedia || m.mimetype)
+        }));
+
+        if (extractedMsgs.length > 0) {
+          results.push({
+            rawId,
+            phone: phone || rawId,
+            name: chat.name || chat.formattedTitle || '',
+            firstContactIso: extractedMsgs[0]?.isoTime || null,
+            messages: extractedMsgs
+          });
+        }
+      }
+      return results;
+    });
+    return Array.isArray(res) ? res : [];
+  } catch (err) {
+    console.error('[LIVE_SYNC] Error in extractLiveWhatsAppChats:', err.message);
+    return [];
+  }
+}
+
 module.exports = {
   loadChatTranscripts,
   syncChatMetricsToDb,
   normalizeDigits,
-  getChatTranscriptPath
+  getChatTranscriptPath,
+  getTranscriptCandidatePaths,
+  extractLiveWhatsAppChats
 };

@@ -605,6 +605,61 @@
     </div>
   </div>
 
+  <!-- Sync Latest Data Modal -->
+  <div id="syncModal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(5px); display: none; align-items: center; justify-content: center; z-index: 10001;">
+    <div class="modal-box" style="max-width: 480px; width: 92%; padding: 22px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <div class="modal-title" style="margin: 0; font-size: 16px; color: #34d399;">🔄 Sync Latest Data (সর্বশেষ ডেটা সিঙ্ক)</div>
+        <button onclick="closeSyncModal()" style="background: none; border: none; color: #9ca3af; font-size: 20px; cursor: pointer; padding: 0 4px;">✕</button>
+      </div>
+      <div class="modal-desc" style="margin-bottom: 14px; font-size: 12px; line-height: 1.5;">
+        WhatsApp চ্যাট ট্রাভার্সাল থেকে সর্বশেষ অডিও/ভিডিও ডেলিভারি কাজ ও রেভিনিউ ডেটা সিঙ্ক করুন।
+      </div>
+
+      <!-- Live State Indicator -->
+      <div style="background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; font-size: 12px;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+          <span style="color: #94a3b8;">ডেটাবেজ রেকর্ড:</span>
+          <span id="syncDbStatus" style="color: #38bdf8; font-weight: 600;">৮৮৯টি কাজ (১৪ নভেম্বর পর্যন্ত)</span>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+          <span style="color: #94a3b8;">WhatsApp Web সেশন:</span>
+          <span id="syncWaStatus" style="color: #f87171; font-weight: 600;">লোড হচ্ছে...</span>
+        </div>
+      </div>
+
+      <!-- Option 1: Live Server Sync -->
+      <div style="border: 1px solid #334155; border-radius: 8px; padding: 12px; margin-bottom: 12px; background: rgba(15, 23, 42, 0.5);">
+        <div style="font-size: 13px; font-weight: 600; color: #e2e8f0; margin-bottom: 4px;">⚡ ১. স্বয়ংক্রিয় লাইভ সিঙ্ক (Auto Live Sync)</div>
+        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 10px; line-height: 1.4;">
+          সার্ভারের WhatsApp Web ক্লায়েন্ট থেকে সরাসরি আজকের ও সাম্প্রতিক লাইভ মেসেজ স্ক্যান করবে।
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button id="btnRunLiveSync" class="action-btn" onclick="executeLiveSync()" style="flex: 1; padding: 8px 12px; font-size: 12px; background: #059669;">
+            <span>🔄 এখন সিঙ্ক চালান</span>
+          </button>
+          <a href="/qr" target="_blank" class="nav-btn" style="padding: 8px 12px; font-size: 12px; text-decoration: none; color: #38bdf8; border-color: #0284c7; text-align: center;">
+            <span>📱 কিউআর কোড (/qr)</span>
+          </a>
+        </div>
+      </div>
+
+      <!-- Option 2: Upload WhatsApp Chat Export -->
+      <div style="border: 1px solid #334155; border-radius: 8px; padding: 12px; background: rgba(15, 23, 42, 0.5);">
+        <div style="font-size: 13px; font-weight: 600; color: #e2e8f0; margin-bottom: 4px;">📁 ২. এক্সপোর্ট ফাইল আপলোড (Upload Chat Dump)</div>
+        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 10px; line-height: 1.4;">
+          হোয়াটসঅ্যাপ থেকে এক্সপোর্ট করা সাম্প্রতিক চ্যাট (.json) ফাইল সরাসরি সিলেক্ট করে সিঙ্ক করুন।
+        </div>
+        <input type="file" id="chatFileInput" accept=".json,.txt" style="display: none;" onchange="handleChatFileUpload(event)">
+        <button class="preset-btn" onclick="document.getElementById('chatFileInput').click()" style="width: 100%; padding: 8px; font-size: 12px; justify-content: center; background: #1e293b; border-color: #475569; color: #cbd5e1;">
+          <span>📂 চ্যাট ব্যাকআপ ফাইল নির্বাচন করুন (.json)</span>
+        </button>
+      </div>
+
+      <div id="syncResultAlert" style="display: none; margin-top: 12px; padding: 10px; border-radius: 6px; font-size: 12px; line-height: 1.4;"></div>
+    </div>
+  </div>
+
   <!-- Header -->
   <header>
     <div class="header-top">
@@ -616,8 +671,8 @@
         <button class="sync-btn" onclick="syncMetaAds()" id="btnSyncAds" style="color: #38bdf8; border-color: #0284c7;">
           <span>🌐 Sync Meta Ads API</span>
         </button>
-        <button class="sync-btn" onclick="syncTranscripts()" id="btnSync">
-          <span>🔄 Sync Transcripts</span>
+        <button class="sync-btn" onclick="openSyncModal()" id="btnSync" style="color: #34d399; border-color: #059669; font-weight: 600; background: rgba(5, 150, 105, 0.15);">
+          <span>🔄 Sync Latest Data (সর্বশেষ ডেটা সিঙ্ক)</span>
         </button>
         <a href="/" class="nav-btn">📋 Ledger (Due List)</a>
         <a href="/sales" class="nav-btn">👥 Sales Leads</a>
@@ -660,12 +715,13 @@
         <button class="preset-btn" onclick="applyPreset('yesterday')">গতকাল</button>
         <button class="preset-btn" onclick="applyPreset('7d')">৭ দিন</button>
         <button class="preset-btn" onclick="applyPreset('this_month')">চলতি মাস</button>
-        <button class="preset-btn" onclick="applyPreset('nov_audit')">১-৭ নভে (অডিট)</button>
+        <button class="preset-btn" onclick="applyPreset('nov_audit')">১-১৪ নভে (অডিট)</button>
         <button class="preset-btn active" onclick="applyPreset('all')">সব (All)</button>
       </div>
     </div>
-    <div style="font-size: 11px; color: var(--text-dim); margin-top: 10px; display: flex; align-items: center; gap: 8px;">
-      <span>ℹ️ ডেটাবেজে সংরক্ষিত চ্যাট অডিট রেঞ্জ: <strong style="color: #cbd5e1;">৩১ অক্টোবর – ৭ নভেম্বর ২০২৬</strong> (৫২০টি ডেলিভারি কাজ)। সাম্প্রতিক কাজগুলো দেখতে <strong>[১-৭ নভে (অডিট)]</strong>, <strong>[চলতি মাস]</strong> অথবা <strong>[সব]</strong> নির্বাচন করুন।</span>
+    <div style="font-size: 11px; color: var(--text-dim); margin-top: 10px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+      <span>ℹ️ ডেটাবেজে সংরক্ষিত চ্যাট অডিট রেঞ্জ: <strong style="color: #cbd5e1;">৩১ অক্টোবর – ১৪ নভেম্বর ২০২৬</strong> (৮৮৯টি ডেলিভারি কাজ)। ১৫ নভেম্বর থেকে আজকের ডেটার জন্য <strong style="color: #34d399;">[🔄 Sync Latest Data]</strong> ব্যবহার করুন।</span>
+      <button class="preset-btn" onclick="openSyncModal()" style="font-size: 11px; padding: 3px 8px; color: #34d399; border-color: #059669;">🔄 সিঙ্ক অপশন খুলুন</button>
     </div>
   </div>
 
@@ -972,7 +1028,7 @@
         document.getElementById('endDate').value = fmt(now);
       } else if (preset === 'nov_audit') {
         document.getElementById('startDate').value = '2026-11-01';
-        document.getElementById('endDate').value = '2026-11-07';
+        document.getElementById('endDate').value = '2026-11-14';
       } else if (preset === 'all') {
         document.getElementById('startDate').value = '';
         document.getElementById('endDate').value = '';
@@ -1096,8 +1152,13 @@
         const e = document.getElementById('endDate').value || 'শেষ';
         tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 28px; line-height: 1.6;">
           ⚠️ <strong>নির্বাচিত তারিখের মধ্যে (${s} থেকে ${e}) কোনো ডেলিভারি কাজ পাওয়া যায়নি।</strong><br>
-          <span style="font-size: 12px; color: var(--text-dim);">বর্তমানে ডেটাবেজে সংরক্ষিত চ্যাট অডিট রেকর্ড ৩১ অক্টোবর থেকে ৭ নভেম্বর ২০২৬ পর্যন্ত রয়েছে।<br>
-          নভেম্বরের অডিটকৃত কাজগুলো দেখতে <strong>[১-৭ নভে (অডিট)]</strong>, <strong>[চলতি মাস]</strong> অথবা <strong>[সব]</strong> বাটনে ক্লিক করুন।</span>
+          <span style="font-size: 12px; color: var(--text-dim);">বর্তমানে ডেটাবেজে সংরক্ষিত চ্যাট অডিট রেকর্ড ৩১ অক্টোবর থেকে ১৪ নভেম্বর ২০২৬ পর্যন্ত রয়েছে (৮৮৯টি ডেলিভারি কাজ)।<br>
+          ১৫ নভেম্বর থেকে আজকের লাইভ কাজের জন্য নিচের বাটনে ক্লিক করুন:</span><br>
+          <div style="margin-top: 14px; display: flex; justify-content: center; flex-wrap: wrap; gap: 10px;">
+            <button class="action-btn" onclick="openSyncModal()" style="background: #059669; padding: 6px 14px; font-size: 12px;">🔄 Sync Latest Data</button>
+            <a href="/qr" target="_blank" class="nav-btn" style="padding: 6px 14px; font-size: 12px; color: #38bdf8; border-color: #0284c7; text-decoration: none;">📱 Scan WhatsApp QR</a>
+            <button class="preset-btn" onclick="applyPreset('nov_audit')" style="font-size: 12px;">১-১৪ নভে (অডিট)</button>
+          </div>
         </td></tr>`;
       } else {
         tbody.innerHTML = jobs.map(j => {
@@ -1130,23 +1191,107 @@
       }
     }
 
-    async function syncTranscripts() {
-      const btn = document.getElementById('btnSync');
-      const originalText = btn.innerHTML;
+    function openSyncModal() {
+      document.getElementById('syncModal').style.display = 'flex';
+      checkWaStatusForModal();
+    }
+
+    function closeSyncModal() {
+      document.getElementById('syncModal').style.display = 'none';
+      document.getElementById('syncResultAlert').style.display = 'none';
+    }
+
+    async function checkWaStatusForModal() {
+      try {
+        const res = await fetch('/api/qr');
+        const data = await res.json();
+        const waStatusEl = document.getElementById('syncWaStatus');
+        if (data.status === 'READY') {
+          waStatusEl.textContent = 'অনলাইন (রেডি)';
+          waStatusEl.style.color = '#34d399';
+        } else {
+          waStatusEl.textContent = 'অফলাইন (কিউআর স্ক্যান প্রয়োজন)';
+          waStatusEl.style.color = '#f87171';
+        }
+      } catch {}
+    }
+
+    async function executeLiveSync() {
+      const btn = document.getElementById('btnRunLiveSync');
+      const orig = btn.innerHTML;
       btn.innerHTML = '<span class="loading-spinner"></span> <span>সিঙ্ক হচ্ছে...</span>';
       btn.disabled = true;
+      const alertBox = document.getElementById('syncResultAlert');
 
       try {
         const res = await fetch('/api/metrics/sync', { method: 'POST' });
-        const result = await res.json();
-        alert(`সিঙ্ক সম্পন্ন হয়েছে!\nগ্রাহক: ${result.result.totalClients} জন\nমোট কাজ: ${result.result.totalJobs} টি\nবিল: ৳${result.result.totalBilled}\nঅপচয়: ৳${result.result.totalUnbilled}`);
-        loadMetrics();
+        const data = await res.json();
+        alertBox.style.display = 'block';
+        if (data.success) {
+          alertBox.style.background = 'rgba(16, 185, 129, 0.15)';
+          alertBox.style.border = '1px solid #10b981';
+          alertBox.style.color = '#6ee7b7';
+          alertBox.innerHTML = `<strong>✅ সিঙ্ক সম্পন্ন!</strong><br>${data.message}`;
+          document.getElementById('syncDbStatus').textContent = `${data.result.totalJobs}টি কাজ`;
+          loadMetrics();
+        } else {
+          alertBox.style.background = 'rgba(244, 63, 94, 0.15)';
+          alertBox.style.border = '1px solid #f43f5e';
+          alertBox.style.color = '#fda4af';
+          alertBox.innerHTML = `<strong>❌ ত্রুটি:</strong> ${data.error || 'Sync failed'}`;
+        }
       } catch (err) {
-        alert('সিঙ্ক ব্যর্থ: ' + err.message);
+        alertBox.style.display = 'block';
+        alertBox.style.background = 'rgba(244, 63, 94, 0.15)';
+        alertBox.style.border = '1px solid #f43f5e';
+        alertBox.style.color = '#fda4af';
+        alertBox.innerHTML = `<strong>❌ সংযোগ ব্যর্থ:</strong> ${err.message}`;
       } finally {
-        btn.innerHTML = originalText;
+        btn.innerHTML = orig;
         btn.disabled = false;
       }
+    }
+
+    async function handleChatFileUpload(evt) {
+      const file = evt.target.files?.[0];
+      if (!file) return;
+      const alertBox = document.getElementById('syncResultAlert');
+      alertBox.style.display = 'block';
+      alertBox.style.background = 'rgba(56, 189, 248, 0.15)';
+      alertBox.style.border = '1px solid #0284c7';
+      alertBox.style.color = '#7dd3fc';
+      alertBox.innerHTML = 'ফাইলের ডেটা প্রসেস হচ্ছে...';
+
+      try {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        if (!Array.isArray(parsed)) throw new Error('ফাইলটিতে চ্যাট অ্যারে (Array) ফরম্যাট থাকা আবশ্যক');
+
+        const res = await fetch('/api/metrics/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chats: parsed })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alertBox.style.background = 'rgba(16, 185, 129, 0.15)';
+          alertBox.style.border = '1px solid #10b981';
+          alertBox.style.color = '#6ee7b7';
+          alertBox.innerHTML = `<strong>✅ ফাইল সিঙ্ক সম্পন্ন!</strong> মোট ${data.result.totalJobs}টি কাজ ডেটাবেজে সংরক্ষিত হয়েছে।`;
+          loadMetrics();
+        } else {
+          throw new Error(data.error || 'Server error during sync');
+        }
+      } catch (err) {
+        alertBox.style.background = 'rgba(244, 63, 94, 0.15)';
+        alertBox.style.border = '1px solid #f43f5e';
+        alertBox.style.color = '#fda4af';
+        alertBox.innerHTML = `<strong>❌ ফাইল প্রক্রিয়াকরণে ব্যর্থ:</strong> ${err.message}`;
+      }
+    }
+
+    async function syncTranscripts() {
+      openSyncModal();
     }
 
     async function syncMetaAds() {
