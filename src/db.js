@@ -246,6 +246,50 @@ function initDb(dbPath) {
     CREATE INDEX IF NOT EXISTS idx_voice_job_va2_msg ON voice_job_orders(va2_forward_msg_id);
     CREATE INDEX IF NOT EXISTS idx_voice_job_customer_phone ON voice_job_orders(customer_phone);
     CREATE INDEX IF NOT EXISTS idx_voice_job_status ON voice_job_orders(status);
+
+    -- Dedicated tables for /metrics chat traversal only
+    CREATE TABLE IF NOT EXISTS metrics_chat_clients (
+      phone_number TEXT PRIMARY KEY,
+      client_name TEXT,
+      first_contact_at DATETIME NOT NULL,
+      first_job_delivered_at DATETIME,
+      total_jobs_delivered INTEGER DEFAULT 0,
+      total_billed_bdt REAL DEFAULT 0,
+      total_unbilled_bdt REAL DEFAULT 0,
+      status TEXT DEFAULT 'PENDING',
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS metrics_chat_jobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      phone_number TEXT NOT NULL,
+      job_type TEXT NOT NULL CHECK(job_type IN ('voice', 'video')),
+      delivered_at DATETIME NOT NULL,
+      media_type TEXT NOT NULL,
+      duration_seconds REAL DEFAULT 0,
+      expected_amount_bdt REAL NOT NULL,
+      billed_amount_bdt REAL DEFAULT 0,
+      unbilled_leakage_bdt REAL DEFAULT 0,
+      status TEXT NOT NULL CHECK(status IN ('CONFIRMED_BILLED', 'UNBILLED_LEAKAGE', 'TYPO_FLAGGED')),
+      raw_media_msg_id TEXT,
+      bill_text TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS metrics_chat_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      phone_number TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      event_time DATETIME NOT NULL,
+      latency_seconds REAL DEFAULT 0,
+      note TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_metrics_jobs_date ON metrics_chat_jobs(delivered_at);
+    CREATE INDEX IF NOT EXISTS idx_metrics_jobs_phone ON metrics_chat_jobs(phone_number);
+    CREATE INDEX IF NOT EXISTS idx_metrics_events_time ON metrics_chat_events(event_time);
+    CREATE INDEX IF NOT EXISTS idx_metrics_clients_contact ON metrics_chat_clients(first_contact_at);
   `);
 
   // Ensure message_id, job_type, duration_seconds exist for pre-existing databases before indexing

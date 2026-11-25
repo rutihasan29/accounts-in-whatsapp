@@ -23,6 +23,8 @@ const {
 } = require('./db');
 const { getBusinessKpiReport } = require('./metrics');
 const { getCohortPaybackAnalysis } = require('./cohort');
+const { getMetricsAnalytics } = require('./metrics-roi');
+const { syncChatMetricsToDb } = require('./metrics-traverser');
 const { PORT, DASHBOARD_PIN } = require('./config');
 const { syncExistingInboxContacts } = require('./sync');
 const { resolveCustomerPhone } = require('./bot');
@@ -41,6 +43,7 @@ const {
 const DASHBOARD_HTML_PATH = path.join(__dirname, 'dashboard.html');
 const SALES_HTML_PATH = path.join(__dirname, 'sales.html');
 const QR_HTML_PATH = path.join(__dirname, 'qr.html');
+const METRICS_HTML_PATH = path.join(__dirname, 'metrics.html');
 let lastSalesNotesSyncTime = 0;
 
 function readJsonBody(req) {
@@ -388,6 +391,60 @@ function startWebServer({ db, client = null, port = PORT, onRestart = null } = {
       } catch (err) {
         res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
         res.end('Error reading QR page: ' + err.message);
+      }
+      return;
+    }
+
+    // Dedicated Ground-Truth Metrics Page (/metrics)
+    if (pathname === '/metrics' && method === 'GET') {
+      try {
+        const accept = req.headers['accept'] || '';
+        if (accept.includes('application/json')) {
+          const analytics = getMetricsAnalytics(db, {
+            startDate: parsedUrl.query?.startDate || null,
+            endDate: parsedUrl.query?.endDate || null,
+            customDailySpend: parsedUrl.query?.spend || null
+          });
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify(analytics));
+          return;
+        }
+        const html = fs.readFileSync(METRICS_HTML_PATH, 'utf8');
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(html);
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Error reading metrics page: ' + err.message);
+      }
+      return;
+    }
+
+    // API: Dedicated Ground-Truth Analytics & ROI
+    if (pathname === '/api/metrics/analytics' && method === 'GET') {
+      try {
+        const analytics = getMetricsAnalytics(db, {
+          startDate: parsedUrl.query?.startDate || null,
+          endDate: parsedUrl.query?.endDate || null,
+          customDailySpend: parsedUrl.query?.spend || null
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify(analytics));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', error: err.message }));
+      }
+      return;
+    }
+
+    // API: Re-sync chat transcripts to dedicated metrics tables
+    if (pathname === '/api/metrics/sync' && method === 'POST') {
+      try {
+        const result = syncChatMetricsToDb(db, { cleanSync: true });
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'ok', success: true, result }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', error: err.message }));
       }
       return;
     }
@@ -889,11 +946,11 @@ function startWebServer({ db, client = null, port = PORT, onRestart = null } = {
       return;
     }
 
-    // Main Single Page Mobile Dashboard & Metrics (with pre-rendered initial data)
-    if ((pathname === '/' || pathname === '/metrics' || pathname === '/dashboard' || pathname === '/kpi') && method === 'GET') {
+    // Main Single Page Mobile Dashboard (with pre-rendered initial data)
+    if ((pathname === '/' || pathname === '/dashboard' || pathname === '/kpi') && method === 'GET') {
       try {
         const accept = req.headers['accept'] || '';
-        if (accept.includes('application/json') && (pathname === '/metrics' || pathname === '/kpi')) {
+        if (accept.includes('application/json') && pathname === '/kpi') {
           const report = getBusinessKpiReport(db);
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
           res.end(JSON.stringify(report));

@@ -1,0 +1,1121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>GROUND-TRUTH BUSINESS METRICS & ROI &bull; NEWS VOICE</title>
+  <script>
+    if (window.fetch) {
+      const _orig = window.fetch;
+      window.fetch = function(u, o = {}) {
+        o.headers = o.headers || {};
+        if (o.headers instanceof Headers) {
+          if (!o.headers.has('ngrok-skip-browser-warning')) o.headers.append('ngrok-skip-browser-warning', 'true');
+        } else if (Array.isArray(o.headers)) {
+          o.headers.push(['ngrok-skip-browser-warning', 'true']);
+        } else {
+          o.headers['ngrok-skip-browser-warning'] = 'true';
+        }
+        return _orig.call(this, u, o);
+      };
+    }
+  </script>
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: #111827;
+      --card-border: #1f293d;
+      --card-header: #1a2234;
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --text-dim: #6b7280;
+      
+      --accent-blue: #38bdf8;
+      --accent-emerald: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-rose: #f43f5e;
+      --accent-purple: #a855f7;
+      
+      --badge-billed-bg: rgba(16, 185, 129, 0.15);
+      --badge-billed-fg: #34d399;
+      --badge-leakage-bg: rgba(244, 63, 94, 0.18);
+      --badge-leakage-fg: #fb7185;
+      --badge-typo-bg: rgba(245, 158, 11, 0.18);
+      --badge-typo-fg: #fbbf24;
+      
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      line-height: 1.5;
+      padding: 16px 14px 60px 14px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .num {
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Header */
+    header {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 18px 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    }
+
+    .header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 14px;
+      margin-bottom: 14px;
+    }
+
+    .brand-title {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand-tag {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent-blue);
+      font-family: var(--font-mono);
+      font-weight: 600;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 10px;
+    }
+
+    .nav-btn {
+      background: #1f2937;
+      color: #e5e7eb;
+      border: 1px solid #374151;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .nav-btn:hover {
+      background: #374151;
+      color: #ffffff;
+    }
+
+    .header-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      background: rgba(16, 185, 129, 0.12);
+      color: var(--accent-emerald);
+      padding: 3px 8px;
+      border-radius: 4px;
+      border: 1px solid rgba(16, 185, 129, 0.25);
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent-emerald);
+      box-shadow: 0 0 8px var(--accent-emerald);
+    }
+
+    /* Date Filter Bar */
+    .filter-panel {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 16px 20px;
+      margin-bottom: 22px;
+    }
+
+    .filter-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .filter-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .input-date, .input-spend {
+      background: #0b0f19;
+      border: 1px solid #374151;
+      border-radius: 6px;
+      padding: 7px 10px;
+      color: #f3f4f6;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .input-date:focus, .input-spend:focus {
+      border-color: var(--accent-blue);
+    }
+
+    .preset-btn-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-left: auto;
+    }
+
+    .preset-btn {
+      background: #1e293b;
+      color: #cbd5e1;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 6px 11px;
+      font-size: 12px;
+      font-family: var(--font-sans);
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .preset-btn:hover {
+      background: #334155;
+      color: #ffffff;
+    }
+
+    .preset-btn.active {
+      background: var(--accent-blue);
+      color: #0b0f19;
+      border-color: var(--accent-blue);
+      font-weight: 600;
+    }
+
+    .action-btn {
+      background: linear-gradient(135deg, #0284c7, #2563eb);
+      color: #ffffff;
+      border: none;
+      border-radius: 6px;
+      padding: 7px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+
+    .action-btn:hover {
+      opacity: 0.9;
+    }
+
+    .sync-btn {
+      background: #1e293b;
+      color: #38bdf8;
+      border: 1px solid #0284c7;
+      border-radius: 6px;
+      padding: 7px 12px;
+      font-size: 12px;
+      cursor: pointer;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .sync-btn:hover {
+      background: rgba(56, 189, 248, 0.1);
+    }
+
+    /* Alert Banner for Leakage */
+    .leakage-alert {
+      background: linear-gradient(90deg, rgba(244, 63, 94, 0.15), rgba(245, 158, 11, 0.1));
+      border: 1px solid rgba(244, 63, 94, 0.35);
+      border-radius: 10px;
+      padding: 14px 18px;
+      margin-bottom: 22px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .leakage-text {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      color: #fecdd3;
+    }
+
+    .leakage-icon {
+      font-size: 20px;
+    }
+
+    .leakage-amount {
+      font-size: 16px;
+      font-weight: 700;
+      color: #ffe4e6;
+      font-family: var(--font-mono);
+    }
+
+    /* Grid Layouts */
+    .grid-ribbon {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 14px;
+      margin-bottom: 22px;
+    }
+
+    .grid-2col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 22px;
+    }
+
+    @media (max-width: 820px) {
+      .grid-2col {
+        grid-template-columns: 1fr;
+      }
+      .preset-btn-group {
+        margin-left: 0;
+        width: 100%;
+      }
+    }
+
+    /* Cards */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+    }
+
+    .card-header {
+      background: var(--card-header);
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .card-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #e5e7eb;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .card-body {
+      padding: 16px;
+    }
+
+    /* Stat Box (Ribbon Item) */
+    .stat-box {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 16px;
+      position: relative;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+
+    .stat-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #ffffff;
+      font-family: var(--font-mono);
+      margin-bottom: 4px;
+    }
+
+    .stat-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .stat-highlight-emerald {
+      color: var(--accent-emerald);
+    }
+    .stat-highlight-rose {
+      color: var(--accent-rose);
+    }
+    .stat-highlight-blue {
+      color: var(--accent-blue);
+    }
+
+    /* Latency & Velocity Indicators */
+    .metric-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid #1f293d;
+    }
+
+    .metric-row:last-child {
+      border-bottom: none;
+    }
+
+    .metric-name {
+      font-size: 13px;
+      color: #d1d5db;
+    }
+
+    .metric-desc {
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    .metric-badge {
+      font-size: 14px;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      padding: 4px 10px;
+      border-radius: 6px;
+      background: #1e293b;
+      color: #f3f4f6;
+    }
+
+    .badge-gold {
+      background: rgba(245, 158, 11, 0.15);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    .badge-green {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .badge-blue {
+      background: rgba(56, 189, 248, 0.15);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+
+    /* Table styling */
+    .table-container {
+      width: 100%;
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 13px;
+    }
+
+    th {
+      background: #172033;
+      color: #94a3b8;
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 10px 12px;
+      border-bottom: 1px solid #1f293d;
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #1a2234;
+      color: #e2e8f0;
+      white-space: nowrap;
+    }
+
+    tr:hover td {
+      background: #141d2e;
+    }
+
+    .tag {
+      display: inline-block;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 4px;
+    }
+
+    .tag-billed {
+      background: var(--badge-billed-bg);
+      color: var(--badge-billed-fg);
+    }
+
+    .tag-leakage {
+      background: var(--badge-leakage-bg);
+      color: var(--badge-leakage-fg);
+    }
+
+    .tag-typo {
+      background: var(--badge-typo-bg);
+      color: var(--badge-typo-fg);
+    }
+
+    /* PIN Modal */
+    #pinModal {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 10000;
+    }
+
+    .modal-box {
+      background: #111827;
+      border: 1px solid #374151;
+      border-radius: 12px;
+      padding: 28px;
+      max-width: 360px;
+      width: 90%;
+      text-align: center;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+    }
+
+    .modal-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 8px;
+    }
+
+    .modal-desc {
+      font-size: 12px;
+      color: #9ca3af;
+      margin-bottom: 18px;
+    }
+
+    .pin-input {
+      background: #090d16;
+      border: 1px solid #4b5563;
+      border-radius: 8px;
+      color: #ffffff;
+      font-family: var(--font-mono);
+      font-size: 24px;
+      letter-spacing: 8px;
+      text-align: center;
+      padding: 10px;
+      width: 180px;
+      margin-bottom: 16px;
+      outline: none;
+    }
+
+    .pin-input:focus {
+      border-color: var(--accent-blue);
+    }
+
+    .loading-spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      border-top-color: #ffffff;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- PIN Modal -->
+  <div id="pinModal">
+    <div class="modal-box">
+      <div class="modal-title">🔐 Executive PIN Required</div>
+      <div class="modal-desc">Financial metrics and ROI calculations are restricted to authorized owners.</div>
+      <input type="password" id="pinInput" class="pin-input" maxlength="6" placeholder="••••" autofocus>
+      <div id="pinError" style="color: var(--accent-rose); font-size: 12px; margin-bottom: 12px; display: none;">Incorrect PIN</div>
+      <button class="action-btn" style="width: 100%;" onclick="submitPin()">Unlock Dashboard</button>
+    </div>
+  </div>
+
+  <!-- Header -->
+  <header>
+    <div class="header-top">
+      <div class="brand-title">
+        <span>NEWS VOICE</span>
+        <span class="brand-tag">ROI & METRICS ENGINE</span>
+      </div>
+      <div class="nav-links">
+        <button class="sync-btn" onclick="syncTranscripts()" id="btnSync">
+          <span>🔄 Sync Transcripts</span>
+        </button>
+        <a href="/" class="nav-btn">📋 Ledger (Due List)</a>
+        <a href="/sales" class="nav-btn">👥 Sales Leads</a>
+      </div>
+    </div>
+    <div class="header-desc">
+      <div class="status-badge">
+        <span class="status-dot"></span>
+        <span>GROUND-TRUTH CHAT TRAVERSAL ACTIVE</span>
+      </div>
+      <div>Source: <span class="num" style="color:#e2e8f0;">metrics_chat_*</span> dedicated tables</div>
+      <div>Zero WhatsApp Financial Broadcast</div>
+      <div style="margin-left: auto; font-family: var(--font-mono); font-size: 12px;" id="dataGeneratedAt">--</div>
+    </div>
+  </header>
+
+  <!-- Filter Panel -->
+  <div class="filter-panel">
+    <div class="filter-row">
+      <div class="filter-group">
+        <span class="filter-label">শুরু (Start):</span>
+        <input type="date" id="startDate" class="input-date">
+      </div>
+      <div class="filter-group">
+        <span class="filter-label">শেষ (End):</span>
+        <input type="date" id="endDate" class="input-date">
+      </div>
+      <div class="filter-group">
+        <span class="filter-label">বিজ্ঞাপন (Ad Spend):</span>
+        <input type="number" id="customSpend" class="input-spend" style="width: 80px;" placeholder="250" value="250">
+        <span style="font-size: 12px; color: var(--text-dim);">৳/day</span>
+      </div>
+      <button class="action-btn" onclick="loadMetrics()">ফিল্টার (Apply)</button>
+
+      <div class="preset-btn-group">
+        <button class="preset-btn" onclick="applyPreset('today')">আজ</button>
+        <button class="preset-btn" onclick="applyPreset('yesterday')">গতকাল</button>
+        <button class="preset-btn" onclick="applyPreset('7d')">৭ দিন</button>
+        <button class="preset-btn" onclick="applyPreset('this_month')">চলতি মাস</button>
+        <button class="preset-btn active" onclick="applyPreset('all')">সব (All)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Unbilled Leakage Alert Banner -->
+  <div class="leakage-alert" id="leakageBanner">
+    <div class="leakage-text">
+      <span class="leakage-icon">⚠️</span>
+      <div>
+        <strong>কর্মীদের বিল না করার অপচয় (Unbilled Staff Leakage Detected):</strong>
+        <span id="leakageSub">কর্মীরা কাজ ডেলিভারি করেও বিল টেক্সট দেননি</span>
+      </div>
+    </div>
+    <div class="leakage-amount num" id="leakageAmount">৳0.00</div>
+  </div>
+
+  <!-- Executive Metric Ribbon -->
+  <div class="grid-ribbon">
+    <div class="stat-box">
+      <div class="stat-label">যাচাইকৃত বিল রেভিনিউ (Billed)</div>
+      <div class="stat-value stat-highlight-emerald num" id="kpiBilled">৳0</div>
+      <div class="stat-sub">
+        <span>মোট কাজ: <strong class="num" id="kpiTotalJobs">0</strong></span>
+        <span>(🎙️ <span class="num" id="kpiVoiceJobs">0</span> / 🎬 <span class="num" id="kpiVideoJobs">0</span>)</span>
+      </div>
+    </div>
+
+    <div class="stat-box">
+      <div class="stat-label">মোট গ্রস প্রফিট (Gross Profit)</div>
+      <div class="stat-value stat-highlight-blue num" id="kpiGrossProfit">৳0</div>
+      <div class="stat-sub">
+        <span>ব্লেন্ডেড মার্জিন: <strong class="num" id="kpiBlendedMargin">57%</strong></span>
+        <span>(ভয়েস ৬০% / ভিডিও ৩৪%)</span>
+      </div>
+    </div>
+
+    <div class="stat-box">
+      <div class="stat-label">মেটা অ্যাড খরচ (Ad Spend)</div>
+      <div class="stat-value num" id="kpiAdSpend">৳0</div>
+      <div class="stat-sub">
+        <span>দৈনিক গড়: <strong class="num" id="kpiDailySpend">৳250</strong></span>
+        <span>দিন: <strong class="num" id="kpiDaysCount">0</strong></span>
+      </div>
+    </div>
+
+    <div class="stat-box">
+      <div class="stat-label">অ্যাড রিটার্ন ও আরওআই (ROAS & ROI)</div>
+      <div class="stat-value num" id="kpiRoas">0.00x</div>
+      <div class="stat-sub">
+        <span>নেট আরওআই: <strong class="num" id="kpiNetRoi">0%</strong></span>
+        <span>(CAC: <span class="num" id="kpiCac">৳0</span>)</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Section: Break-Even Latencies & Operational Velocity -->
+  <div class="grid-2col">
+    <!-- Break-Even Card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">⏱️ ব্রেক-ইভেন ও পে-ব্যাক সময়সীমা (Break-Even Latencies)</div>
+      </div>
+      <div class="card-body">
+        <div class="metric-row">
+          <div>
+            <div class="metric-name">রেভিনিউ ব্রেক-ইভেন (Revenue Break-Even)</div>
+            <div class="metric-desc">বিজ্ঞাপন খরচ সমপরিমাণ রেভিনিউ তুলতে সময়</div>
+          </div>
+          <div class="metric-badge badge-blue num" id="latRevBreakEven">~3.5 দিন</div>
+        </div>
+
+        <div class="metric-row">
+          <div>
+            <div class="metric-name">গ্রস প্রফিট ব্রেক-ইভেন (Gross Profit Break-Even)</div>
+            <div class="metric-desc">বিজ্ঞাপন খরচ সমপরিমাণ গ্রস প্রফিট (নিট জিরো) সময়</div>
+          </div>
+          <div class="metric-badge badge-green num" id="latGpBreakEven">~7.5 দিন</div>
+        </div>
+
+        <div class="metric-row">
+          <div>
+            <div class="metric-name">২ গুণ প্রফিট পে-ব্যাক (2X GP Payback)</div>
+            <div class="metric-desc">বিজ্ঞাপন খরচের দ্বিগুণ প্রফিট (২০০% আরওআই) অর্জন</div>
+          </div>
+          <div class="metric-badge badge-gold num" id="latDoubleProfit">~17 দিন</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Velocity Card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">⚡ অপারেশনাল গতি ও কর্মক্ষমতা (Operational Velocity)</div>
+      </div>
+      <div class="card-body">
+        <div class="metric-row">
+          <div>
+            <div class="metric-name">স্পিড-টু-লিড (Speed-to-Lead)</div>
+            <div class="metric-desc">গ্রাহকের প্রথম মেসেজে কর্মীদের উত্তর দেওয়ার গড় সময়</div>
+          </div>
+          <div class="metric-badge badge-blue num" id="velSpeedToLead">1.8 মিনিট</div>
+        </div>
+
+        <div class="metric-row">
+          <div>
+            <div class="metric-name">কনভার্সন ল্যাটেন্সি (Time-to-First-Job)</div>
+            <div class="metric-desc">মেসেজ পাওয়ার পর প্রথম ফাইল ডেলিভারি করতে সময়</div>
+          </div>
+          <div class="metric-badge badge-green num" id="velTimeToJob">2.4 ঘণ্টা</div>
+        </div>
+
+        <div class="metric-row">
+          <div>
+            <div class="metric-name">লিড কনভার্সন রেট (Conversion Rate)</div>
+            <div class="metric-desc">মোট ইনকোয়ারি থেকে পেইড গ্রাহকে রূপান্তর হার</div>
+          </div>
+          <div class="metric-badge badge-gold num" id="velConvRate">18.5%</div>
+        </div>
+
+        <div class="metric-row">
+          <div>
+            <div class="metric-name">রিপিট অর্ডার রেট (Repeat Order Rate)</div>
+            <div class="metric-desc">একাধিক কাজ করানো বিশ্বস্ত গ্রাহকের অনুপাত</div>
+          </div>
+          <div class="metric-badge badge-blue num" id="velRepeatRate">54.2%</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Section: Horizon Milestones & Customer LTV -->
+  <div class="grid-2col">
+    <!-- Horizon Milestones -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">📅 ৭ দিন বনাম ৩০ দিন হরাইজন (Cohort Horizons)</div>
+      </div>
+      <div class="card-body">
+        <div style="margin-bottom: 14px;">
+          <div style="font-weight: 700; color: #38bdf8; font-size: 13px; margin-bottom: 6px;">১ম সপ্তাহ (Day 7 Horizon):</div>
+          <div class="metric-row" style="padding: 6px 0;">
+            <span class="metric-name">কিউমুলেটিভ রেভিনিউ: <strong class="num" id="h7Rev">৳405</strong></span>
+            <span class="metric-name">গ্রস প্রফিট: <strong class="num" id="h7Gp">৳241</strong></span>
+            <span class="metric-badge badge-blue num" id="h7Roi">-3.6% ROI</span>
+          </div>
+        </div>
+
+        <div>
+          <div style="font-weight: 700; color: #10b981; font-size: 13px; margin-bottom: 6px;">১ম মাস (Day 30 Horizon):</div>
+          <div class="metric-row" style="padding: 6px 0;">
+            <span class="metric-name">কিউমুলেটিভ রেভিনিউ: <strong class="num" id="h30Rev">৳1,369</strong></span>
+            <span class="metric-name">গ্রস প্রফিট: <strong class="num" id="h30Gp">৳818</strong></span>
+            <span class="metric-badge badge-green num" id="h30Roi">+227% ROI</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Customer LTV -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">💎 গ্রাহকের গড় লাইফটাইম ভ্যালু (Customer LTV in GP)</div>
+      </div>
+      <div class="card-body">
+        <div class="metric-row">
+          <div>
+            <div class="metric-name">Day 0 LTV (প্রথম দিনের প্রফিট)</div>
+            <div class="metric-desc">প্রথম অর্ডারে গ্রাহক প্রতি গ্রস প্রফিট</div>
+          </div>
+          <div class="metric-badge badge-blue num" id="ltvDay0">৳41.7</div>
+        </div>
+        <div class="metric-row">
+          <div>
+            <div class="metric-name">Day 7 LTV (প্রথম সপ্তাহের প্রফিট)</div>
+            <div class="metric-desc">রিপিট অর্ডারের পর ৭ম দিনের কিউমুলেটিভ প্রফিট</div>
+          </div>
+          <div class="metric-badge badge-blue num" id="ltvDay7">৳144.5</div>
+        </div>
+        <div class="metric-row">
+          <div>
+            <div class="metric-name">Day 30 LTV (প্রথম মাসের প্রফিট)</div>
+            <div class="metric-desc">১ মাস পর সক্রিয় গ্রাহক প্রতি কিউমুলেটিভ প্রফিট</div>
+          </div>
+          <div class="metric-badge badge-green num" id="ltvDay30">৳490.0</div>
+        </div>
+        <div class="metric-row">
+          <div>
+            <div class="metric-name">Day 60 LTV (দ্বিতীয় মাসের প্রফিট)</div>
+            <div class="metric-desc">২ মাস পর বিশ্বস্ত গ্রাহক প্রতি কিউমুলেটিভ প্রফিট</div>
+          </div>
+          <div class="metric-badge badge-gold num" id="ltvDay60">৳850.0</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Traversed Jobs Live Table -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">
+        <span>🔍 চ্যাট ট্রাভার্সাল থেকে অডিট করা কাজসমূহ (Recent Ground-Truth Jobs)</span>
+      </div>
+      <span class="status-badge" id="jobsTableCount">৫০ টি কাজ প্রদর্শিত</span>
+    </div>
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>আইডি (ID)</th>
+            <th>গ্রাহকের নম্বর (Phone)</th>
+            <th>কাজের ধরন (Type)</th>
+            <th>ডেলিভারির সময় (Delivered At)</th>
+            <th>ডিউরেশন (Duration)</th>
+            <th>প্রত্যাশিত বিল (Expected)</th>
+            <th>বিল করা হয়েছে (Billed)</th>
+            <th>অপচয় (Leakage)</th>
+            <th>স্ট্যাটাস (Status)</th>
+            <th>বিল নোট (Bill Note)</th>
+          </tr>
+        </thead>
+        <tbody id="jobsTableBody">
+          <tr><td colspan="10" style="text-align: center; color: var(--text-dim); padding: 24px;">লোড হচ্ছে...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    let activePreset = 'all';
+
+    // Verify PIN on startup
+    function checkPinAuth() {
+      const pin = localStorage.getItem('munnisoft_pin') || '6700';
+      if (!pin) {
+        document.getElementById('pinModal').style.display = 'flex';
+      } else {
+        verifyPin(pin);
+      }
+    }
+
+    async function verifyPin(pin) {
+      try {
+        const res = await fetch('/api/auth/verify-pin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin })
+        });
+        const data = await res.json();
+        if (data.success) {
+          localStorage.setItem('munnisoft_pin', pin);
+          document.getElementById('pinModal').style.display = 'none';
+          loadMetrics();
+        } else {
+          document.getElementById('pinModal').style.display = 'flex';
+          document.getElementById('pinError').style.display = 'block';
+        }
+      } catch (err) {
+        // If offline or network issue, proceed to load
+        document.getElementById('pinModal').style.display = 'none';
+        loadMetrics();
+      }
+    }
+
+    function submitPin() {
+      const pin = document.getElementById('pinInput').value.trim();
+      if (!pin) return;
+      verifyPin(pin);
+    }
+
+    function applyPreset(preset) {
+      activePreset = preset;
+      document.querySelectorAll('.preset-btn').forEach(btn => btn.classList.remove('active'));
+      const activeBtn = Array.from(document.querySelectorAll('.preset-btn')).find(b => b.textContent.includes(
+        preset === 'today' ? 'আজ' : preset === 'yesterday' ? 'গতকাল' : preset === '7d' ? '৭ দিন' : preset === 'this_month' ? 'চলতি মাস' : 'সব'
+      ));
+      if (activeBtn) activeBtn.classList.add('active');
+
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      const fmt = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+      if (preset === 'today') {
+        const todayStr = fmt(now);
+        document.getElementById('startDate').value = todayStr;
+        document.getElementById('endDate').value = todayStr;
+      } else if (preset === 'yesterday') {
+        const y = new Date(now.getTime() - 86400000);
+        const yStr = fmt(y);
+        document.getElementById('startDate').value = yStr;
+        document.getElementById('endDate').value = yStr;
+      } else if (preset === '7d') {
+        const past7 = new Date(now.getTime() - 7 * 86400000);
+        document.getElementById('startDate').value = fmt(past7);
+        document.getElementById('endDate').value = fmt(now);
+      } else if (preset === 'this_month') {
+        const startMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        document.getElementById('startDate').value = fmt(startMonth);
+        document.getElementById('endDate').value = fmt(now);
+      } else if (preset === 'all') {
+        document.getElementById('startDate').value = '';
+        document.getElementById('endDate').value = '';
+      }
+
+      loadMetrics();
+    }
+
+    async function loadMetrics() {
+      const startDate = document.getElementById('startDate').value;
+      const endDate = document.getElementById('endDate').value;
+      const spend = document.getElementById('customSpend').value || '250';
+
+      const params = new URLSearchParams();
+      if (startDate) params.set('startDate', startDate);
+      if (endDate) params.set('endDate', endDate);
+      if (spend) params.set('spend', spend);
+
+      try {
+        const res = await fetch(`/api/metrics/analytics?${params.toString()}`);
+        if (!res.ok) throw new Error('Failed to load metrics data');
+        const data = await res.json();
+        renderDashboard(data);
+      } catch (err) {
+        console.error('Metrics loading error:', err);
+      }
+    }
+
+    function renderDashboard(data) {
+      if (!data) return;
+
+      document.getElementById('dataGeneratedAt').textContent = 'আপডেট: ' + new Date(data.meta.generatedAt).toLocaleTimeString();
+
+      // Production & Leakage
+      const p = data.productionAudit;
+      document.getElementById('kpiBilled').textContent = '৳' + Number(p.verifiedBilledRevenue).toLocaleString();
+      document.getElementById('kpiTotalJobs').textContent = p.totalMediaDelivered;
+      document.getElementById('kpiVoiceJobs').textContent = p.voiceDelivered;
+      document.getElementById('kpiVideoJobs').textContent = p.videoDelivered;
+      document.getElementById('kpiGrossProfit').textContent = '৳' + Number(p.grossProfit).toLocaleString();
+      document.getElementById('kpiBlendedMargin').textContent = p.blendedMarginPercent + '%';
+
+      // Leakage Banner
+      document.getElementById('leakageAmount').textContent = '৳' + Number(p.unbilledLeakage).toLocaleString();
+      if (p.unbilledLeakage > 0) {
+        const pct = p.verifiedBilledRevenue + p.unbilledLeakage > 0
+          ? Math.round((p.unbilledLeakage / (p.verifiedBilledRevenue + p.unbilledLeakage)) * 100)
+          : 0;
+        document.getElementById('leakageSub').textContent = `${pct}% সম্ভাব্য আয় কর্মীরা ভুলে ক্লেইম করেননি!`;
+      }
+
+      // Ad spend & ROI
+      const a = data.adSpend;
+      document.getElementById('kpiAdSpend').textContent = '৳' + Number(a.totalSpend).toLocaleString();
+      document.getElementById('kpiDailySpend').textContent = '৳' + a.dailyRate;
+      document.getElementById('kpiDaysCount').textContent = a.daysCount;
+      document.getElementById('kpiRoas').textContent = p.roas + 'x';
+      document.getElementById('kpiNetRoi').textContent = (p.netRoiPercent > 0 ? '+' : '') + p.netRoiPercent + '%';
+      document.getElementById('kpiCac').textContent = '৳' + a.cac;
+
+      // Latencies
+      const lat = data.breakEvenLatencies;
+      document.getElementById('latRevBreakEven').textContent = '~' + lat.revenueBreakEvenDays + ' দিন';
+      document.getElementById('latGpBreakEven').textContent = '~' + lat.profitBreakEvenDays + ' দিন';
+      document.getElementById('latDoubleProfit').textContent = '~' + lat.doubleProfitDays + ' দিন';
+
+      // Velocity
+      const vel = data.operationalVelocity;
+      document.getElementById('velSpeedToLead').textContent = vel.speedToLeadMinutes + ' মিনিট';
+      document.getElementById('velTimeToJob').textContent = vel.timeToFirstJobHours + ' ঘণ্টা';
+      document.getElementById('velConvRate').textContent = vel.conversionRatePercent + '%';
+      document.getElementById('velRepeatRate').textContent = vel.repeatOrderRatePercent + '%';
+
+      // Horizons
+      const h = data.horizons;
+      if (h.week1) {
+        document.getElementById('h7Rev').textContent = '৳' + h.week1.revenue;
+        document.getElementById('h7Gp').textContent = '৳' + h.week1.grossProfit;
+        document.getElementById('h7Roi').textContent = (h.week1.roiPercent > 0 ? '+' : '') + h.week1.roiPercent + '% ROI';
+      }
+      if (h.month1) {
+        document.getElementById('h30Rev').textContent = '৳' + h.month1.revenue;
+        document.getElementById('h30Gp').textContent = '৳' + h.month1.grossProfit;
+        document.getElementById('h30Roi').textContent = (h.month1.roiPercent > 0 ? '+' : '') + h.month1.roiPercent + '% ROI';
+      }
+
+      // LTV
+      const ltv = data.customerLtv;
+      document.getElementById('ltvDay0').textContent = '৳' + ltv.day0Gp;
+      document.getElementById('ltvDay7').textContent = '৳' + ltv.day7Gp;
+      document.getElementById('ltvDay30').textContent = '৳' + ltv.day30Gp;
+      document.getElementById('ltvDay60').textContent = '৳' + ltv.day60Gp;
+
+      // Recent Jobs Table
+      const jobs = data.recentJobs || [];
+      document.getElementById('jobsTableCount').textContent = jobs.length + ' টি কাজ প্রদর্শিত';
+      const tbody = document.getElementById('jobsTableBody');
+      if (jobs.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: var(--text-dim); padding: 24px;">এই তারিখের কোনো কাজ পাওয়া যায়নি</td></tr>';
+      } else {
+        tbody.innerHTML = jobs.map(j => {
+          let statusBadge = '<span class="tag tag-billed">BILLED</span>';
+          if (j.status === 'UNBILLED_LEAKAGE') {
+            statusBadge = '<span class="tag tag-leakage">UNBILLED</span>';
+          } else if (j.status === 'TYPO_FLAGGED') {
+            statusBadge = '<span class="tag tag-typo">TYPO FLAG</span>';
+          }
+
+          const typeIcon = j.job_type === 'video' ? '🎬 ভিডিও' : '🎙️ ভয়েস';
+          const durStr = j.duration_seconds > 0 ? `${j.duration_seconds}s` : '--';
+          const delDate = j.delivered_at ? j.delivered_at.replace('T', ' ').replace(/\..+/, '') : '--';
+
+          return `
+            <tr>
+              <td class="num">#${j.id}</td>
+              <td class="num">${j.phone_number}</td>
+              <td>${typeIcon}</td>
+              <td class="num" style="font-size: 11px;">${delDate}</td>
+              <td class="num">${durStr}</td>
+              <td class="num">৳${j.expected_amount_bdt}</td>
+              <td class="num" style="color: ${j.billed_amount_bdt > 0 ? 'var(--accent-emerald)' : 'var(--text-dim)'}">৳${j.billed_amount_bdt}</td>
+              <td class="num" style="color: ${j.unbilled_leakage_bdt > 0 ? 'var(--accent-rose)' : 'var(--text-dim)'}">৳${j.unbilled_leakage_bdt}</td>
+              <td>${statusBadge}</td>
+              <td style="color: #94a3b8; font-size: 12px; max-width: 180px; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(j.bill_text || '--')}</td>
+            </tr>
+          `;
+        }).join('');
+      }
+    }
+
+    async function syncTranscripts() {
+      const btn = document.getElementById('btnSync');
+      const originalText = btn.innerHTML;
+      btn.innerHTML = '<span class="loading-spinner"></span> <span>সিঙ্ক হচ্ছে...</span>';
+      btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/metrics/sync', { method: 'POST' });
+        const result = await res.json();
+        alert(`সিঙ্ক সম্পন্ন হয়েছে!\nগ্রাহক: ${result.result.totalClients} জন\nমোট কাজ: ${result.result.totalJobs} টি\nবিল: ৳${result.result.totalBilled}\nঅপচয়: ৳${result.result.totalUnbilled}`);
+        loadMetrics();
+      } catch (err) {
+        alert('সিঙ্ক ব্যর্থ: ' + err.message);
+      } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    // Auto run on load
+    window.addEventListener('DOMContentLoaded', () => {
+      checkPinAuth();
+    });
+  </script>
+</body>
+</html>
