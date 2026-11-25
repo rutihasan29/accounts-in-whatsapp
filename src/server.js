@@ -816,7 +816,11 @@ function startWebServer({ db, client = null, port = PORT, onRestart = null } = {
     // API: Executive KPI & ROI - GET unified health metrics
     if (pathname === '/api/kpi' && method === 'GET') {
       try {
-        const report = getBusinessKpiReport(db);
+        const parsedUrl = url.parse(req.url, true);
+        const date = parsedUrl.query?.date;
+        const startDate = parsedUrl.query?.startDate || date;
+        const endDate = parsedUrl.query?.endDate || date;
+        const report = getBusinessKpiReport(db, { startDate, endDate });
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify(report));
       } catch (err) {

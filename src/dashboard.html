@@ -1503,9 +1503,21 @@
           <button class="perf-tab-btn active" data-period="daily" onclick="setPerfPeriod('daily')">দৈনিক</button>
           <button class="perf-tab-btn" data-period="weekly" onclick="setPerfPeriod('weekly')">সাপ্তাহিক</button>
           <button class="perf-tab-btn" data-period="monthly" onclick="setPerfPeriod('monthly')">মাসিক</button>
+          <button class="perf-tab-btn" data-period="custom" id="perf-btn-custom" onclick="togglePerfCustomDate()">📅 তারিখ ফিল্টার</button>
           <button class="perf-tab-btn" style="background:#f3f4f6;" onclick="syncMetaAdsFromUi(event)" title="Sync Meta Ads">🔄 ADS</button>
           <button class="perf-tab-btn" style="background:#f3f4f6;" onclick="runAuditFromUi(event)" title="Audit Jobs">🔍 AUDIT</button>
         </div>
+      </div>
+
+      <!-- Custom Date Filter Toolbar -->
+      <div id="perf-custom-date-bar" style="display:none; margin-bottom:10px; padding:6px 10px; border:1px solid #000; background:#f9fafb; align-items:center; gap:8px; flex-wrap:wrap;">
+        <span style="font-size:11px; font-weight:800;">শুরু:</span>
+        <input type="date" id="perf-start-date-input" style="padding:2px 4px; font-family:var(--font-mono); font-size:11px; border:1px solid #000;">
+        <span style="font-size:11px; font-weight:800;">শেষ:</span>
+        <input type="date" id="perf-end-date-input" style="padding:2px 4px; font-family:var(--font-mono); font-size:11px; border:1px solid #000;">
+        <button class="perf-tab-btn" style="background:#000; color:#fff;" onclick="applyPerfCustomDate()">ফিল্টার করুন</button>
+        <button class="perf-tab-btn" onclick="clearPerfCustomDate()">রিসেট</button>
+        <span id="perf-custom-date-msg" style="font-size:10px; color:var(--muted); font-weight:700;"></span>
       </div>
       
       <div class="perf-grid">
@@ -2563,10 +2575,62 @@
       renderPerformanceMetrics();
     }
 
+    function togglePerfCustomDate() {
+      const bar = document.getElementById('perf-custom-date-bar');
+      if (!bar) return;
+      const isVisible = bar.style.display === 'flex';
+      bar.style.display = isVisible ? 'none' : 'flex';
+      if (!isVisible) {
+        if (!document.getElementById('perf-start-date-input').value) {
+          document.getElementById('perf-start-date-input').value = '2026-11-01';
+        }
+        if (!document.getElementById('perf-end-date-input').value) {
+          document.getElementById('perf-end-date-input').value = new Date().toISOString().slice(0, 10);
+        }
+      }
+    }
+
+    async function applyPerfCustomDate() {
+      const sDate = document.getElementById('perf-start-date-input')?.value;
+      const eDate = document.getElementById('perf-end-date-input')?.value || sDate;
+      if (!sDate) {
+        alert('অনুগ্রহ করে শুরুর তারিখ দিন');
+        return;
+      }
+      const msg = document.getElementById('perf-custom-date-msg');
+      if (msg) msg.innerText = 'লোড হচ্ছে...';
+      try {
+        const res = await fetch(`/api/kpi?startDate=${encodeURIComponent(sDate)}&endDate=${encodeURIComponent(eDate)}`);
+        const data = await res.json();
+        if (data && data.custom) {
+          kpiData = data;
+          currentPerfPeriod = 'custom';
+          document.querySelectorAll('.perf-tab-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.period === 'custom');
+          });
+          renderPerformanceMetrics();
+          if (msg) msg.innerText = 'ফিল্টার সক্রিয় (' + toBengaliDigits(sDate) + ' হতে ' + toBengaliDigits(eDate) + ')';
+        } else {
+          if (msg) msg.innerText = 'কোন তথ্য পাওয়া যায়নি';
+        }
+      } catch (e) {
+        if (msg) msg.innerText = 'এরর: ' + e.message;
+      }
+    }
+
+    function clearPerfCustomDate() {
+      const bar = document.getElementById('perf-custom-date-bar');
+      if (bar) bar.style.display = 'none';
+      const msg = document.getElementById('perf-custom-date-msg');
+      if (msg) msg.innerText = '';
+      setPerfPeriod('daily');
+    }
+
     function renderPerformanceMetrics() {
       let prevLabel = 'গতকালের তুলনায়';
       if (currentPerfPeriod === 'weekly') prevLabel = 'গত সপ্তাহের তুলনায়';
       if (currentPerfPeriod === 'monthly') prevLabel = 'গত মাসের তুলনায়';
+      if (currentPerfPeriod === 'custom') prevLabel = 'পূর্ববর্তী সময়ের তুলনায়';
 
       // If unified KPI data is available
       if (kpiData) {
@@ -2588,6 +2652,13 @@
           revGrowth = kpiData.monthly?.revenueGrowthRate;
           jobsGrowth = kpiData.monthly?.jobsGrowthRate;
           profitGrowth = kpiData.monthly?.profitGrowthRate;
+        } else if (currentPerfPeriod === 'custom' && kpiData.custom) {
+          cur = kpiData.custom.current;
+          prev = kpiData.custom.previous;
+          revGrowth = kpiData.custom.revenueGrowthRate;
+          jobsGrowth = kpiData.custom.jobsGrowthRate;
+          profitGrowth = kpiData.custom.profitGrowthRate;
+          prevLabel = 'পূর্ববর্তী ' + toBengaliDigits(kpiData.custom.durationDays) + ' দিনের তুলনায়';
         }
 
         if (cur) {

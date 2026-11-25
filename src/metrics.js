@@ -122,9 +122,49 @@ function getPeriodMetrics(db, dateCondition) {
 }
 
 /**
+ * Calculate metrics for an arbitrary custom date or date range.
+ */
+function getCustomRangeMetrics(db, startDate, endDate) {
+  if (!startDate) return null;
+  if (!endDate) endDate = startDate;
+
+  // Sanitize simple YYYY-MM-DD format
+  const sDate = String(startDate).slice(0, 10);
+  const eDate = String(endDate).slice(0, 10);
+
+  const curCond = `date(created_at, 'localtime') >= date('${sDate}') AND date(created_at, 'localtime') <= date('${eDate}')`;
+  const current = getPeriodMetrics(db, curCond);
+
+  // Compute equivalent duration prior period
+  const dStart = new Date(sDate);
+  const dEnd = new Date(eDate);
+  const diffTime = Math.max(0, dEnd.getTime() - dStart.getTime());
+  const diffDays = Math.max(1, Math.round(diffTime / (1000 * 60 * 60 * 24)) + 1);
+
+  const prevStartObj = new Date(dStart.getTime() - diffDays * 24 * 60 * 60 * 1000);
+  const prevEndObj = new Date(dStart.getTime() - 24 * 60 * 60 * 1000);
+  const prevStartStr = prevStartObj.toISOString().slice(0, 10);
+  const prevEndStr = prevEndObj.toISOString().slice(0, 10);
+
+  const prevCond = `date(created_at, 'localtime') >= date('${prevStartStr}') AND date(created_at, 'localtime') <= date('${prevEndStr}')`;
+  const previous = getPeriodMetrics(db, prevCond);
+
+  return {
+    startDate: sDate,
+    endDate: eDate,
+    durationDays: diffDays,
+    current,
+    previous,
+    revenueGrowthRate: calculateGrowthRate(current.billedRevenue, previous.billedRevenue),
+    jobsGrowthRate: calculateGrowthRate(current.jobsCount, previous.jobsCount),
+    profitGrowthRate: calculateGrowthRate(current.grossProfit, previous.grossProfit)
+  };
+}
+
+/**
  * Returns comprehensive Daily, Weekly, and Monthly business health metrics.
  */
-function getBusinessKpiReport(db) {
+function getBusinessKpiReport(db, { startDate = null, endDate = null, date = null } = {}) {
   // Daily: Today vs Yesterday
   const today = getPeriodMetrics(db, "date(created_at, 'localtime') = date('now', 'localtime')");
   const yesterday = getPeriodMetrics(db, "date(created_at, 'localtime') = date('now', 'localtime', '-1 day')");
@@ -139,6 +179,11 @@ function getBusinessKpiReport(db) {
 
   // All-time totals
   const allTime = getPeriodMetrics(db, "1=1");
+
+  // Custom date / range metrics if provided
+  const effectiveStart = startDate || date;
+  const effectiveEnd = endDate || date;
+  const custom = effectiveStart ? getCustomRangeMetrics(db, effectiveStart, effectiveEnd) : null;
 
   return {
     generatedAt: new Date().toISOString(),
@@ -162,12 +207,14 @@ function getBusinessKpiReport(db) {
       jobsGrowthRate: calculateGrowthRate(thisMonth.jobsCount, lastMonth.jobsCount),
       profitGrowthRate: calculateGrowthRate(thisMonth.grossProfit, lastMonth.grossProfit)
     },
+    custom,
     allTime
   };
 }
 
 module.exports = {
   getPeriodMetrics,
+  getCustomRangeMetrics,
   getBusinessKpiReport,
   getProfitMargin,
   calculateGrowthRate
