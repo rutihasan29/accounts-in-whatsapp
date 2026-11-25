@@ -679,15 +679,58 @@
       <div style="border: 1px solid #7c3aed; border-radius: 8px; padding: 12px; margin-top: 12px; background: rgba(124, 58, 237, 0.08);">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
           <div style="font-size: 13px; font-weight: 600; color: #c084fc;">🤖 ৪. এআই ফুল-চ্যাট অডিট (LLM - Gemini Flash)</div>
-          <span style="font-size: 10px; background: #6b21a8; color: #f3e8ff; padding: 2px 6px; border-radius: 4px; font-weight: 600;">NEW AI AUDIT</span>
+          <span style="font-size: 10px; background: #6b21a8; color: #f3e8ff; padding: 2px 6px; border-radius: 4px; font-weight: 600;">MULTI-BATCH AI</span>
         </div>
         <div style="font-size: 11px; color: #cbd5e1; margin-bottom: 10px; line-height: 1.4;">
-          সম্পূর্ণ চ্যাট হিস্ট্রি, অডিও ডিউরেশন ও রেট বিশ্লেষণ করে আনবিল্ড লিকেজ (বিল ছাড়া পাঠানো কাজ) এবং বান্ডেল বিল স্বয়ংক্রিয়ভাবে শনাক্ত ও ফিক্স করে।
+          গ্রাউন্ড-ট্রুথ মেসেজ স্ট্রিম, মিডিয়া ফাইল ডিউরেশন ও স্ক্রিপ্ট বিশ্লেষণ করে স্বয়ংক্রিয়ভাবে জবস ও প্রোডাকশন মূল্য ডিটেক্ট করে।
         </div>
-        <div style="display: flex; gap: 8px;">
-          <button id="btnRunAiAudit" class="action-btn" onclick="executeAiAudit()" style="flex: 1; padding: 8px 12px; font-size: 12px; background: #7c3aed; border: none; font-weight: 600;">
-            <span>🤖 সম্পূর্ণ এআই অডিট চালান</span>
+
+        <div style="display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;">
+          <button id="btnRunAiAuditQuick" class="action-btn" onclick="executeAiAudit({ limit: 10 })" style="flex: 1; min-width: 140px; padding: 8px 10px; font-size: 12px; background: #9333ea; border: none; font-weight: 600;">
+            <span>⚡ দ্রুত অডিট (১০টি চ্যাট)</span>
           </button>
+          <button id="btnRunAiAudit" class="action-btn" onclick="executeAiAudit({ limit: 0 })" style="flex: 1; min-width: 140px; padding: 8px 10px; font-size: 12px; background: #7c3aed; border: none; font-weight: 600;">
+            <span>🤖 সম্পূর্ণ অডিট (সব চ্যাট)</span>
+          </button>
+        </div>
+
+        <!-- Single Phone Audit Input -->
+        <div style="display: flex; gap: 6px; margin-top: 6px;">
+          <input type="text" id="aiAuditSinglePhone" placeholder="নির্দিষ্ট নম্বর (যেমন: 88017...)" style="flex: 1; background: #0f172a; border: 1px solid #475569; border-radius: 4px; padding: 5px 8px; color: #f8fafc; font-size: 11px;">
+          <button onclick="executeAiAuditSingle()" class="preset-btn" style="padding: 5px 10px; font-size: 11px; color: #c084fc; border-color: #7c3aed; white-space: nowrap;">
+            <span>🎯 এই নম্বর অডিট</span>
+          </button>
+        </div>
+
+        <!-- Real-Time Progress Box -->
+        <div id="aiAuditProgressBox" style="display: none; margin-top: 10px; padding: 10px; border-radius: 6px; background: rgba(15, 23, 42, 0.8); border: 1px solid #7c3aed;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <div id="aiAuditStatusText" style="font-size: 12px; font-weight: 600; color: #e2e8f0;">🔄 অডিট প্রস্তুতি চলছে...</div>
+            <div id="aiAuditPercentText" style="font-size: 11px; font-weight: 700; color: #c084fc;">0%</div>
+          </div>
+          <!-- Progress Bar -->
+          <div style="width: 100%; height: 6px; background: #334155; border-radius: 3px; overflow: hidden; margin-bottom: 8px;">
+            <div id="aiAuditProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #7c3aed, #c084fc); transition: width 0.3s ease;"></div>
+          </div>
+          <!-- Real-Time Metric Pills -->
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; font-size: 10px; text-align: center;">
+            <div style="background: rgba(51, 65, 85, 0.4); padding: 4px; border-radius: 4px;">
+              <span style="color: #94a3b8; display: block;">কাস্টমার</span>
+              <strong id="aiProgChats" style="color: #f8fafc;">0</strong>
+            </div>
+            <div style="background: rgba(51, 65, 85, 0.4); padding: 4px; border-radius: 4px;">
+              <span style="color: #94a3b8; display: block;">সনাক্ত কাজ</span>
+              <strong id="aiProgJobs" style="color: #38bdf8;">0</strong>
+            </div>
+            <div style="background: rgba(51, 65, 85, 0.4); padding: 4px; border-radius: 4px;">
+              <span style="color: #94a3b8; display: block;">মূল্য (BDT)</span>
+              <strong id="aiProgWorth" style="color: #34d399;">৳0</strong>
+            </div>
+            <div style="background: rgba(51, 65, 85, 0.4); padding: 4px; border-radius: 4px;">
+              <span style="color: #94a3b8; display: block;">লিকেজ</span>
+              <strong id="aiProgLeakage" style="color: #f87171;">৳0</strong>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1233,6 +1276,20 @@
       document.getElementById('syncModal').style.display = 'flex';
       checkWaStatusForModal();
       loadSavedRemoteUrl();
+      // Check if an AI audit is already running
+      fetch('/api/metrics/ai-audit/progress').then(r => r.json()).then(prog => {
+        if (prog && prog.isRunning) {
+          const progBox = document.getElementById('aiAuditProgressBox');
+          if (progBox) progBox.style.display = 'block';
+          updateAiAuditProgressUI(prog);
+          startAiAuditProgressPolling();
+          const btn = document.getElementById('btnRunAiAudit');
+          if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading-spinner"></span> <span>অডিট চলছে...</span>';
+          }
+        }
+      }).catch(() => {});
     }
 
     function loadSavedRemoteUrl() {
@@ -1295,74 +1352,159 @@
       document.getElementById('syncResultAlert').style.display = 'none';
     }
 
-    async function executeAiAudit(phone = null) {
+    let aiAuditPollTimer = null;
+
+    async function executeAiAudit(opts = {}) {
       const btn = document.getElementById('btnRunAiAudit');
+      const quickBtn = document.getElementById('btnRunAiAuditQuick');
       const topBtn = document.getElementById('btnAiAuditTop');
-      const orig = btn ? btn.innerHTML : '';
-      const topOrig = topBtn ? topBtn.innerHTML : '';
+      const progBox = document.getElementById('aiAuditProgressBox');
+      const alertBox = document.getElementById('syncResultAlert');
+
+      const phone = opts.phone || null;
+      const limit = typeof opts.limit === 'number' ? opts.limit : null;
 
       if (btn) {
-        btn.innerHTML = '<span class="loading-spinner"></span> <span>এআই অডিট চলছে...</span>';
         btn.disabled = true;
+        btn.innerHTML = '<span class="loading-spinner"></span> <span>অডিট চলছে...</span>';
       }
+      if (quickBtn) quickBtn.disabled = true;
       if (topBtn) {
-        topBtn.innerHTML = '<span class="loading-spinner"></span> <span>Auditing...</span>';
         topBtn.disabled = true;
+        topBtn.innerHTML = '<span class="loading-spinner"></span> <span>Auditing...</span>';
       }
 
-      const alertBox = document.getElementById('syncResultAlert');
-      if (alertBox) {
-        alertBox.style.display = 'block';
-        alertBox.style.background = 'rgba(124, 58, 237, 0.15)';
-        alertBox.style.border = '1px solid #7c3aed';
-        alertBox.style.color = '#c084fc';
-        alertBox.innerHTML = `<strong>🤖 AI Audit In Progress...</strong><br>Gemini LLM চ্যাট হিস্ট্রি, অডিও ডিউরেশন ও ডেলিভারি মেসেজ বিশ্লেষণ করছে। অনুগ্রহ করে কিছুক্ষণ অপেক্ষা করুন...`;
-      }
+      if (progBox) progBox.style.display = 'block';
+      if (alertBox) alertBox.style.display = 'none';
+
+      updateAiAuditProgressUI({
+        percent: 5,
+        statusText: '🔄 Gemini Standard Flash এ অডিট শুরু হচ্ছে...',
+        auditedChats: 0,
+        totalJobs: 0,
+        totalEstimated: 0,
+        totalLeakage: 0
+      });
+
+      // Start live progress polling
+      startAiAuditProgressPolling();
 
       try {
         const res = await fetch('/api/metrics/ai-audit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phone })
+          body: JSON.stringify({ phone, limit, async: true })
         });
         const data = await res.json();
-        if (data.status === 'ok' || data.success) {
-          if (alertBox) {
-            alertBox.style.background = 'rgba(16, 185, 129, 0.15)';
-            alertBox.style.border = '1px solid #10b981';
-            alertBox.style.color = '#6ee7b7';
-            alertBox.innerHTML = `<strong>✅ AI Audit সম্পন্ন!</strong><br>মোট চ্যাট অডিট: ${data.auditedChats || 0}টি | সনাক্তকৃত কাজ: ${data.totalJobs || 0}টি<br>মোট উৎপাদিত কাজ: ৳${(data.totalEstimated||0).toLocaleString()} | মোট বিল্ড: ৳${(data.totalBilled||0).toLocaleString()}<br><strong>শনাক্তকৃত আনবিল্ড লিকেজ: ৳${(data.totalLeakage||0).toLocaleString()}</strong>`;
-          }
-          const syncStatusEl = document.getElementById('syncDbStatus');
-          if (syncStatusEl) {
-            syncStatusEl.textContent = `${data.totalJobs}টি কাজ (এআই অডিট ভেরিফায়েড)`;
-          }
-          await loadMetrics();
-        } else {
-          throw new Error(data.error || 'AI Audit failed');
+        if (!res.ok) {
+          throw new Error(data.error || 'Server error starting audit');
         }
       } catch (err) {
+        stopAiAuditProgressPolling();
         if (alertBox) {
+          alertBox.style.display = 'block';
           alertBox.style.background = 'rgba(244, 63, 94, 0.15)';
           alertBox.style.border = '1px solid #f43f5e';
           alertBox.style.color = '#fda4af';
           alertBox.innerHTML = `<strong>❌ এআই অডিট ত্রুটি:</strong> ${err.message}`;
         }
-      } finally {
-        if (btn) {
-          btn.innerHTML = orig;
-          btn.disabled = false;
+        resetAiAuditButtons();
+      }
+    }
+
+    function executeAiAuditSingle() {
+      const input = document.getElementById('aiAuditSinglePhone');
+      const val = input ? input.value.trim() : '';
+      if (!val) {
+        alert('অনুগ্রহ করে কাস্টমারের ফোন নম্বর দিন');
+        return;
+      }
+      executeAiAudit({ phone: val });
+    }
+
+    function updateAiAuditProgressUI(prog) {
+      const pBar = document.getElementById('aiAuditProgressBar');
+      const pText = document.getElementById('aiAuditPercentText');
+      const sText = document.getElementById('aiAuditStatusText');
+      const cChats = document.getElementById('aiProgChats');
+      const cJobs = document.getElementById('aiProgJobs');
+      const cWorth = document.getElementById('aiProgWorth');
+      const cLeak = document.getElementById('aiProgLeakage');
+
+      if (pBar) pBar.style.width = `${prog.percent || 0}%`;
+      if (pText) pText.textContent = `${prog.percent || 0}%`;
+      if (sText && prog.statusText) sText.textContent = prog.statusText;
+      if (cChats) cChats.textContent = `${prog.auditedChats || 0}${prog.totalChats ? ' / ' + prog.totalChats : ''}`;
+      if (cJobs) cJobs.textContent = `${prog.totalJobs || 0}টি`;
+      if (cWorth) cWorth.textContent = `৳${(prog.totalEstimated || 0).toLocaleString()}`;
+      if (cLeak) cLeak.textContent = `৳${(prog.totalLeakage || 0).toLocaleString()}`;
+    }
+
+    function startAiAuditProgressPolling() {
+      if (aiAuditPollTimer) clearInterval(aiAuditPollTimer);
+      aiAuditPollTimer = setInterval(async () => {
+        try {
+          const res = await fetch('/api/metrics/ai-audit/progress');
+          if (!res.ok) return;
+          const prog = await res.json();
+          updateAiAuditProgressUI(prog);
+
+          if (!prog.isRunning) {
+            stopAiAuditProgressPolling();
+            resetAiAuditButtons();
+
+            const alertBox = document.getElementById('syncResultAlert');
+            if (alertBox) {
+              alertBox.style.display = 'block';
+              if (prog.error) {
+                alertBox.style.background = 'rgba(244, 63, 94, 0.15)';
+                alertBox.style.border = '1px solid #f43f5e';
+                alertBox.style.color = '#fda4af';
+                alertBox.innerHTML = `<strong>❌ এআই অডিট ত্রুটি:</strong> ${prog.error}`;
+              } else {
+                alertBox.style.background = 'rgba(16, 185, 129, 0.15)';
+                alertBox.style.border = '1px solid #10b981';
+                alertBox.style.color = '#6ee7b7';
+                alertBox.innerHTML = `<strong>✅ AI Audit সফলভাবে সম্পন্ন!</strong><br>মোট অডিট: ${prog.auditedChats || 0}টি চ্যাট | সনাক্তকৃত কাজ: ${prog.totalJobs || 0}টি<br>উৎপাদিত কাজের মূল্য: ৳${(prog.totalEstimated || 0).toLocaleString()} | মোট বিল্ড: ৳${(prog.totalBilled || 0).toLocaleString()}<br><strong>শনাক্তকৃত আনবিল্ড লিকেজ: ৳${(prog.totalLeakage || 0).toLocaleString()}</strong>`;
+                const syncStatusEl = document.getElementById('syncDbStatus');
+                if (syncStatusEl) {
+                  syncStatusEl.textContent = `${prog.totalJobs}টি কাজ (এআই অডিট ভেরিফায়েড)`;
+                }
+                loadMetrics();
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[AI_AUDIT_POLL] Poll error:', e.message);
         }
-        if (topBtn) {
-          topBtn.innerHTML = topOrig;
-          topBtn.disabled = false;
-        }
+      }, 1200);
+    }
+
+    function stopAiAuditProgressPolling() {
+      if (aiAuditPollTimer) {
+        clearInterval(aiAuditPollTimer);
+        aiAuditPollTimer = null;
+      }
+    }
+
+    function resetAiAuditButtons() {
+      const btn = document.getElementById('btnRunAiAudit');
+      const quickBtn = document.getElementById('btnRunAiAuditQuick');
+      const topBtn = document.getElementById('btnAiAuditTop');
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<span>🤖 সম্পূর্ণ অডিট (সব চ্যাট)</span>';
+      }
+      if (quickBtn) quickBtn.disabled = false;
+      if (topBtn) {
+        topBtn.disabled = false;
+        topBtn.innerHTML = '<span>🤖 Run AI Audit</span>';
       }
     }
 
     function executeAiAuditDirect() {
       openSyncModal();
-      executeAiAudit();
+      executeAiAudit({ limit: 0 });
     }
 
     async function checkWaStatusForModal() {

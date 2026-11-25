@@ -492,18 +492,106 @@ function startWebServer({ db, client = null, port = PORT, onRestart = null, auto
       return;
     }
 
+    // Global AI Audit progress tracker state
+    if (!globalThis._currentAiAuditProgress) {
+      globalThis._currentAiAuditProgress = {
+        isRunning: false,
+        startedAt: null,
+        totalChats: 0,
+        auditedChats: 0,
+        currentBatch: 0,
+        totalBatches: 0,
+        totalJobs: 0,
+        totalEstimated: 0,
+        totalBilled: 0,
+        totalLeakage: 0,
+        statusText: 'কোনো অডিট চলছে না',
+        percent: 0,
+        lastResult: null,
+        error: null
+      };
+    }
+    const currentAiAuditProgress = globalThis._currentAiAuditProgress;
+
+    // API: Real-time progress tracker for ongoing AI audit
+    if ((pathname === '/api/metrics/ai-audit/progress' || pathname === '/api/metrics/ai-audit/status') && method === 'GET') {
+      res.writeHead(200, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-cache, no-store, must-revalidate'
+      });
+      res.end(JSON.stringify({
+        status: 'ok',
+        ...currentAiAuditProgress
+      }));
+      return;
+    }
+
     // API: Run Full AI LLM Job Segmentation and Production Leakage Audit
     if (pathname === '/api/metrics/ai-audit' && method === 'POST') {
       try {
         const body = await readJsonBody(req).catch(() => ({}));
-        const auditSummary = await runLlmAuditOnAllChats(db, {
+
+        if (currentAiAuditProgress.isRunning && !body.force) {
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({
+            status: 'running',
+            success: true,
+            message: 'অডিট ইতিমধ্যে ব্যাকগ্রাউন্ডে চলছে',
+            ...currentAiAuditProgress
+          }));
+          return;
+        }
+
+        const auditOptions = {
           phone: body.phone || null,
-          limit: body.limit || null,
+          limit: typeof body.limit === 'number' ? body.limit : null,
+          batchSize: typeof body.batchSize === 'number' ? body.batchSize : 8,
           client: client || null,
           apiKey: (typeof body.apiKey === 'string' && body.apiKey.trim()) ? body.apiKey.trim() : null,
           incremental: body.incremental !== undefined ? Boolean(body.incremental) : true,
-          forceFullAudit: Boolean(body.forceFullAudit)
-        });
+          forceFullAudit: Boolean(body.forceFullAudit),
+          onProgress: (prog) => {
+            Object.assign(currentAiAuditProgress, prog);
+          }
+        };
+
+        currentAiAuditProgress.isRunning = true;
+        currentAiAuditProgress.startedAt = new Date().toISOString();
+        currentAiAuditProgress.statusText = 'অডিট শুরু হচ্ছে...';
+        currentAiAuditProgress.percent = 2;
+        currentAiAuditProgress.error = null;
+        currentAiAuditProgress.totalJobs = 0;
+        currentAiAuditProgress.totalEstimated = 0;
+        currentAiAuditProgress.totalBilled = 0;
+        currentAiAuditProgress.totalLeakage = 0;
+
+        if (body.async) {
+          // Asynchronous execution for real-time progress polling
+          runLlmAuditOnAllChats(db, auditOptions).then(summary => {
+            currentAiAuditProgress.lastResult = summary;
+            currentAiAuditProgress.isRunning = false;
+            currentAiAuditProgress.percent = 100;
+          }).catch(err => {
+            currentAiAuditProgress.error = err.message;
+            currentAiAuditProgress.isRunning = false;
+            currentAiAuditProgress.statusText = `ত্রুটি: ${err.message}`;
+          });
+
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({
+            status: 'ok',
+            success: true,
+            async: true,
+            message: 'AI Audit started in background',
+            progress: currentAiAuditProgress
+          }));
+          return;
+        }
+
+        // Synchronous execution (for unit tests and direct callers)
+        const auditSummary = await runLlmAuditOnAllChats(db, auditOptions);
+        currentAiAuditProgress.lastResult = auditSummary;
+        currentAiAuditProgress.isRunning = false;
 
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({
@@ -512,6 +600,8 @@ function startWebServer({ db, client = null, port = PORT, onRestart = null, auto
           ...auditSummary
         }));
       } catch (err) {
+        currentAiAuditProgress.isRunning = false;
+        currentAiAuditProgress.error = err.message;
         res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ status: 'error', error: err.message }));
       }

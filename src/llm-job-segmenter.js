@@ -338,6 +338,18 @@ async function segmentChatWithLlm(chatPayload, options = {}) {
   }
 }
 
+function getAvailableGeminiKeys(options = {}) {
+  if (options.apiKey && typeof options.apiKey === 'string' && options.apiKey.trim()) {
+    return [options.apiKey.trim()];
+  }
+  const rawList = [
+    config.GEMINI_API_KEY,
+    ...(config.GEMINI_AUDIO_API_KEYS || [])
+  ];
+  const valid = rawList.filter(k => typeof k === 'string' && k.trim());
+  return [...new Set(valid)];
+}
+
 /**
  * Runs full-history LLM job segmentation on a batch of customer chats using Google Gemini
  */
@@ -386,39 +398,98 @@ async function segmentChatBatchWithLlm(chatsBatch, options = {}) {
     return emptyResults;
   }
 
-  const apiKey = (options.apiKey !== undefined && options.apiKey !== null)
-    ? options.apiKey
-    : config.GEMINI_API_KEY;
-  const model = options.model || config.GEMINI_MODEL || 'gemini-3-flash-preview';
-  const fetchFn = options.fetchFn || globalThis.fetch;
-
-  if (!apiKey) {
+  const availableKeys = getAvailableGeminiKeys(options);
+  if (availableKeys.length === 0) {
     throw new Error('[LLM_SEGMENTER] GEMINI_API_KEY is required. Deterministic fallback is disabled.');
   }
 
+  const model = options.model || config.GEMINI_MODEL || 'gemini-3-flash-preview';
+  const fetchFn = options.fetchFn || globalThis.fetch;
   const promptText = buildLlmBatchAuditPrompt(validChats);
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-  try {
-    const res = await fetchFn(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: promptText }] }],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          temperature: 0.1
+  let lastError = null;
+  let resJson = null;
+
+  for (let keyIdx = 0; keyIdx < availableKeys.length; keyIdx++) {
+    const activeKey = availableKeys[keyIdx];
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${activeKey}`;
+
+    const maxRetries = typeof options.maxRetries === 'number' ? options.maxRetries : 2;
+    let delayMs = 2000;
+    let res = null;
+    let keyQuotaExceeded = false;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        res = await fetchFn(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: promptText }] }],
+            generationConfig: {
+              responseMimeType: 'application/json',
+              temperature: 0.1
+            }
+          }),
+          signal: AbortSignal.timeout(options.timeoutMs || 90000)
+        });
+
+        if (res.status === 429) {
+          const errText = await res.text().catch(() => '');
+          if (errText.includes('RESOURCE_EXHAUSTED') || errText.includes('quota')) {
+            console.warn(`[LLM_SEGMENTER] Key ...${activeKey.slice(-6)} exceeded quota (429). Rotating to next key...`);
+            keyQuotaExceeded = true;
+            break;
+          }
         }
-      }),
-      signal: AbortSignal.timeout(options.timeoutMs || 90000)
-    });
 
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`[LLM_SEGMENTER] Gemini API request failed with HTTP ${res.status}: ${errText}`);
+        if (res.status === 503) {
+          if (attempt < maxRetries) {
+            console.warn(`[LLM_SEGMENTER] Gemini returned 503 on key ...${activeKey.slice(-6)}. Retrying in ${delayMs / 1000}s...`);
+            await new Promise(r => setTimeout(r, delayMs));
+            delayMs *= 2;
+            continue;
+          }
+        }
+        break;
+      } catch (fetchErr) {
+        if (attempt < maxRetries && !String(fetchErr.name).includes('Abort')) {
+          await new Promise(r => setTimeout(r, delayMs));
+          delayMs *= 2;
+          continue;
+        }
+        lastError = fetchErr;
+        break;
+      }
     }
 
-    const resJson = await res.json();
+    if (keyQuotaExceeded) {
+      continue;
+    }
+
+    if (!res || !res.ok) {
+      const errText = res ? await res.text().catch(() => '') : (lastError?.message || 'Network error');
+      lastError = new Error(`[LLM_SEGMENTER] Gemini API request failed with HTTP ${res?.status || 500}: ${errText}`);
+      if (keyIdx < availableKeys.length - 1) {
+        console.warn(`[LLM_SEGMENTER] Request failed on key ...${activeKey.slice(-6)}. Trying next key...`);
+        continue;
+      }
+      throw lastError;
+    }
+
+    try {
+      resJson = await res.json();
+      break;
+    } catch (parseErr) {
+      lastError = parseErr;
+    }
+  }
+
+  if (!resJson) {
+    throw lastError || new Error('[LLM_SEGMENTER] All available Gemini API keys failed or exhausted quota.');
+  }
+
+  try {
     const rawContent = resJson?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!rawContent) {
       throw new Error('[LLM_SEGMENTER] Empty response received from Gemini API');
@@ -788,9 +859,46 @@ async function runLlmAuditOnAllChats(db, options = {}) {
     ? options.batchSize
     : 8;
 
+  const totalBatches = Math.ceil(preparedChats.length / batchSize);
+  const notifyProgress = (data) => {
+    if (typeof options.onProgress === 'function') {
+      try { options.onProgress(data); } catch {}
+    }
+  };
+
+  notifyProgress({
+    isRunning: true,
+    totalChats: preparedChats.length,
+    auditedChats: 0,
+    currentBatch: 0,
+    totalBatches,
+    totalJobs: 0,
+    totalEstimated: 0,
+    totalBilled: 0,
+    totalLeakage: 0,
+    statusText: `অডিট শুরু হয়েছে (মোট ${preparedChats.length}টি কাস্টমার, ${totalBatches}টি ব্যাচ)...`,
+    percent: 5
+  });
+
   for (let i = 0; i < preparedChats.length; i += batchSize) {
     const chunk = preparedChats.slice(i, i + batchSize);
     const chatsPayload = chunk.map(item => item.chat);
+    const batchNum = Math.floor(i / batchSize) + 1;
+
+    console.log(`[LLM_AUDIT] Processing batch ${batchNum}/${totalBatches} (${chunk.length} chats)...`);
+    notifyProgress({
+      isRunning: true,
+      totalChats: preparedChats.length,
+      auditedChats: totalAuditedChats,
+      currentBatch: batchNum,
+      totalBatches,
+      totalJobs,
+      totalEstimated,
+      totalBilled,
+      totalLeakage,
+      statusText: `ব্যাচ ${batchNum}/${totalBatches} চলছে: Gemini Flash বিশ্লেষণ করছে (${chunk.length} জন কাস্টমার)...`,
+      percent: Math.min(95, Math.round(((batchNum - 1) / Math.max(1, totalBatches)) * 90) + 5)
+    });
 
     try {
       const batchAuditRes = await segmentChatBatchWithLlm(chatsPayload, options);
@@ -816,10 +924,52 @@ async function runLlmAuditOnAllChats(db, options = {}) {
           }
         }
       }
+
+      console.log(`[LLM_AUDIT] Batch ${batchNum}/${totalBatches} completed. Total jobs: ${totalJobs}, Est: ৳${totalEstimated}`);
+      notifyProgress({
+        isRunning: true,
+        totalChats: preparedChats.length,
+        auditedChats: totalAuditedChats,
+        currentBatch: batchNum,
+        totalBatches,
+        totalJobs,
+        totalEstimated,
+        totalBilled,
+        totalLeakage,
+        statusText: `ব্যাচ ${batchNum}/${totalBatches} সম্পন্ন! (${totalAuditedChats}/${preparedChats.length} কাস্টমার, ${totalJobs}টি কাজ সনাক্ত)`,
+        percent: Math.min(95, Math.round((batchNum / Math.max(1, totalBatches)) * 90) + 5)
+      });
     } catch (batchErr) {
-      console.warn(`[LLM_AUDIT] Error auditing batch starting at index ${i}:`, batchErr.message);
+      console.warn(`[LLM_AUDIT] Error auditing batch ${batchNum}:`, batchErr.message);
+      notifyProgress({
+        isRunning: true,
+        totalChats: preparedChats.length,
+        auditedChats: totalAuditedChats,
+        currentBatch: batchNum,
+        totalBatches,
+        totalJobs,
+        totalEstimated,
+        totalBilled,
+        totalLeakage,
+        statusText: `ব্যাচ ${batchNum} এ সাময়িক সমস্যা (${batchErr.message.slice(0, 50)})`,
+        percent: Math.min(95, Math.round((batchNum / Math.max(1, totalBatches)) * 90) + 5)
+      });
     }
   }
+
+  notifyProgress({
+    isRunning: false,
+    totalChats: preparedChats.length,
+    auditedChats: totalAuditedChats,
+    currentBatch: totalBatches,
+    totalBatches,
+    totalJobs,
+    totalEstimated,
+    totalBilled,
+    totalLeakage,
+    statusText: `✅ সফলভাবে সম্পূর্ণ হয়েছে! মোট ${totalJobs}টি কাজ সনাক্ত ও ডেটাবেজে সংরক্ষিত।`,
+    percent: 100
+  });
 
   return {
     auditedChats: totalAuditedChats,
