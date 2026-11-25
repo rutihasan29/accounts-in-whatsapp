@@ -2662,13 +2662,17 @@
         }
 
         if (cur) {
-          document.getElementById('perf-jobs-count').innerText = toBengaliDigits(cur.jobsCount || 0) + ' টি';
+          const displayJobs = cur.productionJobsCount || cur.jobsCount || 0;
+          document.getElementById('perf-jobs-count').innerText = toBengaliDigits(displayJobs) + ' টি';
           document.getElementById('perf-jobs-growth').innerText = formatGrowthBangla(jobsGrowth);
           document.getElementById('perf-jobs-sub').innerText = prevLabel;
 
-          document.getElementById('perf-revenue-amount').innerText = '৳ ' + formatNumberBangla(cur.billedRevenue || 0);
+          const displayRev = cur.estimatedRevenue || cur.billedRevenue || 0;
+          document.getElementById('perf-revenue-amount').innerText = '৳ ' + formatNumberBangla(displayRev);
           document.getElementById('perf-revenue-growth').innerText = formatGrowthBangla(revGrowth);
-          document.getElementById('perf-revenue-sub').innerText = 'আদায়: ৳ ' + formatNumberBangla(cur.paidRevenue || 0);
+          document.getElementById('perf-revenue-sub').innerText = (cur.estimatedRevenue && cur.estimatedRevenue > cur.billedRevenue)
+            ? 'বিল্ড: ৳ ' + formatNumberBangla(cur.billedRevenue || 0) + ' | আদায়: ৳ ' + formatNumberBangla(cur.paidRevenue || 0)
+            : 'আদায়: ৳ ' + formatNumberBangla(cur.paidRevenue || 0);
 
           document.getElementById('perf-profit-amount').innerText = '৳ ' + formatNumberBangla(cur.grossProfit || 0);
           document.getElementById('perf-profit-growth').innerText = formatGrowthBangla(profitGrowth);

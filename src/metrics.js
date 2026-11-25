@@ -72,6 +72,26 @@ function getPeriodMetrics(db, dateCondition) {
   paidRevenue = Math.round(paidRevenue * 100) / 100;
   grossProfit = Math.round(grossProfit * 100) / 100;
 
+  // Ground-Truth Production Jobs & Estimated Revenue (from traversed chats)
+  let estimatedRevenue = billedRevenue;
+  let productionJobsCount = jobsCount;
+  try {
+    const jobCond = dateCondition.replace(/created_at/g, 'delivered_at');
+    const jobStats = db.prepare(`
+      SELECT 
+        COUNT(*) AS total_jobs,
+        COALESCE(SUM(unbilled_leakage_bdt), 0) AS leakage,
+        COALESCE(SUM(CASE WHEN billed_amount_bdt > expected_amount_bdt THEN billed_amount_bdt ELSE expected_amount_bdt END), 0) AS est_rev
+      FROM metrics_chat_jobs
+      WHERE ${jobCond}
+    `).get();
+
+    if (jobStats && jobStats.total_jobs > 0) {
+      productionJobsCount = jobStats.total_jobs;
+      estimatedRevenue = Math.round((jobStats.est_rev || billedRevenue) * 10) / 10;
+    }
+  } catch {}
+
   // 3. Leads & Conversions
   const leadsCond = dateCondition.replace(/created_at/g, 'first_contact_at');
   const leadsRow = db.prepare(`
@@ -106,6 +126,8 @@ function getPeriodMetrics(db, dateCondition) {
 
   return {
     adSpend,
+    estimatedRevenue,
+    productionJobsCount,
     billedRevenue,
     paidRevenue,
     grossProfit,

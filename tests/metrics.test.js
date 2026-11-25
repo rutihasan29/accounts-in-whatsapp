@@ -103,7 +103,7 @@ test('getBusinessKpiReport aggregates revenue, ad spend, and unit economics', ()
   assert.equal(report.daily.today.netRoiPercent, 200); // (300 - 100) / 100 * 100 = 200%
 
   // Custom range query
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   const customReport = getBusinessKpiReport(db, { startDate: todayStr, endDate: todayStr });
   assert.ok(customReport.custom);
   assert.equal(customReport.custom.current.billedRevenue, 500);

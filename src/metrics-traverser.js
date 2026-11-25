@@ -111,11 +111,128 @@ function loadChatTranscripts() {
 }
 
 /**
+ * Load pre-compiled production jobs directly from metrics-seed.json.
+ * Used on server instances where raw 3MB transcripts are omitted from git.
+ */
+function loadMetricsFromSeed(db, seedPath, options = {}) {
+  try {
+    const raw = fs.readFileSync(seedPath, 'utf8');
+    const data = JSON.parse(raw);
+    const jobs = data.jobs || [];
+    const clients = data.clients || [];
+    const events = data.events || [];
+    const adSpend = data.adSpend || [];
+
+    if (options.cleanSync && options.forceFullClean) {
+      db.exec(`
+        DELETE FROM metrics_chat_jobs;
+        DELETE FROM metrics_chat_events;
+        DELETE FROM metrics_chat_clients;
+      `);
+    }
+
+    const tx = db.transaction(() => {
+      const insertJob = db.prepare(`
+        INSERT INTO metrics_chat_jobs (
+          id, phone_number, job_type, delivered_at, media_type, duration_seconds,
+          expected_amount_bdt, billed_amount_bdt, unbilled_leakage_bdt,
+          status, raw_media_msg_id, bill_text
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          phone_number = excluded.phone_number,
+          job_type = excluded.job_type,
+          delivered_at = excluded.delivered_at,
+          media_type = excluded.media_type,
+          duration_seconds = excluded.duration_seconds,
+          expected_amount_bdt = excluded.expected_amount_bdt,
+          billed_amount_bdt = excluded.billed_amount_bdt,
+          unbilled_leakage_bdt = excluded.unbilled_leakage_bdt,
+          status = excluded.status,
+          raw_media_msg_id = excluded.raw_media_msg_id,
+          bill_text = excluded.bill_text
+      `);
+
+      for (const j of jobs) {
+        insertJob.run(
+          j.id, j.phone_number, j.job_type, j.delivered_at, j.media_type,
+          j.duration_seconds || 0, j.expected_amount_bdt, j.billed_amount_bdt || 0,
+          j.unbilled_leakage_bdt || 0, j.status, j.raw_media_msg_id || null, j.bill_text || null
+        );
+      }
+
+      const insertClient = db.prepare(`
+        INSERT INTO metrics_chat_clients (
+          phone_number, client_name, first_contact_at, first_job_delivered_at,
+          total_jobs_delivered, total_billed_bdt, total_unbilled_bdt, status
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(phone_number) DO UPDATE SET
+          client_name = excluded.client_name,
+          first_contact_at = excluded.first_contact_at,
+          first_job_delivered_at = excluded.first_job_delivered_at,
+          total_jobs_delivered = excluded.total_jobs_delivered,
+          total_billed_bdt = excluded.total_billed_bdt,
+          total_unbilled_bdt = excluded.total_unbilled_bdt,
+          status = excluded.status
+      `);
+
+      for (const c of clients) {
+        insertClient.run(
+          c.phone_number, c.client_name, c.first_contact_at, c.first_job_delivered_at,
+          c.total_jobs_delivered, c.total_billed_bdt, c.total_unbilled_bdt, c.status
+        );
+      }
+
+      if (Array.isArray(events) && events.length > 0) {
+        const insertEvent = db.prepare(`
+          INSERT OR IGNORE INTO metrics_chat_events (
+            id, phone_number, event_type, event_time, latency_seconds, note
+          )
+          VALUES (?, ?, ?, ?, ?, ?)
+        `);
+        for (const e of events) {
+          insertEvent.run(e.id, e.phone_number, e.event_type, e.event_time, e.latency_seconds || 0, e.note || null);
+        }
+      }
+
+      if (Array.isArray(adSpend) && adSpend.length > 0) {
+        const insertSpend = db.prepare(`
+          INSERT OR REPLACE INTO ad_spend (id, spend_date, amount, notes)
+          VALUES (?, ?, ?, ?)
+        `);
+        for (const a of adSpend) {
+          insertSpend.run(a.id, a.spend_date, a.amount, a.notes || null);
+        }
+      }
+    });
+
+    tx();
+
+    return {
+      status: 'ok',
+      source: 'SEED_FILE',
+      totalJobs: jobs.length,
+      totalClients: clients.length,
+      totalBilled: jobs.reduce((s, j) => s + (j.billed_amount_bdt || 0), 0),
+      totalUnbilled: jobs.reduce((s, j) => s + (j.unbilled_leakage_bdt || 0), 0)
+    };
+  } catch (err) {
+    console.error('[TRAVERSER] Error loading seed:', err.message);
+    return { status: 'error', error: err.message };
+  }
+}
+
+/**
  * Traverse chat stream and sync structured production jobs to dedicated SQLite tables.
  */
 function syncChatMetricsToDb(db, options = {}) {
   const rawChats = options.chats || loadChatTranscripts();
   if (!rawChats || rawChats.length === 0) {
+    const seedPath = path.join(__dirname, 'metrics-seed.json');
+    if (fs.existsSync(seedPath)) {
+      return loadMetricsFromSeed(db, seedPath, options);
+    }
     return { status: 'no_data', message: 'No chat transcripts found to traverse' };
   }
 

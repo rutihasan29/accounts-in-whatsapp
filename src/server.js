@@ -299,7 +299,7 @@ function renderPrintableStatement({ summary, transactions }) {
 </html>`;
 }
 
-function startWebServer({ db, client = null, port = PORT, onRestart = null } = {}) {
+function startWebServer({ db, client = null, port = PORT, onRestart = null, autoSeed = false } = {}) {
   const server = http.createServer(async (req, res) => {
     const parsedUrl = url.parse(req.url, true);
     const pathname = parsedUrl.pathname;
@@ -1218,6 +1218,19 @@ function startWebServer({ db, client = null, port = PORT, onRestart = null } = {
   }, 5000);
   if (escalationInterval.unref) escalationInterval.unref();
 
+  // Ensure metrics tables are populated with seed/transcripts if empty in standalone/production mode
+  if (autoSeed && db) {
+    try {
+      const existingJobs = db.prepare('SELECT COUNT(*) as cnt FROM metrics_chat_jobs').get();
+      if (!existingJobs || existingJobs.cnt < 100) {
+        console.log('[SERVER_INIT] Populating metrics database from seed/transcripts...');
+        syncChatMetricsToDb(db);
+      }
+    } catch (err) {
+      console.warn('[SERVER_INIT] Metrics auto-sync warning:', err.message);
+    }
+  }
+
   server.on('close', () => {
     clearInterval(escalationInterval);
   });
@@ -1239,7 +1252,7 @@ if (require.main === module) {
   const { initDb } = require('./db');
   const { DB_PATH } = require('./config');
   const db = initDb(DB_PATH);
-  startWebServer({ db, port: PORT });
+  startWebServer({ db, port: PORT, autoSeed: true });
 }
 
 module.exports = {
