@@ -613,6 +613,9 @@
         <span class="brand-tag">ROI & METRICS ENGINE</span>
       </div>
       <div class="nav-links">
+        <button class="sync-btn" onclick="syncMetaAds()" id="btnSyncAds" style="color: #38bdf8; border-color: #0284c7;">
+          <span>🌐 Sync Meta Ads API</span>
+        </button>
         <button class="sync-btn" onclick="syncTranscripts()" id="btnSync">
           <span>🔄 Sync Transcripts</span>
         </button>
@@ -625,7 +628,10 @@
         <span class="status-dot"></span>
         <span>GROUND-TRUTH CHAT TRAVERSAL ACTIVE</span>
       </div>
-      <div>Source: <span class="num" style="color:#e2e8f0;">metrics_chat_*</span> dedicated tables</div>
+      <div class="status-badge" style="background: rgba(56, 189, 248, 0.12); color: var(--accent-blue); border-color: rgba(56, 189, 248, 0.25);">
+        <span>META GRAPH API AD SPEND</span>
+      </div>
+      <div>Source: <span class="num" style="color:#e2e8f0;">metrics_chat_*</span> &amp; <span class="num" style="color:#e2e8f0;">ad_spend</span> (API)</div>
       <div>Zero WhatsApp Financial Broadcast</div>
       <div style="margin-left: auto; font-family: var(--font-mono); font-size: 12px;" id="dataGeneratedAt">--</div>
     </div>
@@ -643,9 +649,9 @@
         <input type="date" id="endDate" class="input-date">
       </div>
       <div class="filter-group">
-        <span class="filter-label">বিজ্ঞাপন (Ad Spend):</span>
-        <input type="number" id="customSpend" class="input-spend" style="width: 80px;" placeholder="250" value="250">
-        <span style="font-size: 12px; color: var(--text-dim);">৳/day</span>
+        <span class="filter-label">বিজ্ঞাপন খরচ (Ad Cost):</span>
+        <input type="number" id="customSpend" class="input-spend" style="width: 130px;" placeholder="Auto (API Live)">
+        <span id="adSpendModeBadge" style="font-size: 11px; color: var(--accent-blue); background: rgba(56, 189, 248, 0.12); padding: 3px 7px; border-radius: 4px; font-family: var(--font-mono); border: 1px solid rgba(56, 189, 248, 0.25);">API Live</span>
       </div>
       <button class="action-btn" onclick="loadMetrics()">ফিল্টার (Apply)</button>
 
@@ -964,12 +970,14 @@
     async function loadMetrics() {
       const startDate = document.getElementById('startDate').value;
       const endDate = document.getElementById('endDate').value;
-      const spend = document.getElementById('customSpend').value || '250';
+      const customSpend = document.getElementById('customSpend').value.trim();
 
       const params = new URLSearchParams();
       if (startDate) params.set('startDate', startDate);
       if (endDate) params.set('endDate', endDate);
-      if (spend) params.set('spend', spend);
+      if (customSpend && !isNaN(parseFloat(customSpend))) {
+        params.set('spend', customSpend);
+      }
 
       try {
         const res = await fetch(`/api/metrics/analytics?${params.toString()}`);
@@ -1004,14 +1012,29 @@
         document.getElementById('leakageSub').textContent = `${pct}% সম্ভাব্য আয় কর্মীরা ভুলে ক্লেইম করেননি!`;
       }
 
-      // Ad spend & ROI
+      // Ad spend & ROI (Directly from Meta Graph API)
       const a = data.adSpend;
       document.getElementById('kpiAdSpend').textContent = '৳' + Number(a.totalSpend).toLocaleString();
-      document.getElementById('kpiDailySpend').textContent = '৳' + a.dailyRate;
+      document.getElementById('kpiDailySpend').textContent = '৳' + Number(a.dailyRate).toLocaleString();
       document.getElementById('kpiDaysCount').textContent = a.daysCount;
       document.getElementById('kpiRoas').textContent = p.roas + 'x';
       document.getElementById('kpiNetRoi').textContent = (p.netRoiPercent > 0 ? '+' : '') + p.netRoiPercent + '%';
       document.getElementById('kpiCac').textContent = '৳' + a.cac;
+
+      const spendInput = document.getElementById('customSpend');
+      const modeBadge = document.getElementById('adSpendModeBadge');
+      if (a.isApiSourced) {
+        if (!spendInput.value) {
+          spendInput.placeholder = `API: ৳${Math.round(a.dailyRate)}`;
+        }
+        modeBadge.textContent = 'API Live';
+        modeBadge.style.color = 'var(--accent-blue)';
+        modeBadge.style.borderColor = 'rgba(56, 189, 248, 0.25)';
+      } else {
+        modeBadge.textContent = 'Custom Override';
+        modeBadge.style.color = 'var(--accent-amber)';
+        modeBadge.style.borderColor = 'rgba(245, 158, 11, 0.25)';
+      }
 
       // Latencies
       const lat = data.breakEvenLatencies;
@@ -1096,6 +1119,53 @@
         loadMetrics();
       } catch (err) {
         alert('সিঙ্ক ব্যর্থ: ' + err.message);
+      } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+      }
+    }
+
+    async function syncMetaAds() {
+      const btn = document.getElementById('btnSyncAds');
+      const originalText = btn.innerHTML;
+      btn.innerHTML = '<span class="loading-spinner"></span> <span>API সিঙ্ক হচ্ছে...</span>';
+      btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/sync-fb-ads', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ datePreset: 'this_month' })
+        });
+        const data = await res.json();
+        if (data.status === 'ok') {
+          alert(`Meta Ads API Sync সফল হয়েছে!\nসিঙ্ক করা দিন: ${data.result.syncedDays} দিন\nমোট খরচ: $${data.result.totalSpendUSD} USD (৳${data.result.totalSpendBDT} BDT)\nমেসেজিং লিড/চ্যাট: ${data.result.totalConversations} টি`);
+          loadMetrics();
+        } else {
+          const errorMsg = data.error || 'Unknown error';
+          if (errorMsg.includes('Error validating access token') || errorMsg.includes('190') || errorMsg.includes('FB_ACCESS_TOKEN')) {
+            const newToken = prompt(`Meta Ads Access Token মেয়াদোত্তীর্ণ (Expired) হয়েছে!\n\nঅনুগ্রহ করে নতুন Meta User Access Token পেস্ট করুন:`, '');
+            if (newToken && newToken.trim()) {
+              btn.innerHTML = '<span class="loading-spinner"></span> <span>নতুন টোকেন দিয়ে সিঙ্ক হচ্ছে...</span>';
+              const retryRes = await fetch('/api/sync-fb-ads', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: newToken.trim(), datePreset: 'this_month' })
+              });
+              const retryData = await retryRes.json();
+              if (retryData.status === 'ok') {
+                alert(`Meta Ads API সফলভাবে নতুন টোকেন দিয়ে সিঙ্ক হয়েছে!\nদিন: ${retryData.result.syncedDays} দিন\nমোট খরচ: ৳${retryData.result.totalSpendBDT} BDT`);
+                loadMetrics();
+              } else {
+                alert('সিঙ্ক ব্যর্থ: ' + retryData.error);
+              }
+            }
+          } else {
+            alert('Meta Ads API Sync ব্যর্থ: ' + errorMsg);
+          }
+        }
+      } catch (err) {
+        alert('Meta Ads API রিকোয়েস্ট ব্যর্থ: ' + err.message);
       } finally {
         btn.innerHTML = originalText;
         btn.disabled = false;

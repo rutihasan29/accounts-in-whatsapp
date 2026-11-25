@@ -700,8 +700,14 @@ function startWebServer({ db, client = null, port = PORT, onRestart = null } = {
     // API: Trigger Meta Ads Sync
     if (pathname === '/api/sync-fb-ads' && method === 'POST') {
       try {
+        const body = await readJsonBody(req).catch(() => ({}));
         const { syncAdSpendToDb } = require('./fb-ads');
-        const result = await syncAdSpendToDb(db, { datePreset: 'this_month' });
+        const result = await syncAdSpendToDb(db, {
+          token: body.token || null,
+          datePreset: body.datePreset || 'this_month',
+          startDate: body.startDate || null,
+          endDate: body.endDate || null
+        });
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ status: 'ok', result }));
       } catch (err) {

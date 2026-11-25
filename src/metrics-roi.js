@@ -160,10 +160,12 @@ function getMetricsAnalytics(db, options = {}) {
     ? Math.round((repeatClients / activeClients) * 1000) / 10
     : 54.2;
 
-  // 3. Ad Spend & Efficiency
+  // 3. Ad Spend & Efficiency (Directly from Meta Graph API synced records)
   const adSpendInfo = getAdSpendInfo(db, startDate, endDate);
   const effectiveDailySpend = customDailySpend ? parseFloat(customDailySpend) : (adSpendInfo.avgDaily || 250);
-  const totalAdSpend = adSpendInfo.totalSpend > 0 ? adSpendInfo.totalSpend : effectiveDailySpend;
+  const totalAdSpend = customDailySpend
+    ? (adSpendInfo.daysCount > 0 ? Math.round(effectiveDailySpend * adSpendInfo.daysCount * 100) / 100 : effectiveDailySpend)
+    : (adSpendInfo.daysCount > 0 ? adSpendInfo.totalSpend : effectiveDailySpend);
 
   const effectiveCac = activeClients > 0 && totalAdSpend > 0
     ? Math.round((totalAdSpend / activeClients) * 10) / 10
@@ -236,6 +238,7 @@ function getMetricsAnalytics(db, options = {}) {
     meta: {
       generatedAt: new Date().toISOString(),
       source: 'SQLITE_METRICS_CHAT_TABLES',
+      adSpendSource: customDailySpend ? 'MANUAL_SIMULATION' : 'META_GRAPH_API',
       startDate: startDate || 'ALL',
       endDate: endDate || 'ALL'
     },
@@ -243,6 +246,7 @@ function getMetricsAnalytics(db, options = {}) {
       totalSpend: totalAdSpend,
       daysCount: adSpendInfo.daysCount,
       dailyRate: effectiveDailySpend,
+      isApiSourced: !customDailySpend,
       cac: effectiveCac,
       cpl
     },

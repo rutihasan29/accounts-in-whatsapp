@@ -96,8 +96,8 @@ function extractMessagingConversations(actions) {
  * Upserts each daily spend row into `ad_spend` table.
  */
 async function syncAdSpendToDb(db, {
-  token = config.FB_ACCESS_TOKEN,
-  adAccountId = config.FB_AD_ACCOUNT_ID,
+  token = null,
+  adAccountId = null,
   datePreset = 'this_month',
   startDate = null,
   endDate = null,
@@ -109,15 +109,25 @@ async function syncAdSpendToDb(db, {
     throw new Error('Database instance is required for syncing ad spend');
   }
 
+  const { getBotSetting, setBotSetting } = require('./db');
+  const resolvedToken = token || (db ? getBotSetting(db, 'fb_access_token') : null) || config.FB_ACCESS_TOKEN;
+  const resolvedAdAccount = adAccountId || (db ? getBotSetting(db, 'fb_ad_account_id') : null) || config.FB_AD_ACCOUNT_ID;
+
   const insights = await fetchAdInsights({
-    token,
-    adAccountId,
+    token: resolvedToken,
+    adAccountId: resolvedAdAccount,
     datePreset,
     timeIncrement: 1,
     startDate,
     endDate,
     fetchFn
   });
+
+  if (token && db && typeof setBotSetting === 'function') {
+    try {
+      setBotSetting(db, 'fb_access_token', token);
+    } catch {}
+  }
 
   const upsertStmt = db.prepare(`
     INSERT INTO ad_spend (spend_date, amount, note, updated_at)
