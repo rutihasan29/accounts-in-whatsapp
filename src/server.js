@@ -411,7 +411,12 @@ function startWebServer({ db, client = null, port = PORT, onRestart = null, auto
           return;
         }
         const html = fs.readFileSync(METRICS_HTML_PATH, 'utf8');
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.writeHead(200, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        });
         res.end(html);
       } catch (err) {
         res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
