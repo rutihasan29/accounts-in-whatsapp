@@ -26,7 +26,9 @@ const {
   getBotSetting,
   cacheStaffLid,
   getCachedStaffLid,
-  getAllCachedStaffLids
+  getAllCachedStaffLids,
+  recordMetricsChatJob,
+  confirmMetricsChatJobBill
 } = require('./db');
 const {
   isAudioDocumentMessage,
@@ -181,6 +183,22 @@ async function sendAndRecordAudioBill({
     jobType: 'voice',
     durationSeconds: Math.round(durationSeconds)
   });
+
+  try {
+    if (typeof recordMetricsChatJob === 'function') {
+      recordMetricsChatJob(db, {
+        phoneNumber: cleanPhone,
+        jobType: 'voice',
+        mediaType: 'audio',
+        durationSeconds,
+        expectedAmountBdt: billAmount,
+        billedAmountBdt: billAmount,
+        status: 'CONFIRMED_BILLED',
+        rawMediaMsgId: audioMsgId || null,
+        billText
+      });
+    }
+  } catch {}
 
   if (cleanPhone) {
     recentAudioBillsPerPhone.set(cleanPhone, {
@@ -2098,13 +2116,31 @@ async function handleMessageCreate({
     }
   }
 
-  // Handle PTT / voice notes sent to client - strictly DO NOT bill and DO NOT log
+  // Handle PTT / voice notes sent to client - record in metrics production jobs (do not send auto-bill to client)
   if (msg.fromMe && !isSelf && (msg.type === 'ptt' || msg.isVoice === true || msg._data?.isVoice === true || msg._data?.type === 'ptt')) {
-    console.log('[AUDIO] Outgoing PTT/voice note to client. Skipping billing and logging per policy.');
+    if (db) {
+      try {
+        const targetChat = msg.id?.remote || msg.to || msg.from;
+        const rawRecipient = recipient || targetChat;
+        const phone = await resolveCustomerPhone({ client, recipient: rawRecipient, msg });
+        const cleanPhone = phone || (rawRecipient ? rawRecipient.split('@')[0].replace(/\D/g, '') : null);
+        if (cleanPhone && typeof recordMetricsChatJob === 'function') {
+          recordMetricsChatJob(db, {
+            phoneNumber: cleanPhone,
+            jobType: 'voice',
+            mediaType: 'ptt',
+            durationSeconds: msg.duration || msg._data?.duration || 0,
+            rawMediaMsgId: msg.id?._serialized || msg.id?.id
+          });
+          console.log(`[METRICS] Recorded delivered PTT voice job for +${cleanPhone}`);
+        }
+      } catch (_) {}
+    }
+    console.log('[AUDIO] Outgoing PTT/voice note to client. Skipping auto-billing per policy.');
     return { action: 'IGNORED_PTT_TO_CLIENT' };
   }
 
-  // Handle playable audio (type === 'audio', e.g. welcome sequence demo voice) sent to client - strictly DO NOT bill and DO NOT log
+  // Handle playable audio (type === 'audio', e.g. welcome sequence demo voice) sent to client
   if (msg.fromMe && !isSelf && (msg.type === 'audio' || msg._data?.type === 'audio')) {
     const checkFilename = String(msg.filename || msg._data?.filename || msg._data?.title || msg.body || '').trim().toLowerCase();
     const isDemo = /^(voice\d+|demo)/i.test(checkFilename) ||
@@ -2135,11 +2171,21 @@ async function handleMessageCreate({
               return { action: 'IGNORED_DEMO_AUDIO' };
             }
           }
+          if (typeof recordMetricsChatJob === 'function') {
+            recordMetricsChatJob(db, {
+              phoneNumber: cleanPhone,
+              jobType: 'voice',
+              mediaType: 'audio',
+              durationSeconds: msg.duration || msg._data?.duration || 0,
+              rawMediaMsgId: msg.id?._serialized || msg.id?.id
+            });
+            console.log(`[METRICS] Recorded delivered playable voice job for +${cleanPhone}`);
+          }
         }
       } catch (_) {}
     }
 
-    console.log('[AUDIO] Outgoing playable audio (non-document) to client. Skipping billing and logging per policy.');
+    console.log('[AUDIO] Outgoing playable audio (non-document) to client. Skipping auto-billing per policy.');
     return { action: 'IGNORED_PLAYABLE_AUDIO_TO_CLIENT' };
   }
 
@@ -2268,6 +2314,21 @@ async function handleMessageCreate({
         messageId: videoMsgId,
         jobType: 'video'
       });
+
+      try {
+        if (typeof recordMetricsChatJob === 'function') {
+          recordMetricsChatJob(db, {
+            phoneNumber: cleanPhone,
+            jobType: 'video',
+            mediaType: 'video',
+            expectedAmountBdt: videoBillAmount,
+            billedAmountBdt: videoBillAmount,
+            status: 'CONFIRMED_BILLED',
+            rawMediaMsgId: videoMsgId,
+            billText
+          });
+        }
+      } catch {}
 
       if (cleanPhone) {
         const billMeta = {
@@ -2649,6 +2710,16 @@ async function handleMessageCreate({
       jobType: parsed.type === 'BILL' ? jobType : null,
       durationSeconds: parsed.type === 'BILL' ? durationSeconds : null
     });
+
+    if (parsed.type === 'BILL' && typeof confirmMetricsChatJobBill === 'function') {
+      try {
+        confirmMetricsChatJobBill(db, {
+          phoneNumber: phone,
+          billAmount: parsed.amount,
+          billText: msg.body || parsed.rawText
+        });
+      } catch {}
+    }
 
     console.log(`[${parsed.type}] ${parsed.amount} BDT recorded for +${phone}${contactName ? ` (${contactName})` : ''}. Current due: ${record.dueAmount} BDT`);
 

@@ -656,6 +656,25 @@
         </button>
       </div>
 
+      <!-- Option 3: Remote Server Instance Sync -->
+      <div style="border: 1px solid #334155; border-radius: 8px; padding: 12px; margin-top: 12px; background: rgba(15, 23, 42, 0.5);">
+        <div style="font-size: 13px; font-weight: 600; color: #38bdf8; margin-bottom: 4px;">🌐 ৩. রিমোট সার্ভার থেকে সিঙ্ক (Local Instance Bridge)</div>
+        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 10px; line-height: 1.4;">
+          লোকাল পিসিতে WhatsApp না থাকলে সরাসরি লাইভ সার্ভারের আইপি বা ডোমেন দিয়ে ডেটা সিঙ্ক করুন:
+        </div>
+        <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+          <input type="text" id="remoteServerUrl" placeholder="http://server-ip:3050 বা ngrok URL" style="flex: 1; padding: 7px 10px; font-size: 12px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f1f5f9;">
+          <button id="btnRunRemoteSync" class="action-btn" onclick="executeRemoteSync()" style="padding: 7px 12px; font-size: 12px; background: #0284c7; white-space: nowrap;">
+            <span>🌐 সার্ভার থেকে সিঙ্ক</span>
+          </button>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <a href="/api/metrics/export-chats" download="munnisoft_metrics_export.json" class="nav-btn" style="flex: 1; text-align: center; text-decoration: none; padding: 6px; font-size: 11px; color: #94a3b8; border-color: #334155;">
+            <span>📥 এই সার্ভারের ডেটা এক্সপোর্ট (.json)</span>
+          </a>
+        </div>
+      </div>
+
       <div id="syncResultAlert" style="display: none; margin-top: 12px; padding: 10px; border-radius: 6px; font-size: 12px; line-height: 1.4;"></div>
     </div>
   </div>
@@ -1194,6 +1213,62 @@
     function openSyncModal() {
       document.getElementById('syncModal').style.display = 'flex';
       checkWaStatusForModal();
+      loadSavedRemoteUrl();
+    }
+
+    function loadSavedRemoteUrl() {
+      const saved = localStorage.getItem('munni_remote_server_url');
+      if (saved && document.getElementById('remoteServerUrl')) {
+        document.getElementById('remoteServerUrl').value = saved;
+      }
+    }
+
+    async function executeRemoteSync() {
+      const input = document.getElementById('remoteServerUrl');
+      const url = input ? input.value.trim() : '';
+      if (!url) {
+        alert('অনুগ্রহ করে লাইভ সার্ভারের URL লিখুন (যেমন http://server-ip:3050 বা ngrok URL)');
+        return;
+      }
+      localStorage.setItem('munni_remote_server_url', url);
+
+      const btn = document.getElementById('btnRunRemoteSync');
+      const orig = btn.innerHTML;
+      btn.innerHTML = '<span class="loading-spinner"></span> <span>সিঙ্ক হচ্ছে...</span>';
+      btn.disabled = true;
+      const alertBox = document.getElementById('syncResultAlert');
+      alertBox.style.display = 'block';
+      alertBox.style.background = 'rgba(56, 189, 248, 0.15)';
+      alertBox.style.border = '1px solid #0284c7';
+      alertBox.style.color = '#7dd3fc';
+      alertBox.innerHTML = `রিমোট সার্ভার (${url}) থেকে লাইভ ডেটা আনা হচ্ছে...`;
+
+      try {
+        const res = await fetch('/api/metrics/sync-remote', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ remoteUrl: url })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alertBox.style.background = 'rgba(16, 185, 129, 0.15)';
+          alertBox.style.border = '1px solid #10b981';
+          alertBox.style.color = '#6ee7b7';
+          alertBox.innerHTML = `<strong>✅ রিমোট সিঙ্ক সম্পন্ন!</strong><br>${data.message}`;
+          document.getElementById('syncDbStatus').textContent = `${data.counts.jobs}টি কাজ (সার্ভার থেকে লাইভ)`;
+          loadMetrics();
+        } else {
+          throw new Error(data.error || 'Remote sync failed');
+        }
+      } catch (err) {
+        alertBox.style.background = 'rgba(244, 63, 94, 0.15)';
+        alertBox.style.border = '1px solid #f43f5e';
+        alertBox.style.color = '#fda4af';
+        alertBox.innerHTML = `<strong>❌ রিমোট সিঙ্ক ব্যর্থ:</strong> ${err.message}`;
+      } finally {
+        btn.innerHTML = orig;
+        btn.disabled = false;
+      }
     }
 
     function closeSyncModal() {
@@ -1265,7 +1340,29 @@
       try {
         const text = await file.text();
         const parsed = JSON.parse(text);
-        if (!Array.isArray(parsed)) throw new Error('ফাইলটিতে চ্যাট অ্যারে (Array) ফরম্যাট থাকা আবশ্যক');
+
+        // Check if server export backup JSON
+        if (parsed && (parsed.jobs || parsed.clients)) {
+          const res = await fetch('/api/metrics/sync-remote', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data: parsed })
+          });
+          const data = await res.json();
+          if (data.success) {
+            alertBox.style.background = 'rgba(16, 185, 129, 0.15)';
+            alertBox.style.border = '1px solid #10b981';
+            alertBox.style.color = '#6ee7b7';
+            alertBox.innerHTML = `<strong>✅ ব্যাকআপ সিঙ্ক সম্পন্ন!</strong> মোট ${data.counts.jobs}টি কাজ ও ${data.counts.clients}টি ক্লায়েন্ট ডেটাবেজে সংরক্ষিত হয়েছে।`;
+            document.getElementById('syncDbStatus').textContent = `${data.counts.jobs}টি কাজ`;
+            loadMetrics();
+          } else {
+            throw new Error(data.error || 'Server error during sync');
+          }
+          return;
+        }
+
+        if (!Array.isArray(parsed)) throw new Error('ফাইলটিতে চ্যাট অ্যারে (Array) বা সার্ভার ব্যাকআপ ফরম্যাট থাকা আবশ্যক');
 
         const res = await fetch('/api/metrics/sync', {
           method: 'POST',
@@ -1288,6 +1385,7 @@
         alertBox.style.color = '#fda4af';
         alertBox.innerHTML = `<strong>❌ ফাইল প্রক্রিয়াকরণে ব্যর্থ:</strong> ${err.message}`;
       }
+    }
     }
 
     async function syncTranscripts() {

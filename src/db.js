@@ -1776,8 +1776,145 @@ function setCartesiaDefaultFormat(db, format) {
   return targetFormat;
 }
 
+/**
+ * Real-time production job recorder for /metrics ground-truth calculations.
+ * Ensures all delivered audio, voice notes (PTT), and videos are tracked as production jobs.
+ */
+function recordMetricsChatJob(db, {
+  phoneNumber,
+  jobType = 'voice',
+  deliveredAt = null,
+  mediaType = 'audio',
+  durationSeconds = 0,
+  expectedAmountBdt = null,
+  billedAmountBdt = 0,
+  status = null,
+  rawMediaMsgId = null,
+  billText = null
+} = {}) {
+  if (!db || !phoneNumber) return null;
+  const cleanPhone = String(phoneNumber).replace(/\D/g, '');
+  if (!cleanPhone) return null;
+
+  const isVideo = jobType === 'video' || mediaType === 'video';
+  const dur = Number(durationSeconds) || 0;
+  const expected = expectedAmountBdt !== null && expectedAmountBdt !== undefined
+    ? Number(expectedAmountBdt)
+    : (isVideo ? 250 : (dur > 0 ? (dur <= 60 ? 50 : 50 + Math.ceil((dur - 60) / 60) * 25) : 50));
+
+  const billed = Number(billedAmountBdt) || 0;
+  const unbilled = Math.max(0, expected - billed);
+  const finalStatus = status || (billed >= expected ? 'CONFIRMED_BILLED' : (billed > 0 ? 'CONFIRMED_BILLED' : 'UNBILLED_LEAKAGE'));
+  const timestamp = deliveredAt || new Date().toISOString();
+
+  // If already logged by message ID, avoid duplicate entry
+  if (rawMediaMsgId) {
+    try {
+      const existing = db.prepare('SELECT id FROM metrics_chat_jobs WHERE raw_media_msg_id = ?').get(rawMediaMsgId);
+      if (existing) return existing;
+    } catch {}
+  }
+
+  try {
+    const insertStmt = db.prepare(`
+      INSERT INTO metrics_chat_jobs (
+        phone_number, job_type, delivered_at, media_type, duration_seconds,
+        expected_amount_bdt, billed_amount_bdt, unbilled_leakage_bdt,
+        status, raw_media_msg_id, bill_text
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const info = insertStmt.run(
+      cleanPhone,
+      isVideo ? 'video' : 'voice',
+      timestamp,
+      mediaType || 'audio',
+      dur,
+      expected,
+      billed,
+      unbilled,
+      finalStatus,
+      rawMediaMsgId,
+      billText
+    );
+
+    // Update metrics client summary
+    try {
+      db.prepare(`
+        INSERT INTO metrics_chat_clients (phone_number, client_name, first_contact_at, first_job_delivered_at, total_jobs_delivered, total_billed_bdt, total_unbilled_bdt, status)
+        VALUES (?, ?, ?, ?, 1, ?, ?, 'CONVERTED')
+        ON CONFLICT(phone_number) DO UPDATE SET
+          total_jobs_delivered = total_jobs_delivered + 1,
+          total_billed_bdt = total_billed_bdt + excluded.total_billed_bdt,
+          total_unbilled_bdt = total_unbilled_bdt + excluded.total_unbilled_bdt,
+          status = 'CONVERTED',
+          updated_at = CURRENT_TIMESTAMP
+      `).run(cleanPhone, `Client ${cleanPhone}`, timestamp, timestamp, billed, unbilled);
+    } catch {}
+
+    return { id: info.lastInsertRowid, cleanPhone, expected, unbilled, status: finalStatus };
+  } catch (err) {
+    console.warn('[DB] recordMetricsChatJob error:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Marks the latest unbilled job for a customer as billed when a bill transaction occurs.
+ */
+function confirmMetricsChatJobBill(db, { phoneNumber, billAmount, billText = null } = {}) {
+  if (!db || !phoneNumber || !billAmount) return null;
+  const cleanPhone = String(phoneNumber).replace(/\D/g, '');
+  if (!cleanPhone) return null;
+
+  try {
+    const amt = Number(billAmount) || 0;
+    const pendingJob = db.prepare(`
+      SELECT id, expected_amount_bdt, billed_amount_bdt
+      FROM metrics_chat_jobs
+      WHERE phone_number = ? AND status IN ('UNBILLED_LEAKAGE', 'TYPO_FLAGGED')
+      ORDER BY delivered_at DESC
+      LIMIT 1
+    `).get(cleanPhone);
+
+    if (pendingJob) {
+      const unbilledDiff = Math.max(0, pendingJob.expected_amount_bdt - amt);
+      db.prepare(`
+        UPDATE metrics_chat_jobs
+        SET billed_amount_bdt = ?, unbilled_leakage_bdt = ?, status = 'CONFIRMED_BILLED', bill_text = COALESCE(?, bill_text)
+        WHERE id = ?
+      `).run(amt, unbilledDiff, billText, pendingJob.id);
+
+      db.prepare(`
+        UPDATE metrics_chat_clients
+        SET total_billed_bdt = total_billed_bdt + ?,
+            total_unbilled_bdt = MAX(0, total_unbilled_bdt - ?)
+        WHERE phone_number = ?
+      `).run(amt, pendingJob.expected_amount_bdt, cleanPhone);
+
+      return { updatedJobId: pendingJob.id, billAmount: amt };
+    } else {
+      // If no pending unbilled job was found (e.g. manual bill typed), record a confirmed billed job directly
+      return recordMetricsChatJob(db, {
+        phoneNumber: cleanPhone,
+        jobType: 'voice',
+        expectedAmountBdt: amt,
+        billedAmountBdt: amt,
+        status: 'CONFIRMED_BILLED',
+        billText
+      });
+    }
+  } catch (err) {
+    console.warn('[DB] confirmMetricsChatJobBill error:', err.message);
+  }
+  return null;
+}
+
 module.exports = {
   initDb,
+  recordMetricsChatJob,
+  confirmMetricsChatJobBill,
   saveWhatsappCustomerNote,
   getWhatsappCustomerNotes,
   getWhatsappCustomerNote,

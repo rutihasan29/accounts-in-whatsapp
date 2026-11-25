@@ -491,6 +491,177 @@ function startWebServer({ db, client = null, port = PORT, onRestart = null } = {
       return;
     }
 
+    // API: Export all metrics production jobs, clients, and ad spend (for remote instance sync)
+    if ((pathname === '/api/metrics/export-chats' || pathname === '/api/metrics/export-live') && method === 'GET') {
+      try {
+        const jobs = db.prepare('SELECT * FROM metrics_chat_jobs ORDER BY delivered_at ASC').all();
+        const clients = db.prepare('SELECT * FROM metrics_chat_clients ORDER BY first_contact_at ASC').all();
+        const adSpend = db.prepare('SELECT * FROM ad_spend ORDER BY spend_date ASC').all();
+        let latestLiveChats = [];
+        const livePath = path.join(__dirname, '..', 'data', 'latest_live_chats.json');
+        if (fs.existsSync(livePath)) {
+          try { latestLiveChats = JSON.parse(fs.readFileSync(livePath, 'utf8')); } catch {}
+        }
+        res.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Access-Control-Allow-Origin': '*'
+        });
+        res.end(JSON.stringify({
+          status: 'ok',
+          exportedAt: new Date().toISOString(),
+          counts: {
+            jobs: jobs.length,
+            clients: clients.length,
+            adSpend: adSpend.length,
+            liveChats: latestLiveChats.length
+          },
+          jobs,
+          clients,
+          adSpend,
+          latestLiveChats
+        }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', error: err.message }));
+      }
+      return;
+    }
+
+    // API: Sync data from remote server instance directly into local SQLite database
+    if (pathname === '/api/metrics/sync-remote' && method === 'POST') {
+      try {
+        const body = await readJsonBody(req).catch(() => ({}));
+        let payload = null;
+
+        if (body.data && typeof body.data === 'object') {
+          payload = body.data;
+        } else if (body.remoteUrl) {
+          let remoteUrl = String(body.remoteUrl).trim().replace(/\/+$/, '');
+          if (!remoteUrl.startsWith('http://') && !remoteUrl.startsWith('https://')) {
+            remoteUrl = 'http://' + remoteUrl;
+          }
+          const targetExportUrl = `${remoteUrl}/api/metrics/export-chats`;
+          console.log(`[REMOTE_SYNC] Fetching live data from remote server: ${targetExportUrl}`);
+
+          const fetchRes = await fetch(targetExportUrl, {
+            signal: AbortSignal.timeout(15000),
+            headers: { 'Accept': 'application/json' }
+          });
+
+          if (!fetchRes.ok) {
+            throw new Error(`Remote server returned HTTP ${fetchRes.status}: ${fetchRes.statusText}`);
+          }
+          payload = await fetchRes.json();
+        } else {
+          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ status: 'error', error: 'Please provide remoteUrl or data payload' }));
+          return;
+        }
+
+        if (!payload || (!payload.jobs && !payload.clients)) {
+          throw new Error('Invalid or empty export payload received from remote server');
+        }
+
+        const jobs = payload.jobs || [];
+        const clients = payload.clients || [];
+        const adSpend = payload.adSpend || [];
+        const latestLiveChats = payload.latestLiveChats || [];
+
+        // Upsert into local SQLite
+        const syncTransaction = db.transaction(() => {
+          const insertJob = db.prepare(`
+            INSERT INTO metrics_chat_jobs (
+              id, phone_number, job_type, delivered_at, media_type, duration_seconds,
+              expected_amount_bdt, billed_amount_bdt, unbilled_leakage_bdt,
+              status, raw_media_msg_id, bill_text
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              phone_number = excluded.phone_number,
+              job_type = excluded.job_type,
+              delivered_at = excluded.delivered_at,
+              media_type = excluded.media_type,
+              duration_seconds = excluded.duration_seconds,
+              expected_amount_bdt = excluded.expected_amount_bdt,
+              billed_amount_bdt = excluded.billed_amount_bdt,
+              unbilled_leakage_bdt = excluded.unbilled_leakage_bdt,
+              status = excluded.status,
+              raw_media_msg_id = excluded.raw_media_msg_id,
+              bill_text = excluded.bill_text
+          `);
+
+          for (const j of jobs) {
+            insertJob.run(
+              j.id, j.phone_number, j.job_type, j.delivered_at, j.media_type,
+              j.duration_seconds || 0, j.expected_amount_bdt, j.billed_amount_bdt || 0,
+              j.unbilled_leakage_bdt || 0, j.status, j.raw_media_msg_id || null, j.bill_text || null
+            );
+          }
+
+          const insertClient = db.prepare(`
+            INSERT INTO metrics_chat_clients (
+              phone_number, client_name, first_contact_at, first_job_delivered_at,
+              total_jobs_delivered, total_billed_bdt, total_unbilled_bdt, status
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(phone_number) DO UPDATE SET
+              client_name = excluded.client_name,
+              first_contact_at = excluded.first_contact_at,
+              first_job_delivered_at = excluded.first_job_delivered_at,
+              total_jobs_delivered = excluded.total_jobs_delivered,
+              total_billed_bdt = excluded.total_billed_bdt,
+              total_unbilled_bdt = excluded.total_unbilled_bdt,
+              status = excluded.status
+          `);
+
+          for (const c of clients) {
+            insertClient.run(
+              c.phone_number, c.client_name, c.first_contact_at, c.first_job_delivered_at,
+              c.total_jobs_delivered, c.total_billed_bdt, c.total_unbilled_bdt, c.status
+            );
+          }
+
+          if (Array.isArray(adSpend) && adSpend.length > 0) {
+            const insertSpend = db.prepare(`
+              INSERT OR REPLACE INTO ad_spend (id, spend_date, amount, notes)
+              VALUES (?, ?, ?, ?)
+            `);
+            for (const a of adSpend) {
+              insertSpend.run(a.id, a.spend_date, a.amount, a.notes || null);
+            }
+          }
+        });
+
+        syncTransaction();
+
+        if (Array.isArray(latestLiveChats) && latestLiveChats.length > 0) {
+          const livePath = path.join(__dirname, '..', 'data', 'latest_live_chats.json');
+          fs.writeFileSync(livePath, JSON.stringify(latestLiveChats, null, 2), 'utf8');
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({
+          status: 'ok',
+          success: true,
+          message: `সফলভাবে রিমোট সার্ভার থেকে ${jobs.length}টি কাজ ও ${clients.length}টি ক্লায়েন্টের ডেটা সিঙ্ক করা হয়েছে!`,
+          syncedAt: new Date().toISOString(),
+          counts: {
+            jobs: jobs.length,
+            clients: clients.length,
+            adSpend: adSpend.length
+          }
+        }));
+      } catch (err) {
+        console.error('[REMOTE_SYNC] Error:', err.message);
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({
+          status: 'error',
+          error: `রিমোট সার্ভার সিঙ্ক ব্যর্থ: ${err.message}`
+        }));
+      }
+      return;
+    }
+
     // API: Live WhatsApp QR status & data URL
     if (pathname === '/api/qr' && method === 'GET') {
       try {

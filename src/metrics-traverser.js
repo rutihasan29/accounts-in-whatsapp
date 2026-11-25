@@ -152,13 +152,21 @@ function syncChatMetricsToDb(db, options = {}) {
     VALUES (?, ?, ?, ?, ?)
   `);
 
-  // Clear existing traversed jobs if full re-sync
+  // Clear existing traversed jobs if full re-sync (preserving live real-time bot jobs unless forceFullClean is requested)
   if (options.cleanSync) {
-    db.exec(`
-      DELETE FROM metrics_chat_jobs;
-      DELETE FROM metrics_chat_events;
-      DELETE FROM metrics_chat_clients;
-    `);
+    if (options.forceFullClean) {
+      db.exec(`
+        DELETE FROM metrics_chat_jobs;
+        DELETE FROM metrics_chat_events;
+        DELETE FROM metrics_chat_clients;
+      `);
+    } else {
+      db.exec(`
+        DELETE FROM metrics_chat_jobs WHERE substr(delivered_at, 1, 10) <= '2026-11-14';
+        DELETE FROM metrics_chat_events WHERE substr(event_time, 1, 10) <= '2026-11-14';
+        DELETE FROM metrics_chat_clients WHERE phone_number NOT IN (SELECT DISTINCT phone_number FROM metrics_chat_jobs);
+      `);
+    }
   }
 
   let totalClients = 0;
