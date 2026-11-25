@@ -889,9 +889,16 @@ function startWebServer({ db, client = null, port = PORT, onRestart = null } = {
       return;
     }
 
-    // Main Single Page Mobile Dashboard (with pre-rendered initial data)
-    if (pathname === '/' && method === 'GET') {
+    // Main Single Page Mobile Dashboard & Metrics (with pre-rendered initial data)
+    if ((pathname === '/' || pathname === '/metrics' || pathname === '/dashboard' || pathname === '/kpi') && method === 'GET') {
       try {
+        const accept = req.headers['accept'] || '';
+        if (accept.includes('application/json') && (pathname === '/metrics' || pathname === '/kpi')) {
+          const report = getBusinessKpiReport(db);
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify(report));
+          return;
+        }
         const html = renderHtmlPage({ db });
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(html);

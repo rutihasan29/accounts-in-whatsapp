@@ -8,6 +8,7 @@
     "start": "node index.js",
     "web": "node src/server.js",
     "kpi": "node scripts/show-kpi.js",
+    "metrics": "node scripts/show-kpi.js",
     "audit": "node scripts/run-audit.js",
     "sync-fb": "node scripts/sync-fb-ads.js",
     "sync-crm": "node scripts/populate-crm-leads.js",
