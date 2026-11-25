@@ -1,0 +1,579 @@
+/**
+ * Full-Chat LLM Job Segmentation and Production Auditor
+ * 
+ * Takes entire chronological customer conversations with media file types and
+ * durations, identifies discrete production jobs via Google Gemini LLM (or deterministic fallback),
+ * guarantees every delivered file is accounted for (EVEN IF BILL MESSAGE IS MISSING),
+ * and syncs ground-truth records into metrics_chat_jobs and metrics_chat_clients.
+ * 
+ * Strict Privacy: ZERO customer financial data sent to WhatsApp chats.
+ */
+
+const fs = require('fs');
+const path = require('path');
+const config = require('./config');
+
+const BENGALI_NUM_MAP = {
+  '০': '0', '১': '1', '২': '2', '৩': '3', '৪': '4',
+  '৫': '5', '৬': '6', '৭': '7', '৮': '8', '৯': '9'
+};
+
+function normalizeDigits(str) {
+  if (!str) return '';
+  return String(str).replace(/[০-৯]/g, d => BENGALI_NUM_MAP[d] || d);
+}
+
+/**
+ * Standard pricing formula:
+ * Audio: <=60s = 50 BDT, each extra minute = +25 BDT
+ * Video: 250 BDT standard rate
+ */
+function calculateExpectedRate(mediaType = 'audio', durationSeconds = 0) {
+  const isVideo = String(mediaType).toLowerCase().includes('video') || String(mediaType).toLowerCase().endsWith('.mp4');
+  if (isVideo) return 250;
+
+  const dur = Number(durationSeconds) || 0;
+  if (dur <= 0) return 50;
+  if (dur <= 60) return 50;
+  return 50 + Math.ceil((dur - 60) / 60) * 25;
+}
+
+/**
+ * Pre-processes raw customer chat into structured message stream for LLM
+ */
+function formatChatForLlm(chat) {
+  if (!chat) return null;
+  const rawMsgs = Array.isArray(chat.messages) ? chat.messages : [];
+  const cleanPhone = String(chat.clientPhone || chat.phone || chat.rawId || '').replace(/\D/g, '');
+  const clientName = chat.clientName || chat.name || `Client +${cleanPhone}`;
+
+  // Sort chronologically
+  const sorted = [...rawMsgs].sort((a, b) => {
+    const ta = a.t || (a.isoTime ? new Date(a.isoTime).getTime() / 1000 : 0);
+    const tb = b.t || (b.isoTime ? new Date(b.isoTime).getTime() / 1000 : 0);
+    return ta - tb;
+  });
+
+  const formattedMessages = sorted.map((m, idx) => {
+    const isFromMe = Boolean(m.fromMe || m.id?.fromMe);
+    const type = m.type || (m.hasMedia ? 'media' : 'chat');
+    const isMedia = Boolean(m.hasMedia || type === 'audio' || type === 'ptt' || type === 'video');
+    const dur = Number(m.duration || m._data?.duration || 0);
+    const iso = m.isoTime || (m.t ? new Date(m.t * 1000).toISOString() : null);
+
+    return {
+      index: idx + 1,
+      id: m.id?._serialized || m.id?.id || (typeof m.id === 'string' ? m.id : null),
+      time: iso,
+      sender: isFromMe ? 'STAFF' : 'CLIENT',
+      type,
+      text: String(m.body || m.caption || '').trim(),
+      hasMedia: isMedia,
+      mediaDurationSec: isMedia ? dur : null,
+      filename: m.filename || m._data?.filename || null,
+      expectedRateBdt: isMedia ? calculateExpectedRate(type, dur) : null
+    };
+  });
+
+  return {
+    clientPhone: cleanPhone,
+    clientName,
+    firstContactIso: formattedMessages[0]?.time || null,
+    totalMessages: formattedMessages.length,
+    messages: formattedMessages
+  };
+}
+
+/**
+ * Builds the comprehensive prompt for Gemini LLM to detect job blocks
+ */
+function buildLlmAuditPrompt(chatPayload) {
+  const jsonChat = JSON.stringify(chatPayload, null, 2);
+
+  return `You are the Lead Production Auditor for News Voice Agency.
+Your job is to read the entire chronological WhatsApp conversation of a client and segment it into distinct Production Job Blocks.
+
+PRICING RULES (MANDATORY):
+1. Audio Voiceover (type: 'audio' or 'ptt'):
+   - Duration 0 to 60 seconds: 50 BDT
+   - Duration > 60 seconds: 50 BDT + 25 BDT for every additional 60 seconds (e.g. 61-120s = 75 BDT, 121-180s = 100 BDT)
+2. Video Package (type: 'video'): Standard rate = 250 BDT
+
+CRITICAL AUDITING RULES:
+1. EVERY DELIVERED MEDIA MUST BE CALCULATED AS A JOB:
+   Even if the staff NEVER sent a bill message, if a voice note, audio file, or video was delivered by STAFF to the CLIENT, you MUST create a job block for it!
+   - expectedAmountBdt: Calculate accurately based on duration
+   - billedAmountBdt: 0
+   - unbilledLeakageBdt: expectedAmountBdt
+   - status: "UNBILLED_LEAKAGE"
+   - leakageReason: "Staff delivered production work but failed to send a bill message"
+2. MATCH BILL MESSAGES CONTEXTUALLY:
+   - Staff bills look like "বিল ৫০ টাকা", "বিল ৭৫", "৫০ টাকা".
+   - If a bill follows 1 delivered audio: match directly.
+   - If a bill follows multiple delivered audios (e.g. "বিল ১০০ টাকা" after two 50 BDT audios): distribute the 100 BDT across both jobs (50 BDT each).
+3. DETECT RETAKES AND REVISIONS:
+   - If client says "ভয়েস ভুল হয়েছে" or "রিটেক দিন" and staff sends another audio for the same script:
+     - Mark second audio as a FREE_RETAKE (expectedAmountBdt: 0, status: "FREE_RETAKE").
+4. IGNORE DEMO / SYSTEM GREETINGS:
+   - Voice samples sent during initial greeting (filenames containing "demo", "voice1", "voice2") are NOT production jobs.
+
+Return ONLY a valid JSON object matching this exact schema:
+{
+  "clientPhone": "${chatPayload.clientPhone}",
+  "totalJobsDetected": <number>,
+  "clientSummary": {
+    "totalRevenueEstimatedBdt": <number>,
+    "totalRevenueBilledBdt": <number>,
+    "totalLeakageBdt": <number>,
+    "conversionStatus": "CONVERTED" | "LEAD_IN_PROGRESS" | "UNCONVERTED",
+    "relationshipHealth": "ACTIVE_REPEAT_BUYER" | "ONE_TIME_CLIENT" | "INACTIVE"
+  },
+  "jobBlocks": [
+    {
+      "jobBlockId": <number>,
+      "jobType": "voice" | "video",
+      "deliveredAt": "<ISO-timestamp>",
+      "messageIndices": [<number>],
+      "rawMediaMsgId": "<message-id or null>",
+      "mediaDetails": {
+        "type": "audio" | "ptt" | "video",
+        "durationSeconds": <number>,
+        "filename": "<string or null>"
+      },
+      "expectedAmountBdt": <number>,
+      "billedAmountBdt": <number>,
+      "unbilledLeakageBdt": <number>,
+      "status": "CONFIRMED_BILLED" | "UNBILLED_LEAKAGE" | "UNDERBILLED_ERROR" | "FREE_RETAKE",
+      "billText": "<string or null>",
+      "auditNotes": "<brief explanation of billing decision>"
+    }
+  ]
+}
+
+CHAT DATA TO AUDIT:
+${jsonChat}
+`;
+}
+
+/**
+ * Deterministic fallback segmenter if Gemini API is unavailable or offline
+ */
+function segmentChatDeterministicFallback(chatPayload) {
+  if (!chatPayload || !Array.isArray(chatPayload.messages)) {
+    return { clientPhone: chatPayload?.clientPhone || '', totalJobsDetected: 0, jobBlocks: [] };
+  }
+
+  const msgs = chatPayload.messages;
+  const claimedBillIndices = new Set();
+  const jobBlocks = [];
+
+  let jobCounter = 0;
+  let totalEstimated = 0;
+  let totalBilled = 0;
+  let totalLeakage = 0;
+
+  for (let i = 0; i < msgs.length; i++) {
+    const m = msgs[i];
+    // Check if staff delivered media
+    if (m.sender === 'STAFF' && m.hasMedia) {
+      const isVideo = String(m.type).includes('video') || String(m.filename || '').endsWith('.mp4');
+      const jobType = isVideo ? 'video' : 'voice';
+      const dur = Number(m.mediaDurationSec) || 0;
+      const expected = calculateExpectedRate(m.type, dur);
+
+      // Lookahead for billing message in next 4 messages
+      let foundBill = null;
+      let billMsgIdx = null;
+      let billText = null;
+
+      for (let j = i + 1; j <= Math.min(i + 4, msgs.length - 1); j++) {
+        if (!claimedBillIndices.has(j) && msgs[j].sender === 'STAFF' && msgs[j].text) {
+          const norm = normalizeDigits(msgs[j].text);
+          const match = norm.match(/বিল\s*[:=\-]?\s*(\d+)/i) || norm.match(/(\d+)\s*টাকা/i);
+          if (match) {
+            foundBill = parseInt(match[1], 10);
+            billMsgIdx = j;
+            billText = msgs[j].text;
+            claimedBillIndices.add(j);
+            break;
+          }
+        }
+      }
+
+      jobCounter++;
+      const billed = foundBill !== null ? foundBill : 0;
+      const unbilled = Math.max(0, expected - billed);
+      const status = billed >= expected ? 'CONFIRMED_BILLED' : (billed > 0 ? 'UNDERBILLED_ERROR' : 'UNBILLED_LEAKAGE');
+
+      totalEstimated += expected;
+      totalBilled += billed;
+      totalLeakage += unbilled;
+
+      jobBlocks.push({
+        jobBlockId: jobCounter,
+        jobType,
+        deliveredAt: m.time || new Date().toISOString(),
+        messageIndices: [m.index, ...(billMsgIdx ? [msgs[billMsgIdx].index] : [])],
+        rawMediaMsgId: m.id || null,
+        mediaDetails: {
+          type: m.type,
+          durationSeconds: dur,
+          filename: m.filename
+        },
+        expectedAmountBdt: expected,
+        billedAmountBdt: billed,
+        unbilledLeakageBdt: unbilled,
+        status,
+        billText,
+        auditNotes: billed > 0 
+          ? `Matched bill of ${billed} BDT (expected: ${expected} BDT)` 
+          : `Delivered media (${dur}s) without billing message - calculated full unbilled leakage`
+      });
+    }
+  }
+
+  return {
+    clientPhone: chatPayload.clientPhone,
+    totalJobsDetected: jobBlocks.length,
+    clientSummary: {
+      totalRevenueEstimatedBdt: totalEstimated,
+      totalRevenueBilledBdt: totalBilled,
+      totalLeakageBdt: totalLeakage,
+      conversionStatus: jobBlocks.length > 0 ? 'CONVERTED' : 'UNCONVERTED',
+      relationshipHealth: jobBlocks.length >= 2 ? 'ACTIVE_REPEAT_BUYER' : (jobBlocks.length === 1 ? 'ONE_TIME_CLIENT' : 'INACTIVE')
+    },
+    jobBlocks
+  };
+}
+
+/**
+ * Runs full-history LLM job segmentation using Google Gemini
+ */
+async function segmentChatWithLlm(chatPayload, options = {}) {
+  const isAlreadyFormatted = Array.isArray(chatPayload?.messages) && 
+    chatPayload.messages.length > 0 && 
+    ('sender' in chatPayload.messages[0]);
+  const formatted = isAlreadyFormatted ? chatPayload : formatChatForLlm(chatPayload);
+  if (!formatted || !Array.isArray(formatted.messages) || formatted.messages.length === 0) {
+    return { clientPhone: formatted?.clientPhone || '', totalJobsDetected: 0, jobBlocks: [] };
+  }
+
+  // Filter out chats with zero media deliveries immediately (no jobs to detect)
+  const hasMediaDelivery = formatted.messages.some(m => {
+    const isStaff = m.sender === 'STAFF' || m.fromMe === true || m.id?.fromMe === true;
+    const isMedia = Boolean(m.hasMedia || m.type === 'audio' || m.type === 'ptt' || m.type === 'video');
+    return isStaff && isMedia;
+  });
+  if (!hasMediaDelivery) {
+    return {
+      clientPhone: formatted.clientPhone,
+      totalJobsDetected: 0,
+      clientSummary: {
+        totalRevenueEstimatedBdt: 0,
+        totalRevenueBilledBdt: 0,
+        totalLeakageBdt: 0,
+        conversionStatus: 'LEAD_IN_PROGRESS',
+        relationshipHealth: 'INACTIVE'
+      },
+      jobBlocks: []
+    };
+  }
+
+  const apiKey = options.apiKey !== undefined ? options.apiKey : config.GEMINI_API_KEY;
+  const model = options.model || config.GEMINI_MODEL || 'gemini-flash-lite-latest';
+  const fetchFn = options.fetchFn || globalThis.fetch;
+
+  if (!apiKey) {
+    console.warn('[LLM_SEGMENTER] GEMINI_API_KEY missing; using deterministic fallback segmentation');
+    return segmentChatDeterministicFallback(formatted);
+  }
+
+  const promptText = buildLlmAuditPrompt(formatted);
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+  try {
+    const res = await fetchFn(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: promptText }] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.1
+        }
+      }),
+      signal: AbortSignal.timeout(options.timeoutMs || 25000)
+    });
+
+    if (!res.ok) {
+      console.warn(`[LLM_SEGMENTER] Gemini returned HTTP ${res.status}; falling back to deterministic audit`);
+      return segmentChatDeterministicFallback(formatted);
+    }
+
+    const resJson = await res.json();
+    const rawContent = resJson?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!rawContent) {
+      throw new Error('Empty response from Gemini');
+    }
+
+    const parsed = JSON.parse(rawContent);
+
+    // Safeguard verification: enforce unbilled calculation if LLM missed any
+    if (Array.isArray(parsed.jobBlocks)) {
+      for (const job of parsed.jobBlocks) {
+        if (!job.expectedAmountBdt || job.expectedAmountBdt <= 0) {
+          job.expectedAmountBdt = calculateExpectedRate(job.mediaDetails?.type, job.mediaDetails?.durationSeconds);
+        }
+        if (!job.billedAmountBdt) job.billedAmountBdt = 0;
+        if (job.billedAmountBdt === 0 && job.status !== 'FREE_RETAKE') {
+          job.unbilledLeakageBdt = job.expectedAmountBdt;
+          job.status = 'UNBILLED_LEAKAGE';
+        }
+      }
+    }
+
+    return parsed;
+  } catch (err) {
+    console.warn('[LLM_SEGMENTER] LLM error:', err.message, '; falling back to deterministic segmenter');
+    return segmentChatDeterministicFallback(formatted);
+  }
+}
+
+/**
+ * Saves LLM-audited job blocks directly into metrics_chat_jobs and metrics_chat_clients
+ */
+function saveLlmJobBlocksToDb(db, auditResult) {
+  if (!db || !auditResult || !auditResult.clientPhone) return { savedJobs: 0 };
+  const phone = String(auditResult.clientPhone).replace(/\D/g, '');
+  const jobs = Array.isArray(auditResult.jobBlocks) ? auditResult.jobBlocks : [];
+  if (jobs.length === 0) return { savedJobs: 0 };
+
+  const insertJob = db.prepare(`
+    INSERT INTO metrics_chat_jobs (
+      phone_number, job_type, delivered_at, media_type, duration_seconds,
+      expected_amount_bdt, billed_amount_bdt, unbilled_leakage_bdt,
+      status, raw_media_msg_id, bill_text
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  let totalExpected = 0;
+  let totalBilled = 0;
+  let totalLeakage = 0;
+
+  const tx = db.transaction(() => {
+    for (const job of jobs) {
+      const jobType = job.jobType === 'video' ? 'video' : 'voice';
+      const deliveredAt = job.deliveredAt || new Date().toISOString();
+      const mediaType = job.mediaDetails?.type || (jobType === 'video' ? 'video' : 'audio');
+      const dur = Number(job.mediaDetails?.durationSeconds || 0);
+      const expected = Number(job.expectedAmountBdt) || calculateExpectedRate(mediaType, dur);
+      const billed = Number(job.billedAmountBdt) || 0;
+      const unbilled = job.status === 'FREE_RETAKE' ? 0 : Math.max(0, expected - billed);
+      const status = job.status || (billed >= expected ? 'CONFIRMED_BILLED' : (billed > 0 ? 'UNDERBILLED_ERROR' : 'UNBILLED_LEAKAGE'));
+
+      let dbStatus = 'UNBILLED_LEAKAGE';
+      if (job.status === 'CONFIRMED_BILLED' || billed >= expected) {
+        dbStatus = 'CONFIRMED_BILLED';
+      } else if (job.status === 'TYPO_FLAGGED') {
+        dbStatus = 'TYPO_FLAGGED';
+      } else {
+        dbStatus = 'UNBILLED_LEAKAGE';
+      }
+
+      // Skip 0 expected rate free retakes from polluting job counts
+      if (job.status === 'FREE_RETAKE' && expected === 0) {
+        continue;
+      }
+
+      totalExpected += expected;
+      totalBilled += billed;
+      totalLeakage += unbilled;
+
+      // Avoid duplicate entry by raw_media_msg_id or (phone, delivered_at)
+      if (job.rawMediaMsgId) {
+        const existing = db.prepare('SELECT id FROM metrics_chat_jobs WHERE raw_media_msg_id = ?').get(job.rawMediaMsgId);
+        if (existing) {
+          db.prepare(`
+            UPDATE metrics_chat_jobs
+            SET expected_amount_bdt = ?, billed_amount_bdt = ?, unbilled_leakage_bdt = ?, status = ?, bill_text = COALESCE(?, bill_text)
+            WHERE id = ?
+          `).run(expected, billed, unbilled, dbStatus, job.billText || null, existing.id);
+          continue;
+        }
+      } else if (deliveredAt) {
+        const existing = db.prepare('SELECT id FROM metrics_chat_jobs WHERE phone_number = ? AND delivered_at = ?').get(phone, deliveredAt);
+        if (existing) {
+          db.prepare(`
+            UPDATE metrics_chat_jobs
+            SET expected_amount_bdt = ?, billed_amount_bdt = ?, unbilled_leakage_bdt = ?, status = ?, bill_text = COALESCE(?, bill_text)
+            WHERE id = ?
+          `).run(expected, billed, unbilled, dbStatus, job.billText || null, existing.id);
+          continue;
+        }
+      }
+
+      insertJob.run(
+        phone,
+        jobType,
+        deliveredAt,
+        mediaType,
+        dur,
+        expected,
+        billed,
+        unbilled,
+        dbStatus,
+        job.rawMediaMsgId || null,
+        job.billText || null
+      );
+    }
+
+    // Update metrics client summary with exact aggregated numbers
+    try {
+      const stats = db.prepare(`
+        SELECT 
+          COUNT(*) as cnt,
+          SUM(billed_amount_bdt) as sumBilled,
+          SUM(unbilled_leakage_bdt) as sumLeakage,
+          MIN(delivered_at) as minDelivered
+        FROM metrics_chat_jobs
+        WHERE phone_number = ?
+      `).get(phone);
+
+      const jobCount = stats?.cnt || 0;
+      const billedTotal = stats?.sumBilled || 0;
+      const leakageTotal = stats?.sumLeakage || 0;
+      const firstDelivered = stats?.minDelivered || jobs[0]?.deliveredAt || new Date().toISOString();
+
+      db.prepare(`
+        INSERT INTO metrics_chat_clients (
+          phone_number, client_name, first_contact_at, first_job_delivered_at,
+          total_jobs_delivered, total_billed_bdt, total_unbilled_bdt, status, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'CONVERTED', CURRENT_TIMESTAMP)
+        ON CONFLICT(phone_number) DO UPDATE SET
+          first_job_delivered_at = COALESCE(metrics_chat_clients.first_job_delivered_at, excluded.first_job_delivered_at),
+          total_jobs_delivered = excluded.total_jobs_delivered,
+          total_billed_bdt = excluded.total_billed_bdt,
+          total_unbilled_bdt = excluded.total_unbilled_bdt,
+          status = 'CONVERTED',
+          updated_at = CURRENT_TIMESTAMP
+      `).run(
+        phone,
+        `Client +${phone}`,
+        firstDelivered,
+        firstDelivered,
+        jobCount,
+        billedTotal,
+        leakageTotal
+      );
+    } catch (clientErr) {
+      console.warn('[LLM_SEGMENTER] Client stats update error:', clientErr.message);
+    }
+  });
+
+  tx();
+
+  return {
+    clientPhone: phone,
+    savedJobs: jobs.length,
+    totalExpected,
+    totalBilled,
+    totalLeakage
+  };
+}
+
+/**
+ * Run full LLM audit on all or filtered client chats and save findings into database
+ */
+async function runLlmAuditOnAllChats(db, options = {}) {
+  let chats = [];
+
+  if (Array.isArray(options.chats) && options.chats.length > 0) {
+    chats = options.chats;
+  } else if (options.client && options.client.pupPage && typeof options.client.pupPage.evaluate === 'function') {
+    try {
+      const { extractLiveWhatsAppChats } = require('./metrics-traverser');
+      chats = await extractLiveWhatsAppChats(options.client);
+    } catch (e) {
+      console.warn('[LLM_AUDIT] Live extraction fallback:', e.message);
+    }
+  }
+
+  if (!chats || chats.length === 0) {
+    const { loadChatTranscripts } = require('./metrics-traverser');
+    chats = loadChatTranscripts();
+  }
+
+  if (options.phone) {
+    const cleanTarget = String(options.phone).replace(/\D/g, '');
+    chats = chats.filter(c => {
+      const p = String(c.phone || c.rawId || '').replace(/\D/g, '');
+      return p === cleanTarget;
+    });
+  }
+
+  // Filter only chats with at least one media delivery from staff
+  const targetChats = chats.filter(c => {
+    if (!Array.isArray(c.messages) || c.messages.length === 0) return false;
+    return c.messages.some(m => {
+      const isStaff = Boolean(m.fromMe || m.id?.fromMe);
+      const isMedia = Boolean(m.hasMedia || m.type === 'audio' || m.type === 'ptt' || m.type === 'video');
+      return isStaff && isMedia;
+    });
+  });
+
+  const chatsToAudit = typeof options.limit === 'number' && options.limit > 0
+    ? targetChats.slice(0, options.limit)
+    : targetChats;
+
+  let totalAuditedChats = 0;
+  let totalJobs = 0;
+  let totalEstimated = 0;
+  let totalBilled = 0;
+  let totalLeakage = 0;
+  const details = [];
+
+  for (const chat of chatsToAudit) {
+    try {
+      const auditRes = await segmentChatWithLlm(chat, options);
+      if (auditRes && Array.isArray(auditRes.jobBlocks) && auditRes.jobBlocks.length > 0) {
+        const saved = saveLlmJobBlocksToDb(db, auditRes);
+        totalAuditedChats++;
+        totalJobs += saved.savedJobs;
+        totalEstimated += saved.totalExpected;
+        totalBilled += saved.totalBilled;
+        totalLeakage += saved.totalLeakage;
+
+        details.push({
+          phone: saved.clientPhone,
+          jobsCount: saved.savedJobs,
+          expectedBdt: saved.totalExpected,
+          billedBdt: saved.totalBilled,
+          leakageBdt: saved.totalLeakage
+        });
+      }
+    } catch (chatErr) {
+      console.warn(`[LLM_AUDIT] Error auditing chat ${chat.phone}:`, chatErr.message);
+    }
+  }
+
+  return {
+    auditedChats: totalAuditedChats,
+    totalJobs,
+    totalEstimated,
+    totalBilled,
+    totalLeakage,
+    details
+  };
+}
+
+module.exports = {
+  calculateExpectedRate,
+  formatChatForLlm,
+  buildLlmAuditPrompt,
+  segmentChatWithLlm,
+  segmentChatDeterministicFallback,
+  saveLlmJobBlocksToDb,
+  runLlmAuditOnAllChats
+};

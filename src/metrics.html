@@ -675,6 +675,22 @@
         </div>
       </div>
 
+      <!-- Option 4: Full AI Audit (LLM - Gemini Flash) -->
+      <div style="border: 1px solid #7c3aed; border-radius: 8px; padding: 12px; margin-top: 12px; background: rgba(124, 58, 237, 0.08);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <div style="font-size: 13px; font-weight: 600; color: #c084fc;">🤖 ৪. এআই ফুল-চ্যাট অডিট (LLM - Gemini Flash)</div>
+          <span style="font-size: 10px; background: #6b21a8; color: #f3e8ff; padding: 2px 6px; border-radius: 4px; font-weight: 600;">NEW AI AUDIT</span>
+        </div>
+        <div style="font-size: 11px; color: #cbd5e1; margin-bottom: 10px; line-height: 1.4;">
+          সম্পূর্ণ চ্যাট হিস্ট্রি, অডিও ডিউরেশন ও রেট বিশ্লেষণ করে আনবিল্ড লিকেজ (বিল ছাড়া পাঠানো কাজ) এবং বান্ডেল বিল স্বয়ংক্রিয়ভাবে শনাক্ত ও ফিক্স করে।
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button id="btnRunAiAudit" class="action-btn" onclick="executeAiAudit()" style="flex: 1; padding: 8px 12px; font-size: 12px; background: #7c3aed; border: none; font-weight: 600;">
+            <span>🤖 সম্পূর্ণ এআই অডিট চালান</span>
+          </button>
+        </div>
+      </div>
+
       <div id="syncResultAlert" style="display: none; margin-top: 12px; padding: 10px; border-radius: 6px; font-size: 12px; line-height: 1.4;"></div>
     </div>
   </div>
@@ -689,6 +705,9 @@
       <div class="nav-links">
         <button class="sync-btn" onclick="syncMetaAds()" id="btnSyncAds" style="color: #38bdf8; border-color: #0284c7;">
           <span>🌐 Sync Meta Ads API</span>
+        </button>
+        <button class="sync-btn" onclick="executeAiAuditDirect()" id="btnAiAuditTop" style="color: #c084fc; border-color: #7c3aed; font-weight: 600; background: rgba(124, 58, 237, 0.15);">
+          <span>🤖 Run AI Audit</span>
         </button>
         <button class="sync-btn" onclick="openSyncModal()" id="btnSync" style="color: #34d399; border-color: #059669; font-weight: 600; background: rgba(5, 150, 105, 0.15);">
           <span>🔄 Sync Latest Data (সর্বশেষ ডেটা সিঙ্ক)</span>
@@ -1274,6 +1293,76 @@
     function closeSyncModal() {
       document.getElementById('syncModal').style.display = 'none';
       document.getElementById('syncResultAlert').style.display = 'none';
+    }
+
+    async function executeAiAudit(phone = null) {
+      const btn = document.getElementById('btnRunAiAudit');
+      const topBtn = document.getElementById('btnAiAuditTop');
+      const orig = btn ? btn.innerHTML : '';
+      const topOrig = topBtn ? topBtn.innerHTML : '';
+
+      if (btn) {
+        btn.innerHTML = '<span class="loading-spinner"></span> <span>এআই অডিট চলছে...</span>';
+        btn.disabled = true;
+      }
+      if (topBtn) {
+        topBtn.innerHTML = '<span class="loading-spinner"></span> <span>Auditing...</span>';
+        topBtn.disabled = true;
+      }
+
+      const alertBox = document.getElementById('syncResultAlert');
+      if (alertBox) {
+        alertBox.style.display = 'block';
+        alertBox.style.background = 'rgba(124, 58, 237, 0.15)';
+        alertBox.style.border = '1px solid #7c3aed';
+        alertBox.style.color = '#c084fc';
+        alertBox.innerHTML = `<strong>🤖 AI Audit In Progress...</strong><br>Gemini LLM চ্যাট হিস্ট্রি, অডিও ডিউরেশন ও ডেলিভারি মেসেজ বিশ্লেষণ করছে। অনুগ্রহ করে কিছুক্ষণ অপেক্ষা করুন...`;
+      }
+
+      try {
+        const res = await fetch('/api/metrics/ai-audit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone })
+        });
+        const data = await res.json();
+        if (data.status === 'ok' || data.success) {
+          if (alertBox) {
+            alertBox.style.background = 'rgba(16, 185, 129, 0.15)';
+            alertBox.style.border = '1px solid #10b981';
+            alertBox.style.color = '#6ee7b7';
+            alertBox.innerHTML = `<strong>✅ AI Audit সম্পন্ন!</strong><br>মোট চ্যাট অডিট: ${data.auditedChats || 0}টি | সনাক্তকৃত কাজ: ${data.totalJobs || 0}টি<br>মোট উৎপাদিত কাজ: ৳${(data.totalEstimated||0).toLocaleString()} | মোট বিল্ড: ৳${(data.totalBilled||0).toLocaleString()}<br><strong>শনাক্তকৃত আনবিল্ড লিকেজ: ৳${(data.totalLeakage||0).toLocaleString()}</strong>`;
+          }
+          const syncStatusEl = document.getElementById('syncDbStatus');
+          if (syncStatusEl) {
+            syncStatusEl.textContent = `${data.totalJobs}টি কাজ (এআই অডিট ভেরিফায়েড)`;
+          }
+          await loadMetrics();
+        } else {
+          throw new Error(data.error || 'AI Audit failed');
+        }
+      } catch (err) {
+        if (alertBox) {
+          alertBox.style.background = 'rgba(244, 63, 94, 0.15)';
+          alertBox.style.border = '1px solid #f43f5e';
+          alertBox.style.color = '#fda4af';
+          alertBox.innerHTML = `<strong>❌ এআই অডিট ত্রুটি:</strong> ${err.message}`;
+        }
+      } finally {
+        if (btn) {
+          btn.innerHTML = orig;
+          btn.disabled = false;
+        }
+        if (topBtn) {
+          topBtn.innerHTML = topOrig;
+          topBtn.disabled = false;
+        }
+      }
+    }
+
+    function executeAiAuditDirect() {
+      openSyncModal();
+      executeAiAudit();
     }
 
     async function checkWaStatusForModal() {

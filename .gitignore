@@ -9,6 +9,7 @@ scratch/
 data/*.json
 data/*.csv
 data/*.txt
+data/backup_corrupt/
 .env
 npm-debug.log*
 cloudflared.exe

@@ -25,6 +25,7 @@ const { getBusinessKpiReport } = require('./metrics');
 const { getCohortPaybackAnalysis } = require('./cohort');
 const { getMetricsAnalytics } = require('./metrics-roi');
 const { syncChatMetricsToDb, extractLiveWhatsAppChats } = require('./metrics-traverser');
+const { runLlmAuditOnAllChats } = require('./llm-job-segmenter');
 const { PORT, DASHBOARD_PIN } = require('./config');
 const { syncExistingInboxContacts } = require('./sync');
 const { resolveCustomerPhone } = require('./bot');
@@ -483,6 +484,30 @@ function startWebServer({ db, client = null, port = PORT, onRestart = null, auto
             : (qrInfo.status === 'READY'
                 ? `ডেটাবেজে সকল উপলব্ধ চ্যাট সফলভাবে সিঙ্ক হয়েছে (${result.totalJobs}টি কাজ)।`
                 : `ডেটাবেজে সকল উপলব্ধ চ্যাট সিঙ্ক হয়েছে (${result.totalJobs}টি কাজ, ১৪ নভেম্বর পর্যন্ত)। আজকের লাইভ ডেটা পেতে দয়া করে /qr পেজ থেকে WhatsApp কিউআর কোড স্ক্যান করুন।`)
+        }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', error: err.message }));
+      }
+      return;
+    }
+
+    // API: Run Full AI LLM Job Segmentation and Production Leakage Audit
+    if (pathname === '/api/metrics/ai-audit' && method === 'POST') {
+      try {
+        const body = await readJsonBody(req).catch(() => ({}));
+        const auditSummary = await runLlmAuditOnAllChats(db, {
+          phone: body.phone || null,
+          limit: body.limit || null,
+          client: client || null,
+          apiKey: body.apiKey !== undefined ? body.apiKey : null
+        });
+
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({
+          status: 'ok',
+          success: true,
+          ...auditSummary
         }));
       } catch (err) {
         res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });

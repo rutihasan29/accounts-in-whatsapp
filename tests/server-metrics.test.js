@@ -234,6 +234,22 @@ test('Server /metrics and /api/metrics endpoints work correctly', async (t) => {
     assert.equal(remoteSyncJson.success, true);
     assert.equal(remoteSyncJson.counts.jobs, 1);
 
+    // 8. Test /api/metrics/ai-audit
+    const aiAuditRes = await fetch(`http://localhost:${testPort}/api/metrics/ai-audit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        apiKey: '',
+        limit: 5
+      })
+    });
+    assert.equal(aiAuditRes.status, 200);
+    const aiAuditJson = await aiAuditRes.json();
+    assert.equal(aiAuditJson.status, 'ok');
+    assert.equal(aiAuditJson.success, true);
+    assert.ok(typeof aiAuditJson.totalJobs === 'number');
+    assert.ok(typeof aiAuditJson.totalLeakage === 'number');
+
   } finally {
     const livePath = path.join(__dirname, '..', 'data', 'latest_live_chats.json');
     if (fs.existsSync(livePath)) {
