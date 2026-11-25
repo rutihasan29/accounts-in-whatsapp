@@ -660,8 +660,12 @@
         <button class="preset-btn" onclick="applyPreset('yesterday')">গতকাল</button>
         <button class="preset-btn" onclick="applyPreset('7d')">৭ দিন</button>
         <button class="preset-btn" onclick="applyPreset('this_month')">চলতি মাস</button>
+        <button class="preset-btn" onclick="applyPreset('nov_audit')">১-৭ নভে (অডিট)</button>
         <button class="preset-btn active" onclick="applyPreset('all')">সব (All)</button>
       </div>
+    </div>
+    <div style="font-size: 11px; color: var(--text-dim); margin-top: 10px; display: flex; align-items: center; gap: 8px;">
+      <span>ℹ️ ডেটাবেজে সংরক্ষিত চ্যাট অডিট রেঞ্জ: <strong style="color: #cbd5e1;">৩১ অক্টোবর – ৭ নভেম্বর ২০২৬</strong> (৫২০টি ডেলিভারি কাজ)। সাম্প্রতিক কাজগুলো দেখতে <strong>[১-৭ নভে (অডিট)]</strong>, <strong>[চলতি মাস]</strong> অথবা <strong>[সব]</strong> নির্বাচন করুন।</span>
     </div>
   </div>
 
@@ -966,6 +970,9 @@
         const startMonth = new Date(now.getFullYear(), now.getMonth(), 1);
         document.getElementById('startDate').value = fmt(startMonth);
         document.getElementById('endDate').value = fmt(now);
+      } else if (preset === 'nov_audit') {
+        document.getElementById('startDate').value = '2026-11-01';
+        document.getElementById('endDate').value = '2026-11-07';
       } else if (preset === 'all') {
         document.getElementById('startDate').value = '';
         document.getElementById('endDate').value = '';
@@ -1085,7 +1092,13 @@
       document.getElementById('jobsTableCount').textContent = jobs.length + ' টি কাজ প্রদর্শিত';
       const tbody = document.getElementById('jobsTableBody');
       if (jobs.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: var(--text-dim); padding: 24px;">এই তারিখের কোনো কাজ পাওয়া যায়নি</td></tr>';
+        const s = document.getElementById('startDate').value || 'শুরু';
+        const e = document.getElementById('endDate').value || 'শেষ';
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 28px; line-height: 1.6;">
+          ⚠️ <strong>নির্বাচিত তারিখের মধ্যে (${s} থেকে ${e}) কোনো ডেলিভারি কাজ পাওয়া যায়নি।</strong><br>
+          <span style="font-size: 12px; color: var(--text-dim);">বর্তমানে ডেটাবেজে সংরক্ষিত চ্যাট অডিট রেকর্ড ৩১ অক্টোবর থেকে ৭ নভেম্বর ২০২৬ পর্যন্ত রয়েছে।<br>
+          নভেম্বরের অডিটকৃত কাজগুলো দেখতে <strong>[১-৭ নভে (অডিট)]</strong>, <strong>[চলতি মাস]</strong> অথবা <strong>[সব]</strong> বাটনে ক্লিক করুন।</span>
+        </td></tr>`;
       } else {
         tbody.innerHTML = jobs.map(j => {
           let statusBadge = '<span class="tag tag-billed">BILLED</span>';
