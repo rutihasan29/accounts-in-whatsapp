@@ -1055,27 +1055,41 @@ function startWebServer({ db, client = null, port = PORT, onRestart = null, auto
     // API: Trigger Ground-Truth Job Audit
     if (pathname === '/api/audit-jobs' && method === 'POST') {
       try {
-        const { auditChatsDeterministic, initAuditDb } = require('./auditor');
-        initAuditDb(db);
-        const dumpPath = path.join(__dirname, '..', 'scratch', 'all_target_chat_messages.json');
         let unbilledTotal = 0;
         let jobsTotal = 0;
-        if (fs.existsSync(dumpPath)) {
-          const rawChats = JSON.parse(fs.readFileSync(dumpPath, 'utf8'));
-          const audit = auditChatsDeterministic(rawChats);
-          const upsertStmt = db.prepare(`
-            INSERT INTO job_audit_logs (phone_number, jobs_delivered, total_billed, unbilled_leakage, details_json, created_at)
-            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-          `);
-          const runSave = db.transaction(() => {
-            for (const r of audit.results) {
-              upsertStmt.run(r.phone, r.jobs_delivered, r.total_billed, r.unbilled_leakage_amount, JSON.stringify(r.jobs || []));
-              unbilledTotal += r.unbilled_leakage_amount;
-              jobsTotal += r.jobs_delivered;
-            }
-          });
-          runSave();
+
+        // 1. Check dedicated metrics_chat_jobs table first
+        try {
+          const stats = db.prepare('SELECT COUNT(*) as cnt, COALESCE(SUM(unbilled_leakage_bdt), 0) as leakage FROM metrics_chat_jobs').get();
+          if (stats && stats.cnt > 0) {
+            jobsTotal = stats.cnt;
+            unbilledTotal = Math.round(stats.leakage);
+          }
+        } catch {}
+
+        // 2. Fallback to scratch dump if metrics table is empty
+        if (jobsTotal === 0) {
+          const { auditChatsDeterministic, initAuditDb } = require('./auditor');
+          initAuditDb(db);
+          const dumpPath = path.join(__dirname, '..', 'scratch', 'all_target_chat_messages.json');
+          if (fs.existsSync(dumpPath)) {
+            const rawChats = JSON.parse(fs.readFileSync(dumpPath, 'utf8'));
+            const audit = auditChatsDeterministic(rawChats);
+            const upsertStmt = db.prepare(`
+              INSERT INTO job_audit_logs (phone_number, jobs_delivered, total_billed, unbilled_leakage, details_json, created_at)
+              VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            `);
+            const runSave = db.transaction(() => {
+              for (const r of audit.results) {
+                upsertStmt.run(r.phone, r.jobs_delivered, r.total_billed, r.unbilled_leakage_amount, JSON.stringify(r.jobs || []));
+                unbilledTotal += r.unbilled_leakage_amount;
+                jobsTotal += r.jobs_delivered;
+              }
+            });
+            runSave();
+          }
         }
+
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ status: 'ok', jobsTotal, unbilledTotal }));
       } catch (err) {

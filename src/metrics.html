@@ -1510,21 +1510,23 @@
     }
 
     let aiAuditPollTimer = null;
+    let aiAuditPollAttempts = 0;
 
     async function executeAiAudit(opts = {}) {
-      const btnIds = [
-        'btnRunAiAudit', 'btnRunAiAuditQuick',
-        'btnRunAiAuditPage', 'btnRunAiAuditQuickPage',
-        'btnRunAiAuditModal', 'btnRunAiAuditQuickModal',
-        'btnAiAuditTop'
+      const btnConfig = [
+        { id: 'btnRunAiAudit', text: 'অডিট চলছে...' },
+        { id: 'btnRunAiAuditQuick', text: 'অডিট চলছে...' },
+        { id: 'btnRunAiAuditPage', text: 'সম্পূর্ণ অডিট চলছে...' },
+        { id: 'btnRunAiAuditQuickPage', text: 'দ্রুত অডিট চলছে...' },
+        { id: 'btnRunAiAuditModal', text: 'সম্পূর্ণ অডিট চলছে...' },
+        { id: 'btnRunAiAuditQuickModal', text: 'দ্রুত অডিট চলছে...' },
+        { id: 'btnAiAuditTop', text: 'অডিট চলছে...' }
       ];
-      btnIds.forEach(id => {
-        const b = document.getElementById(id);
+      btnConfig.forEach(item => {
+        const b = document.getElementById(item.id);
         if (b) {
           b.disabled = true;
-          if (id === 'btnAiAuditTop') {
-            b.innerHTML = '<span class="loading-spinner"></span> <span>অডিট চলছে...</span>';
-          }
+          b.innerHTML = `<span class="loading-spinner"></span> <span>${item.text}</span>`;
         }
       });
 
@@ -1544,7 +1546,7 @@
       const limit = typeof opts.limit === 'number' ? opts.limit : null;
 
       updateAiAuditProgressUI({
-        percent: 5,
+        percent: 8,
         statusText: '🔄 Gemini Standard Flash এ অডিট শুরু হচ্ছে...',
         auditedChats: 0,
         totalJobs: 0,
@@ -1552,19 +1554,28 @@
         totalLeakage: 0
       });
 
-      // Start live progress polling
-      startAiAuditProgressPolling();
+      const bannerSub = document.getElementById('aiAuditBannerSub');
+      if (bannerSub) {
+        bannerSub.innerHTML = '<span style="color: #c084fc; font-weight: 700;">🔄 এআই অডিট সক্রিয়ভাবে চলছে... নিচের প্রগ্রেস বার লক্ষ্য করুন:</span>';
+      }
 
       try {
         const res = await fetch('/api/metrics/ai-audit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phone, limit, async: true })
+          body: JSON.stringify({ phone, limit, async: true, force: true })
         });
         const data = await res.json();
         if (!res.ok) {
           throw new Error(data.error || 'Server error starting audit');
         }
+
+        if (data.progress) {
+          updateAiAuditProgressUI(data.progress);
+        }
+
+        // Start live progress polling AFTER confirmation that server started
+        startAiAuditProgressPolling();
       } catch (err) {
         stopAiAuditProgressPolling();
         alertBoxes.forEach(id => {
@@ -1638,14 +1649,17 @@
 
     function startAiAuditProgressPolling() {
       if (aiAuditPollTimer) clearInterval(aiAuditPollTimer);
+      aiAuditPollAttempts = 0;
       aiAuditPollTimer = setInterval(async () => {
         try {
+          aiAuditPollAttempts++;
           const res = await fetch('/api/metrics/ai-audit/progress');
           if (!res.ok) return;
           const prog = await res.json();
           updateAiAuditProgressUI(prog);
 
-          if (!prog.isRunning) {
+          // Only consider finished if isRunning is false AND we've polled at least twice or percent is 100
+          if (prog && !prog.isRunning && (aiAuditPollAttempts >= 2 || prog.percent === 100)) {
             stopAiAuditProgressPolling();
             resetAiAuditButtons();
 
@@ -1677,7 +1691,7 @@
         } catch (e) {
           console.warn('[AI_AUDIT_POLL] Poll error:', e.message);
         }
-      }, 1200);
+      }, 1000);
     }
 
     function stopAiAuditProgressPolling() {
