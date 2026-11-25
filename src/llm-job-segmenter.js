@@ -101,6 +101,70 @@ function formatChatForLlm(chat) {
 
 /**
  * Builds the comprehensive prompt for Gemini LLM to detect job blocks and production worth
+ * for a batch of customers
+ */
+function buildLlmBatchAuditPrompt(chatsPayload) {
+  const jsonBatch = JSON.stringify(chatsPayload, null, 2);
+
+  return `You are the Lead Production Auditor for News Voice Agency.
+Your objective is to analyze a batch of customer WhatsApp conversations, pair each customer's news script or instruction with its delivered production file, and determine the worth (value in BDT) of each completed production job for EVERY customer in the batch.
+
+PRICING RULES (MANDATORY):
+1. Audio Voiceover (type: 'audio' or 'ptt'):
+   - Duration 0 to 60 seconds: 50 BDT
+   - Duration > 60 seconds: 50 BDT + 25 BDT for every additional 60 seconds (61-120s = 75 BDT, 121-180s = 100 BDT)
+2. Video Production (type: 'video'): Standard rate = 250 BDT
+3. Retakes/Corrections:
+   - If client requests a correction or retake for a previous script ("ভুল হয়েছে", "রিটেক দিন") and staff re-delivers audio for the same script, mark as isRetake: true, worthBdt: 0, status: "FREE_RETAKE".
+4. Ignore marketing demo samples:
+   - Voice samples sent during initial greeting (e.g. "ডেমোগুলো শুনে দেখুন", "স্যাম্পলগুলো শুনে দেখুন") are marketing samples, NOT customer production jobs. Do not count them.
+
+Return ONLY a valid JSON array where each element corresponds to one customer in the batch:
+[
+  {
+    "clientPhone": "<phone number>",
+    "totalJobsDetected": <number>,
+    "totalWorthBdt": <number>,
+    "clientSummary": {
+      "totalRevenueEstimatedBdt": <number>,
+      "totalRevenueBilledBdt": <number>,
+      "totalLeakageBdt": <number>,
+      "conversionStatus": "CONVERTED" | "LEAD_IN_PROGRESS" | "UNCONVERTED",
+      "relationshipHealth": "ACTIVE_REPEAT_BUYER" | "ONE_TIME_CLIENT" | "INACTIVE"
+    },
+    "jobBlocks": [
+      {
+        "jobBlockId": <number>,
+        "jobType": "voice" | "video",
+        "scriptSummary": "<short headline or excerpt of customer script in Bengali>",
+        "deliveredAt": "<ISO-timestamp>",
+        "messageIndices": [<number>],
+        "rawMediaMsgId": "<message-id or null>",
+        "mediaDetails": {
+          "type": "audio" | "ptt" | "video",
+          "durationSeconds": <number>,
+          "filename": "<string or null>"
+        },
+        "worthBdt": <number>,
+        "expectedAmountBdt": <number>,
+        "billedAmountBdt": <number>,
+        "unbilledLeakageBdt": <number>,
+        "status": "CONFIRMED_BILLED" | "UNBILLED_LEAKAGE" | "FREE_RETAKE",
+        "isRetake": <boolean>,
+        "billText": "<script headline or bill text>",
+        "auditNotes": "<brief explanation of production job and rate>"
+      }
+    ]
+  }
+]
+
+BATCH OF CHAT DATA TO AUDIT:
+${jsonBatch}
+`;
+}
+
+/**
+ * Builds the comprehensive prompt for Gemini LLM to detect job blocks and production worth
  */
 function buildLlmAuditPrompt(chatPayload) {
   const jsonChat = JSON.stringify(chatPayload, null, 2);
@@ -164,6 +228,10 @@ ${jsonChat}
  * Runs full-history LLM job segmentation using Google Gemini
  */
 async function segmentChatWithLlm(chatPayload, options = {}) {
+  if (Array.isArray(chatPayload)) {
+    return segmentChatBatchWithLlm(chatPayload, options);
+  }
+
   const isAlreadyFormatted = Array.isArray(chatPayload?.messages) && 
     chatPayload.messages.length > 0 && 
     ('sender' in chatPayload.messages[0]);
@@ -193,7 +261,9 @@ async function segmentChatWithLlm(chatPayload, options = {}) {
     };
   }
 
-  const apiKey = options.apiKey !== undefined ? options.apiKey : config.GEMINI_API_KEY;
+  const apiKey = (options.apiKey !== undefined && options.apiKey !== null)
+    ? options.apiKey
+    : config.GEMINI_API_KEY;
   const model = options.model || config.GEMINI_MODEL || 'gemini-3-flash-preview';
   const fetchFn = options.fetchFn || globalThis.fetch;
 
@@ -264,6 +334,135 @@ async function segmentChatWithLlm(chatPayload, options = {}) {
     return parsed;
   } catch (err) {
     console.error('[LLM_SEGMENTER] LLM error:', err.message);
+    throw err;
+  }
+}
+
+/**
+ * Runs full-history LLM job segmentation on a batch of customer chats using Google Gemini
+ */
+async function segmentChatBatchWithLlm(chatsBatch, options = {}) {
+  if (!Array.isArray(chatsBatch) || chatsBatch.length === 0) {
+    return [];
+  }
+
+  const formattedBatch = chatsBatch.map(c => {
+    const isAlreadyFormatted = Array.isArray(c?.messages) && c.messages.length > 0 && ('sender' in c.messages[0]);
+    return isAlreadyFormatted ? c : formatChatForLlm(c);
+  }).filter(c => c && Array.isArray(c.messages) && c.messages.length > 0);
+
+  if (formattedBatch.length === 0) return [];
+
+  const validChats = [];
+  const emptyResults = [];
+
+  for (const c of formattedBatch) {
+    const hasMedia = c.messages.some(m => {
+      const isStaff = m.sender === 'STAFF' || m.fromMe === true || m.id?.fromMe === true;
+      const isMedia = Boolean(m.hasMedia || m.type === 'audio' || m.type === 'ptt' || m.type === 'video');
+      return isStaff && isMedia;
+    });
+
+    if (hasMedia) {
+      validChats.push(c);
+    } else {
+      emptyResults.push({
+        clientPhone: c.clientPhone,
+        totalJobsDetected: 0,
+        totalWorthBdt: 0,
+        clientSummary: {
+          totalRevenueEstimatedBdt: 0,
+          totalRevenueBilledBdt: 0,
+          totalLeakageBdt: 0,
+          conversionStatus: 'LEAD_IN_PROGRESS',
+          relationshipHealth: 'INACTIVE'
+        },
+        jobBlocks: []
+      });
+    }
+  }
+
+  if (validChats.length === 0) {
+    return emptyResults;
+  }
+
+  const apiKey = (options.apiKey !== undefined && options.apiKey !== null)
+    ? options.apiKey
+    : config.GEMINI_API_KEY;
+  const model = options.model || config.GEMINI_MODEL || 'gemini-3-flash-preview';
+  const fetchFn = options.fetchFn || globalThis.fetch;
+
+  if (!apiKey) {
+    throw new Error('[LLM_SEGMENTER] GEMINI_API_KEY is required. Deterministic fallback is disabled.');
+  }
+
+  const promptText = buildLlmBatchAuditPrompt(validChats);
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+  try {
+    const res = await fetchFn(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: promptText }] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.1
+        }
+      }),
+      signal: AbortSignal.timeout(options.timeoutMs || 90000)
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`[LLM_SEGMENTER] Gemini API request failed with HTTP ${res.status}: ${errText}`);
+    }
+
+    const resJson = await res.json();
+    const rawContent = resJson?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!rawContent) {
+      throw new Error('[LLM_SEGMENTER] Empty response received from Gemini API');
+    }
+
+    let parsedList = JSON.parse(rawContent);
+    if (!Array.isArray(parsedList)) {
+      parsedList = [parsedList];
+    }
+
+    for (const clientAudit of parsedList) {
+      if (Array.isArray(clientAudit.jobBlocks)) {
+        for (const job of clientAudit.jobBlocks) {
+          const isRetake = Boolean(job.isRetake || job.status === 'FREE_RETAKE');
+          const dur = Number(job.mediaDetails?.durationSeconds) || 0;
+          const rate = calculateExpectedRate(job.mediaDetails?.type, dur);
+
+          if (isRetake) {
+            job.worthBdt = 0;
+            job.expectedAmountBdt = 0;
+            job.billedAmountBdt = 0;
+            job.unbilledLeakageBdt = 0;
+            job.status = 'FREE_RETAKE';
+          } else {
+            if (!job.worthBdt || job.worthBdt <= 0) {
+              job.worthBdt = job.expectedAmountBdt || rate;
+            }
+            if (!job.expectedAmountBdt || job.expectedAmountBdt <= 0) {
+              job.expectedAmountBdt = job.worthBdt;
+            }
+            if (job.billedAmountBdt === undefined || job.billedAmountBdt === null) {
+              job.billedAmountBdt = job.expectedAmountBdt;
+            }
+            if (!job.status) {
+              job.status = job.billedAmountBdt >= job.expectedAmountBdt ? 'CONFIRMED_BILLED' : 'UNBILLED_LEAKAGE';
+            }
+          }
+        }
+      }
+    }
+
+    return [...emptyResults, ...parsedList];
+  } catch (err) {
+    console.error('[LLM_SEGMENTER] Batch LLM error:', err.message);
     throw err;
   }
 }
@@ -566,40 +765,59 @@ async function runLlmAuditOnAllChats(db, options = {}) {
   let totalLeakage = 0;
   const details = [];
 
+  const preparedChats = [];
   for (const chat of chatsToAudit) {
+    const cleanPhone = String(chat.phone || chat.rawId || '').replace(/\D/g, '');
+    const useIncremental = options.incremental !== false && !options.forceFullAudit;
+    const watermark = (useIncremental && db) ? getClientWatermark(db, cleanPhone) : null;
+
+    const targetChat = (watermark && watermark.hasExistingJobs)
+      ? filterIncrementalMessages(chat, watermark, options.lookbackMs)
+      : chat;
+
+    if (targetChat.messages && targetChat.messages.length > 0) {
+      preparedChats.push({
+        chat: targetChat,
+        cleanPhone,
+        watermark
+      });
+    }
+  }
+
+  const batchSize = typeof options.batchSize === 'number' && options.batchSize > 0
+    ? options.batchSize
+    : 8;
+
+  for (let i = 0; i < preparedChats.length; i += batchSize) {
+    const chunk = preparedChats.slice(i, i + batchSize);
+    const chatsPayload = chunk.map(item => item.chat);
+
     try {
-      const cleanPhone = String(chat.phone || chat.rawId || '').replace(/\D/g, '');
-      const useIncremental = options.incremental !== false && !options.forceFullAudit;
-      const watermark = (useIncremental && db) ? getClientWatermark(db, cleanPhone) : null;
+      const batchAuditRes = await segmentChatBatchWithLlm(chatsPayload, options);
+      if (Array.isArray(batchAuditRes)) {
+        for (const auditRes of batchAuditRes) {
+          if (auditRes && Array.isArray(auditRes.jobBlocks) && auditRes.jobBlocks.length > 0) {
+            const saved = saveLlmJobBlocksToDb(db, auditRes);
+            totalAuditedChats++;
+            totalJobs += saved.savedJobs;
+            totalEstimated += saved.totalExpected;
+            totalBilled += saved.totalBilled;
+            totalLeakage += saved.totalLeakage;
 
-      const targetChat = (watermark && watermark.hasExistingJobs)
-        ? filterIncrementalMessages(chat, watermark, options.lookbackMs)
-        : chat;
-
-      if (!targetChat.messages || targetChat.messages.length === 0) {
-        continue;
+            const matchedItem = chunk.find(c => c.cleanPhone === saved.clientPhone);
+            details.push({
+              phone: saved.clientPhone,
+              jobsCount: saved.savedJobs,
+              expectedBdt: saved.totalExpected,
+              billedBdt: saved.totalBilled,
+              leakageBdt: saved.totalLeakage,
+              incremental: Boolean(matchedItem?.watermark && matchedItem.watermark.hasExistingJobs)
+            });
+          }
+        }
       }
-
-      const auditRes = await segmentChatWithLlm(targetChat, options);
-      if (auditRes && Array.isArray(auditRes.jobBlocks) && auditRes.jobBlocks.length > 0) {
-        const saved = saveLlmJobBlocksToDb(db, auditRes);
-        totalAuditedChats++;
-        totalJobs += saved.savedJobs;
-        totalEstimated += saved.totalExpected;
-        totalBilled += saved.totalBilled;
-        totalLeakage += saved.totalLeakage;
-
-        details.push({
-          phone: saved.clientPhone,
-          jobsCount: saved.savedJobs,
-          expectedBdt: saved.totalExpected,
-          billedBdt: saved.totalBilled,
-          leakageBdt: saved.totalLeakage,
-          incremental: Boolean(watermark && watermark.hasExistingJobs)
-        });
-      }
-    } catch (chatErr) {
-      console.warn(`[LLM_AUDIT] Error auditing chat ${chat.phone}:`, chatErr.message);
+    } catch (batchErr) {
+      console.warn(`[LLM_AUDIT] Error auditing batch starting at index ${i}:`, batchErr.message);
     }
   }
 
@@ -617,7 +835,9 @@ module.exports = {
   calculateExpectedRate,
   formatChatForLlm,
   buildLlmAuditPrompt,
+  buildLlmBatchAuditPrompt,
   segmentChatWithLlm,
+  segmentChatBatchWithLlm,
   saveLlmJobBlocksToDb,
   runLlmAuditOnAllChats,
   getClientWatermark,

@@ -4,7 +4,10 @@ const Database = require('better-sqlite3');
 const {
   calculateExpectedRate,
   formatChatForLlm,
+  buildLlmAuditPrompt,
+  buildLlmBatchAuditPrompt,
   segmentChatWithLlm,
+  segmentChatBatchWithLlm,
   saveLlmJobBlocksToDb,
   runLlmAuditOnAllChats,
   getClientWatermark,
@@ -177,6 +180,75 @@ test('segmentChatWithLlm uses mock Gemini fetch and calculates unbilled leakage'
   assert.equal(audit.jobBlocks[0].status, 'UNBILLED_LEAKAGE');
 });
 
+test('segmentChatBatchWithLlm segments multiple client chats in a single batch call', async () => {
+  const batchChats = [
+    {
+      clientPhone: '8801711111111',
+      messages: [{ fromMe: true, type: 'audio', duration: 40, hasMedia: true }]
+    },
+    {
+      clientPhone: '8801722222222',
+      messages: [{ fromMe: true, type: 'video', duration: 25, hasMedia: true }]
+    }
+  ];
+
+  const mockBatchFetch = async () => ({
+    ok: true,
+    json: async () => ({
+      candidates: [{
+        content: {
+          parts: [{
+            text: JSON.stringify([
+              {
+                clientPhone: '8801711111111',
+                totalJobsDetected: 1,
+                totalWorthBdt: 50,
+                clientSummary: { totalRevenueEstimatedBdt: 50 },
+                jobBlocks: [{
+                  jobBlockId: 1,
+                  jobType: 'voice',
+                  worthBdt: 50,
+                  expectedAmountBdt: 50,
+                  billedAmountBdt: 50,
+                  unbilledLeakageBdt: 0,
+                  status: 'CONFIRMED_BILLED'
+                }]
+              },
+              {
+                clientPhone: '8801722222222',
+                totalJobsDetected: 1,
+                totalWorthBdt: 250,
+                clientSummary: { totalRevenueEstimatedBdt: 250 },
+                jobBlocks: [{
+                  jobBlockId: 1,
+                  jobType: 'video',
+                  worthBdt: 250,
+                  expectedAmountBdt: 250,
+                  billedAmountBdt: 250,
+                  unbilledLeakageBdt: 0,
+                  status: 'CONFIRMED_BILLED'
+                }]
+              }
+            ])
+          }]
+        }
+      }]
+    })
+  });
+
+  const results = await segmentChatBatchWithLlm(batchChats, {
+    apiKey: 'mock-key',
+    fetchFn: mockBatchFetch
+  });
+
+  assert.equal(Array.isArray(results), true);
+  assert.equal(results.length, 2);
+  assert.equal(results[0].clientPhone, '8801711111111');
+  assert.equal(results[0].totalWorthBdt, 50);
+  assert.equal(results[1].clientPhone, '8801722222222');
+  assert.equal(results[1].totalWorthBdt, 250);
+});
+
 test('runLlmAuditOnAllChats audits multiple chats and saves aggregated results to db', async () => {
   const { initDb } = require('../src/db');
   const db = initDb(':memory:');
@@ -198,15 +270,14 @@ test('runLlmAuditOnAllChats audits multiple chats and saves aggregated results t
   ];
 
   const mockMultiFetch = async (url, opts) => {
-    const bodyStr = opts?.body || '';
-    if (bodyStr.includes('8801799999991')) {
-      return {
-        ok: true,
-        json: async () => ({
-          candidates: [{
-            content: {
-              parts: [{
-                text: JSON.stringify({
+    return {
+      ok: true,
+      json: async () => ({
+        candidates: [{
+          content: {
+            parts: [{
+              text: JSON.stringify([
+                {
                   clientPhone: '8801799999991',
                   totalJobsDetected: 1,
                   clientSummary: {
@@ -227,20 +298,8 @@ test('runLlmAuditOnAllChats audits multiple chats and saves aggregated results t
                     status: 'UNBILLED_LEAKAGE',
                     billText: null
                   }]
-                })
-              }]
-            }
-          }]
-        })
-      };
-    } else {
-      return {
-        ok: true,
-        json: async () => ({
-          candidates: [{
-            content: {
-              parts: [{
-                text: JSON.stringify({
+                },
+                {
                   clientPhone: '8801799999992',
                   totalJobsDetected: 1,
                   clientSummary: {
@@ -261,13 +320,13 @@ test('runLlmAuditOnAllChats audits multiple chats and saves aggregated results t
                     status: 'CONFIRMED_BILLED',
                     billText: 'বিল ২৫০ টাকা'
                   }]
-                })
-              }]
-            }
-          }]
-        })
-      };
-    }
+                }
+              ])
+            }]
+          }
+        }]
+      })
+    };
   };
 
   const res = await runLlmAuditOnAllChats(db, {
