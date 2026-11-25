@@ -5,7 +5,6 @@ const {
   calculateExpectedRate,
   formatChatForLlm,
   segmentChatWithLlm,
-  segmentChatDeterministicFallback,
   saveLlmJobBlocksToDb,
   runLlmAuditOnAllChats,
   getClientWatermark,
@@ -50,80 +49,42 @@ test('formatChatForLlm orders chronologically and attaches durations & rates', (
   assert.equal(formatted.messages[2].text, 'বিল ৫০ টাকা');
 });
 
-test('Deterministic segmenter calculates unbilled jobs even when bill message is NOT sent', () => {
-  const chatWithoutBill = {
+test('segmentChatWithLlm throws error when GEMINI_API_KEY is missing (no fallback)', async () => {
+  const chat = {
     clientPhone: '8801722222222',
-    clientName: 'Unbilled Client',
     messages: [
-      {
-        index: 1,
-        time: '2026-11-25T10:00:00.000Z',
-        sender: 'CLIENT',
-        text: 'Script sent: Urgent election update'
-      },
-      {
-        index: 2,
-        time: '2026-11-25T10:15:00.000Z',
-        sender: 'STAFF',
-        type: 'audio',
-        hasMedia: true,
-        mediaDurationSec: 80,
-        filename: 'election.mp3'
-      }
-      // Note: NO bill message was ever sent by staff!
+      { fromMe: true, type: 'audio', duration: 45, hasMedia: true }
     ]
   };
 
-  const audit = segmentChatDeterministicFallback(chatWithoutBill);
-  assert.equal(audit.totalJobsDetected, 1);
-  const job = audit.jobBlocks[0];
-
-  // Guaranteed calculation without bill message:
-  assert.equal(job.expectedAmountBdt, 75); // 80s = 75 BDT
-  assert.equal(job.billedAmountBdt, 0);
-  assert.equal(job.unbilledLeakageBdt, 75);
-  assert.equal(job.status, 'UNBILLED_LEAKAGE');
-  assert.equal(audit.clientSummary.totalRevenueEstimatedBdt, 75);
-  assert.equal(audit.clientSummary.totalLeakageBdt, 75);
-  assert.equal(audit.clientSummary.totalRevenueBilledBdt, 0);
+  await assert.rejects(
+    async () => {
+      await segmentChatWithLlm(chat, { apiKey: '' });
+    },
+    /GEMINI_API_KEY is required/
+  );
 });
 
-test('Deterministic segmenter matches confirmed bill when bill message is present', () => {
-  const chatWithBill = {
+test('segmentChatWithLlm throws error when Gemini returns HTTP failure (no fallback)', async () => {
+  const mockFailingFetch = async () => ({
+    ok: false,
+    status: 500,
+    text: async () => 'Internal Server Error'
+  });
+
+  const chat = {
     clientPhone: '8801733333333',
-    clientName: 'Billed Client',
     messages: [
-      {
-        index: 1,
-        time: '2026-11-25T10:00:00.000Z',
-        sender: 'CLIENT',
-        text: 'Weather update script'
-      },
-      {
-        index: 2,
-        time: '2026-11-25T10:15:00.000Z',
-        sender: 'STAFF',
-        type: 'audio',
-        hasMedia: true,
-        mediaDurationSec: 40,
-        filename: 'weather.mp3'
-      },
-      {
-        index: 3,
-        time: '2026-11-25T10:16:00.000Z',
-        sender: 'STAFF',
-        text: 'বিল ৫০ টাকা'
-      }
+      { fromMe: true, type: 'audio', duration: 45, hasMedia: true }
     ]
   };
 
-  const audit = segmentChatDeterministicFallback(chatWithBill);
-  assert.equal(audit.totalJobsDetected, 1);
-  const job = audit.jobBlocks[0];
-  assert.equal(job.expectedAmountBdt, 50);
-  assert.equal(job.billedAmountBdt, 50);
-  assert.equal(job.unbilledLeakageBdt, 0);
-  assert.equal(job.status, 'CONFIRMED_BILLED');
+  await assert.rejects(
+    async () => {
+      await segmentChatWithLlm(chat, { apiKey: 'test-key', fetchFn: mockFailingFetch });
+    },
+    /Gemini API request failed with HTTP 500/
+  );
 });
 
 test('saveLlmJobBlocksToDb saves unbilled jobs into SQLite accurately', () => {
@@ -236,10 +197,83 @@ test('runLlmAuditOnAllChats audits multiple chats and saves aggregated results t
     }
   ];
 
-  // We test using deterministic fallback (apiKey: '' prevents real network calls)
+  const mockMultiFetch = async (url, opts) => {
+    const bodyStr = opts?.body || '';
+    if (bodyStr.includes('8801799999991')) {
+      return {
+        ok: true,
+        json: async () => ({
+          candidates: [{
+            content: {
+              parts: [{
+                text: JSON.stringify({
+                  clientPhone: '8801799999991',
+                  totalJobsDetected: 1,
+                  clientSummary: {
+                    totalRevenueEstimatedBdt: 50,
+                    totalRevenueBilledBdt: 0,
+                    totalLeakageBdt: 50,
+                    conversionStatus: 'CONVERTED'
+                  },
+                  jobBlocks: [{
+                    jobBlockId: 1,
+                    jobType: 'voice',
+                    deliveredAt: '2026-11-25T10:00:00.000Z',
+                    mediaDetails: { type: 'audio', durationSeconds: 45 },
+                    worthBdt: 50,
+                    expectedAmountBdt: 50,
+                    billedAmountBdt: 0,
+                    unbilledLeakageBdt: 50,
+                    status: 'UNBILLED_LEAKAGE',
+                    billText: null
+                  }]
+                })
+              }]
+            }
+          }]
+        })
+      };
+    } else {
+      return {
+        ok: true,
+        json: async () => ({
+          candidates: [{
+            content: {
+              parts: [{
+                text: JSON.stringify({
+                  clientPhone: '8801799999992',
+                  totalJobsDetected: 1,
+                  clientSummary: {
+                    totalRevenueEstimatedBdt: 250,
+                    totalRevenueBilledBdt: 250,
+                    totalLeakageBdt: 0,
+                    conversionStatus: 'CONVERTED'
+                  },
+                  jobBlocks: [{
+                    jobBlockId: 1,
+                    jobType: 'video',
+                    deliveredAt: '2026-11-25T10:00:10.000Z',
+                    mediaDetails: { type: 'video', durationSeconds: 30 },
+                    worthBdt: 250,
+                    expectedAmountBdt: 250,
+                    billedAmountBdt: 250,
+                    unbilledLeakageBdt: 0,
+                    status: 'CONFIRMED_BILLED',
+                    billText: 'বিল ২৫০ টাকা'
+                  }]
+                })
+              }]
+            }
+          }]
+        })
+      };
+    }
+  };
+
   const res = await runLlmAuditOnAllChats(db, {
     chats: testChats,
-    apiKey: ''
+    apiKey: 'mock-key',
+    fetchFn: mockMultiFetch
   });
 
   assert.equal(res.auditedChats, 2);
@@ -320,9 +354,45 @@ test('Incremental traversal updates pending unbilled job and appends new job wit
     ]
   };
 
+  const mockFetch1 = async () => ({
+    ok: true,
+    json: async () => ({
+      candidates: [{
+        content: {
+          parts: [{
+            text: JSON.stringify({
+              clientPhone: phone,
+              totalJobsDetected: 1,
+              clientSummary: {
+                totalRevenueEstimatedBdt: 50,
+                totalRevenueBilledBdt: 0,
+                totalLeakageBdt: 50,
+                conversionStatus: 'CONVERTED'
+              },
+              jobBlocks: [{
+                jobBlockId: 1,
+                jobType: 'voice',
+                deliveredAt: '2026-11-25T10:00:10.000Z',
+                rawMediaMsgId: 'm_audio_1',
+                mediaDetails: { type: 'audio', durationSeconds: 40 },
+                worthBdt: 50,
+                expectedAmountBdt: 50,
+                billedAmountBdt: 0,
+                unbilledLeakageBdt: 50,
+                status: 'UNBILLED_LEAKAGE',
+                billText: null
+              }]
+            })
+          }]
+        }
+      }]
+    })
+  });
+
   const audit1 = await runLlmAuditOnAllChats(db, {
     chats: [initialChat],
-    apiKey: ''
+    apiKey: 'mock-key',
+    fetchFn: mockFetch1
   });
   assert.equal(audit1.totalJobs, 1);
   assert.equal(audit1.totalLeakage, 50);
@@ -343,10 +413,61 @@ test('Incremental traversal updates pending unbilled job and appends new job wit
     ]
   };
 
+  const mockFetch2 = async () => ({
+    ok: true,
+    json: async () => ({
+      candidates: [{
+        content: {
+          parts: [{
+            text: JSON.stringify({
+              clientPhone: phone,
+              totalJobsDetected: 2,
+              clientSummary: {
+                totalRevenueEstimatedBdt: 300,
+                totalRevenueBilledBdt: 300,
+                totalLeakageBdt: 0,
+                conversionStatus: 'CONVERTED'
+              },
+              jobBlocks: [
+                {
+                  jobBlockId: 1,
+                  jobType: 'voice',
+                  deliveredAt: '2026-11-25T10:00:10.000Z',
+                  rawMediaMsgId: 'm_audio_1',
+                  mediaDetails: { type: 'audio', durationSeconds: 40 },
+                  worthBdt: 50,
+                  expectedAmountBdt: 50,
+                  billedAmountBdt: 50,
+                  unbilledLeakageBdt: 0,
+                  status: 'CONFIRMED_BILLED',
+                  billText: 'বিল ৫০ টাকা'
+                },
+                {
+                  jobBlockId: 2,
+                  jobType: 'video',
+                  deliveredAt: '2026-11-25T11:00:00.000Z',
+                  rawMediaMsgId: 'm_video_2',
+                  mediaDetails: { type: 'video', durationSeconds: 20 },
+                  worthBdt: 250,
+                  expectedAmountBdt: 250,
+                  billedAmountBdt: 250,
+                  unbilledLeakageBdt: 0,
+                  status: 'CONFIRMED_BILLED',
+                  billText: 'বিল ২৫০ টাকা'
+                }
+              ]
+            })
+          }]
+        }
+      }]
+    })
+  });
+
   // Run incremental audit
   const audit2 = await runLlmAuditOnAllChats(db, {
     chats: [updatedChat],
-    apiKey: '',
+    apiKey: 'mock-key',
+    fetchFn: mockFetch2,
     incremental: true
   });
 

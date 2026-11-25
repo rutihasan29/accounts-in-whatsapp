@@ -500,7 +500,7 @@ function startWebServer({ db, client = null, port = PORT, onRestart = null, auto
           phone: body.phone || null,
           limit: body.limit || null,
           client: client || null,
-          apiKey: body.apiKey !== undefined ? body.apiKey : null,
+          apiKey: (typeof body.apiKey === 'string' && body.apiKey.trim()) ? body.apiKey.trim() : null,
           incremental: body.incremental !== undefined ? Boolean(body.incremental) : true,
           forceFullAudit: Boolean(body.forceFullAudit)
         });

@@ -161,108 +161,6 @@ ${jsonChat}
 }
 
 /**
- * Deterministic fallback segmenter if Gemini API is unavailable or offline
- */
-function segmentChatDeterministicFallback(chatPayload) {
-  if (!chatPayload || !Array.isArray(chatPayload.messages)) {
-    return { clientPhone: chatPayload?.clientPhone || '', totalJobsDetected: 0, jobBlocks: [] };
-  }
-
-  const msgs = chatPayload.messages;
-  const claimedBillIndices = new Set();
-  const jobBlocks = [];
-
-  let jobCounter = 0;
-  let totalEstimated = 0;
-  let totalBilled = 0;
-  let totalLeakage = 0;
-
-  for (let i = 0; i < msgs.length; i++) {
-    const m = msgs[i];
-    // Check if staff delivered media
-    if (m.sender === 'STAFF' && m.hasMedia) {
-      const isVideo = String(m.type).includes('video') || String(m.filename || '').endsWith('.mp4');
-      const jobType = isVideo ? 'video' : 'voice';
-      const dur = Number(m.mediaDurationSec) || 0;
-      const expected = calculateExpectedRate(m.type, dur);
-
-      // Lookahead for billing message in next 4 messages
-      let foundBill = null;
-      let billMsgIdx = null;
-      let billText = null;
-
-      for (let j = i + 1; j <= Math.min(i + 4, msgs.length - 1); j++) {
-        if (!claimedBillIndices.has(j) && msgs[j].sender === 'STAFF' && msgs[j].text) {
-          const norm = normalizeDigits(msgs[j].text);
-          const match = norm.match(/বিল\s*[:=\-]?\s*(\d+)/i) || norm.match(/(\d+)\s*টাকা/i);
-          if (match) {
-            foundBill = parseInt(match[1], 10);
-            billMsgIdx = j;
-            billText = msgs[j].text;
-            claimedBillIndices.add(j);
-            break;
-          }
-        }
-      }
-
-      // Lookbehind for customer script in previous 4 messages
-      let scriptSummary = null;
-      for (let k = i - 1; k >= Math.max(0, i - 4); k--) {
-        if (msgs[k].sender === 'CLIENT' && msgs[k].text) {
-          scriptSummary = msgs[k].text.slice(0, 120);
-          break;
-        }
-      }
-
-      jobCounter++;
-      const billed = foundBill !== null ? foundBill : 0;
-      const unbilled = Math.max(0, expected - billed);
-      const status = billed >= expected ? 'CONFIRMED_BILLED' : (billed > 0 ? 'UNDERBILLED_ERROR' : 'UNBILLED_LEAKAGE');
-
-      totalEstimated += expected;
-      totalBilled += billed;
-      totalLeakage += unbilled;
-
-      jobBlocks.push({
-        jobBlockId: jobCounter,
-        jobType,
-        scriptSummary,
-        deliveredAt: m.time || new Date().toISOString(),
-        messageIndices: [m.index, ...(billMsgIdx ? [msgs[billMsgIdx].index] : [])],
-        rawMediaMsgId: m.id || null,
-        mediaDetails: {
-          type: m.type,
-          durationSeconds: dur,
-          filename: m.filename
-        },
-        worthBdt: expected,
-        expectedAmountBdt: expected,
-        billedAmountBdt: billed,
-        unbilledLeakageBdt: unbilled,
-        status,
-        billText: scriptSummary || billText,
-        auditNotes: billed > 0 
-          ? `Matched bill of ${billed} BDT (expected: ${expected} BDT)` 
-          : `Delivered media (${dur}s) without billing message - calculated full unbilled leakage`
-      });
-    }
-  }
-
-  return {
-    clientPhone: chatPayload.clientPhone,
-    totalJobsDetected: jobBlocks.length,
-    clientSummary: {
-      totalRevenueEstimatedBdt: totalEstimated,
-      totalRevenueBilledBdt: totalBilled,
-      totalLeakageBdt: totalLeakage,
-      conversionStatus: jobBlocks.length > 0 ? 'CONVERTED' : 'UNCONVERTED',
-      relationshipHealth: jobBlocks.length >= 2 ? 'ACTIVE_REPEAT_BUYER' : (jobBlocks.length === 1 ? 'ONE_TIME_CLIENT' : 'INACTIVE')
-    },
-    jobBlocks
-  };
-}
-
-/**
  * Runs full-history LLM job segmentation using Google Gemini
  */
 async function segmentChatWithLlm(chatPayload, options = {}) {
@@ -300,8 +198,7 @@ async function segmentChatWithLlm(chatPayload, options = {}) {
   const fetchFn = options.fetchFn || globalThis.fetch;
 
   if (!apiKey) {
-    console.warn('[LLM_SEGMENTER] GEMINI_API_KEY missing; using deterministic fallback segmentation');
-    return segmentChatDeterministicFallback(formatted);
+    throw new Error('[LLM_SEGMENTER] GEMINI_API_KEY is required. Deterministic fallback is disabled.');
   }
 
   const promptText = buildLlmAuditPrompt(formatted);
@@ -322,14 +219,14 @@ async function segmentChatWithLlm(chatPayload, options = {}) {
     });
 
     if (!res.ok) {
-      console.warn(`[LLM_SEGMENTER] Gemini returned HTTP ${res.status}; falling back to deterministic audit`);
-      return segmentChatDeterministicFallback(formatted);
+      const errText = await res.text().catch(() => '');
+      throw new Error(`[LLM_SEGMENTER] Gemini API request failed with HTTP ${res.status}: ${errText}`);
     }
 
     const resJson = await res.json();
     const rawContent = resJson?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!rawContent) {
-      throw new Error('Empty response from Gemini');
+      throw new Error('[LLM_SEGMENTER] Empty response received from Gemini API');
     }
 
     const parsed = JSON.parse(rawContent);
@@ -366,8 +263,8 @@ async function segmentChatWithLlm(chatPayload, options = {}) {
 
     return parsed;
   } catch (err) {
-    console.warn('[LLM_SEGMENTER] LLM error:', err.message, '; falling back to deterministic segmenter');
-    return segmentChatDeterministicFallback(formatted);
+    console.error('[LLM_SEGMENTER] LLM error:', err.message);
+    throw err;
   }
 }
 
@@ -721,7 +618,6 @@ module.exports = {
   formatChatForLlm,
   buildLlmAuditPrompt,
   segmentChatWithLlm,
-  segmentChatDeterministicFallback,
   saveLlmJobBlocksToDb,
   runLlmAuditOnAllChats,
   getClientWatermark,
