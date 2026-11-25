@@ -22,7 +22,7 @@ module.exports = {
   GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
   GEMINI_AUDIO_API_KEY: parsedAudioKeys[0] || process.env.GEMINI_AUDIO_API_KEY || process.env.GEMINI_API_KEY || '',
   GEMINI_AUDIO_API_KEYS: parsedAudioKeys,
-  GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-flash-lite-latest',
+  GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-3-flash-preview',
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY || '',
   OPENROUTER_MODEL: process.env.OPENROUTER_MODEL || 'minimax/minimax-m3.1-flash:free',
   LLM_PROVIDER: process.env.LLM_PROVIDER || 'gemini',

@@ -100,42 +100,29 @@ function formatChatForLlm(chat) {
 }
 
 /**
- * Builds the comprehensive prompt for Gemini LLM to detect job blocks
+ * Builds the comprehensive prompt for Gemini LLM to detect job blocks and production worth
  */
 function buildLlmAuditPrompt(chatPayload) {
   const jsonChat = JSON.stringify(chatPayload, null, 2);
 
   return `You are the Lead Production Auditor for News Voice Agency.
-Your job is to read the entire chronological WhatsApp conversation of a client and segment it into distinct Production Job Blocks.
+Your objective is to analyze the customer conversation, pair each customer news script or instruction with its delivered production file, and determine the worth (value in BDT) of each completed production job.
 
 PRICING RULES (MANDATORY):
 1. Audio Voiceover (type: 'audio' or 'ptt'):
    - Duration 0 to 60 seconds: 50 BDT
-   - Duration > 60 seconds: 50 BDT + 25 BDT for every additional 60 seconds (e.g. 61-120s = 75 BDT, 121-180s = 100 BDT)
-2. Video Package (type: 'video'): Standard rate = 250 BDT
-
-CRITICAL AUDITING RULES:
-1. EVERY DELIVERED MEDIA MUST BE CALCULATED AS A JOB:
-   Even if the staff NEVER sent a bill message, if a voice note, audio file, or video was delivered by STAFF to the CLIENT, you MUST create a job block for it!
-   - expectedAmountBdt: Calculate accurately based on duration
-   - billedAmountBdt: 0
-   - unbilledLeakageBdt: expectedAmountBdt
-   - status: "UNBILLED_LEAKAGE"
-   - leakageReason: "Staff delivered production work but failed to send a bill message"
-2. MATCH BILL MESSAGES CONTEXTUALLY:
-   - Staff bills look like "বিল ৫০ টাকা", "বিল ৭৫", "৫০ টাকা".
-   - If a bill follows 1 delivered audio: match directly.
-   - If a bill follows multiple delivered audios (e.g. "বিল ১০০ টাকা" after two 50 BDT audios): distribute the 100 BDT across both jobs (50 BDT each).
-3. DETECT RETAKES AND REVISIONS:
-   - If client says "ভয়েস ভুল হয়েছে" or "রিটেক দিন" and staff sends another audio for the same script:
-     - Mark second audio as a FREE_RETAKE (expectedAmountBdt: 0, status: "FREE_RETAKE").
-4. IGNORE DEMO / SYSTEM GREETINGS:
-   - Voice samples sent during initial greeting (filenames containing "demo", "voice1", "voice2") are NOT production jobs.
+   - Duration > 60 seconds: 50 BDT + 25 BDT for every additional 60 seconds (61-120s = 75 BDT, 121-180s = 100 BDT)
+2. Video Production (type: 'video'): Standard rate = 250 BDT
+3. Retakes/Corrections:
+   - If client requests a correction or retake for a previous script ("ভুল হয়েছে", "রিটেক দিন") and staff re-delivers audio for the same script, mark as isRetake: true, worthBdt: 0, status: "FREE_RETAKE".
+4. Ignore marketing demo samples:
+   - Voice samples sent during initial greeting (e.g. "ডেমোগুলো শুনে দেখুন", "স্যাম্পলগুলো শুনে দেখুন") are marketing samples, NOT customer production jobs. Do not count them.
 
 Return ONLY a valid JSON object matching this exact schema:
 {
   "clientPhone": "${chatPayload.clientPhone}",
   "totalJobsDetected": <number>,
+  "totalWorthBdt": <number>,
   "clientSummary": {
     "totalRevenueEstimatedBdt": <number>,
     "totalRevenueBilledBdt": <number>,
@@ -147,6 +134,7 @@ Return ONLY a valid JSON object matching this exact schema:
     {
       "jobBlockId": <number>,
       "jobType": "voice" | "video",
+      "scriptSummary": "<short headline or excerpt of customer script in Bengali>",
       "deliveredAt": "<ISO-timestamp>",
       "messageIndices": [<number>],
       "rawMediaMsgId": "<message-id or null>",
@@ -155,12 +143,14 @@ Return ONLY a valid JSON object matching this exact schema:
         "durationSeconds": <number>,
         "filename": "<string or null>"
       },
+      "worthBdt": <number>,
       "expectedAmountBdt": <number>,
       "billedAmountBdt": <number>,
       "unbilledLeakageBdt": <number>,
-      "status": "CONFIRMED_BILLED" | "UNBILLED_LEAKAGE" | "UNDERBILLED_ERROR" | "FREE_RETAKE",
-      "billText": "<string or null>",
-      "auditNotes": "<brief explanation of billing decision>"
+      "status": "CONFIRMED_BILLED" | "UNBILLED_LEAKAGE" | "FREE_RETAKE",
+      "isRetake": <boolean>,
+      "billText": "<script headline or bill text>",
+      "auditNotes": "<brief explanation of production job and rate>"
     }
   ]
 }
@@ -215,6 +205,15 @@ function segmentChatDeterministicFallback(chatPayload) {
         }
       }
 
+      // Lookbehind for customer script in previous 4 messages
+      let scriptSummary = null;
+      for (let k = i - 1; k >= Math.max(0, i - 4); k--) {
+        if (msgs[k].sender === 'CLIENT' && msgs[k].text) {
+          scriptSummary = msgs[k].text.slice(0, 120);
+          break;
+        }
+      }
+
       jobCounter++;
       const billed = foundBill !== null ? foundBill : 0;
       const unbilled = Math.max(0, expected - billed);
@@ -227,6 +226,7 @@ function segmentChatDeterministicFallback(chatPayload) {
       jobBlocks.push({
         jobBlockId: jobCounter,
         jobType,
+        scriptSummary,
         deliveredAt: m.time || new Date().toISOString(),
         messageIndices: [m.index, ...(billMsgIdx ? [msgs[billMsgIdx].index] : [])],
         rawMediaMsgId: m.id || null,
@@ -235,11 +235,12 @@ function segmentChatDeterministicFallback(chatPayload) {
           durationSeconds: dur,
           filename: m.filename
         },
+        worthBdt: expected,
         expectedAmountBdt: expected,
         billedAmountBdt: billed,
         unbilledLeakageBdt: unbilled,
         status,
-        billText,
+        billText: scriptSummary || billText,
         auditNotes: billed > 0 
           ? `Matched bill of ${billed} BDT (expected: ${expected} BDT)` 
           : `Delivered media (${dur}s) without billing message - calculated full unbilled leakage`
@@ -295,7 +296,7 @@ async function segmentChatWithLlm(chatPayload, options = {}) {
   }
 
   const apiKey = options.apiKey !== undefined ? options.apiKey : config.GEMINI_API_KEY;
-  const model = options.model || config.GEMINI_MODEL || 'gemini-flash-lite-latest';
+  const model = options.model || config.GEMINI_MODEL || 'gemini-3-flash-preview';
   const fetchFn = options.fetchFn || globalThis.fetch;
 
   if (!apiKey) {
@@ -333,16 +334,32 @@ async function segmentChatWithLlm(chatPayload, options = {}) {
 
     const parsed = JSON.parse(rawContent);
 
-    // Safeguard verification: enforce unbilled calculation if LLM missed any
+    // Safeguard verification: enforce worth calculation and retake status
     if (Array.isArray(parsed.jobBlocks)) {
       for (const job of parsed.jobBlocks) {
-        if (!job.expectedAmountBdt || job.expectedAmountBdt <= 0) {
-          job.expectedAmountBdt = calculateExpectedRate(job.mediaDetails?.type, job.mediaDetails?.durationSeconds);
-        }
-        if (!job.billedAmountBdt) job.billedAmountBdt = 0;
-        if (job.billedAmountBdt === 0 && job.status !== 'FREE_RETAKE') {
-          job.unbilledLeakageBdt = job.expectedAmountBdt;
-          job.status = 'UNBILLED_LEAKAGE';
+        const isRetake = Boolean(job.isRetake || job.status === 'FREE_RETAKE');
+        const dur = Number(job.mediaDetails?.durationSeconds) || 0;
+        const rate = calculateExpectedRate(job.mediaDetails?.type, dur);
+
+        if (isRetake) {
+          job.worthBdt = 0;
+          job.expectedAmountBdt = 0;
+          job.billedAmountBdt = 0;
+          job.unbilledLeakageBdt = 0;
+          job.status = 'FREE_RETAKE';
+        } else {
+          if (!job.worthBdt || job.worthBdt <= 0) {
+            job.worthBdt = job.expectedAmountBdt || rate;
+          }
+          if (!job.expectedAmountBdt || job.expectedAmountBdt <= 0) {
+            job.expectedAmountBdt = job.worthBdt;
+          }
+          if (job.billedAmountBdt === undefined || job.billedAmountBdt === null) {
+            job.billedAmountBdt = job.expectedAmountBdt;
+          }
+          if (!job.status) {
+            job.status = job.billedAmountBdt >= job.expectedAmountBdt ? 'CONFIRMED_BILLED' : 'UNBILLED_LEAKAGE';
+          }
         }
       }
     }
@@ -382,9 +399,16 @@ function saveLlmJobBlocksToDb(db, auditResult) {
       const deliveredAt = job.deliveredAt || new Date().toISOString();
       const mediaType = job.mediaDetails?.type || (jobType === 'video' ? 'video' : 'audio');
       const dur = Number(job.mediaDetails?.durationSeconds || 0);
-      const expected = Number(job.expectedAmountBdt) || calculateExpectedRate(mediaType, dur);
-      const billed = Number(job.billedAmountBdt) || 0;
-      const unbilled = job.status === 'FREE_RETAKE' ? 0 : Math.max(0, expected - billed);
+      const isRetake = Boolean(job.isRetake || job.status === 'FREE_RETAKE');
+      const expected = isRetake ? 0 : (Number(job.worthBdt || job.expectedAmountBdt) || calculateExpectedRate(mediaType, dur));
+
+      // Skip 0 expected rate free retakes from polluting job counts
+      if (isRetake || (job.status === 'FREE_RETAKE' && expected === 0)) {
+        continue;
+      }
+
+      const billed = typeof job.billedAmountBdt === 'number' ? job.billedAmountBdt : 0;
+      const unbilled = Math.max(0, expected - billed);
       const status = job.status || (billed >= expected ? 'CONFIRMED_BILLED' : (billed > 0 ? 'UNDERBILLED_ERROR' : 'UNBILLED_LEAKAGE'));
 
       let dbStatus = 'UNBILLED_LEAKAGE';
@@ -396,14 +420,11 @@ function saveLlmJobBlocksToDb(db, auditResult) {
         dbStatus = 'UNBILLED_LEAKAGE';
       }
 
-      // Skip 0 expected rate free retakes from polluting job counts
-      if (job.status === 'FREE_RETAKE' && expected === 0) {
-        continue;
-      }
-
       totalExpected += expected;
       totalBilled += billed;
       totalLeakage += unbilled;
+
+      const scriptOrBillText = job.scriptSummary || job.billText || null;
 
       // Avoid duplicate entry by raw_media_msg_id or (phone, delivered_at)
       if (job.rawMediaMsgId) {
@@ -413,7 +434,7 @@ function saveLlmJobBlocksToDb(db, auditResult) {
             UPDATE metrics_chat_jobs
             SET expected_amount_bdt = ?, billed_amount_bdt = ?, unbilled_leakage_bdt = ?, status = ?, bill_text = COALESCE(?, bill_text)
             WHERE id = ?
-          `).run(expected, billed, unbilled, dbStatus, job.billText || null, existing.id);
+          `).run(expected, billed, unbilled, dbStatus, scriptOrBillText, existing.id);
           continue;
         }
       } else if (deliveredAt) {
@@ -423,7 +444,7 @@ function saveLlmJobBlocksToDb(db, auditResult) {
             UPDATE metrics_chat_jobs
             SET expected_amount_bdt = ?, billed_amount_bdt = ?, unbilled_leakage_bdt = ?, status = ?, bill_text = COALESCE(?, bill_text)
             WHERE id = ?
-          `).run(expected, billed, unbilled, dbStatus, job.billText || null, existing.id);
+          `).run(expected, billed, unbilled, dbStatus, scriptOrBillText, existing.id);
           continue;
         }
       }
@@ -439,7 +460,7 @@ function saveLlmJobBlocksToDb(db, auditResult) {
         unbilled,
         dbStatus,
         job.rawMediaMsgId || null,
-        job.billText || null
+        scriptOrBillText
       );
     }
 
