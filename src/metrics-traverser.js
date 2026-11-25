@@ -178,7 +178,7 @@ function syncChatMetricsToDb(db, options = {}) {
           const isVideo = m.type === 'video' || (m.filename && m.filename.endsWith('.mp4'));
           const jobType = isVideo ? 'video' : 'voice';
           const duration = m.duration || 0;
-          const expectedRate = isVideo ? 250 : calculateAudioBill(duration, 50);
+          const expectedRate = isVideo ? 250 : (duration > 0 ? calculateAudioBill(duration, 50) : 50);
 
           // Contextual Bill Matching
           let foundBillAmount = null;

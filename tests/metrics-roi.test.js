@@ -93,6 +93,7 @@ test('getMetricsAnalytics calculates KPIs and respects date filters', () => {
   assert.equal(allResult.productionAudit.totalMediaDelivered, 3);
   assert.equal(allResult.productionAudit.voiceDelivered, 2);
   assert.equal(allResult.productionAudit.videoDelivered, 1);
+  assert.equal(allResult.productionAudit.estimatedRevenue, 350); // 50 + 50 + 250
   assert.equal(allResult.productionAudit.verifiedBilledRevenue, 300); // 50 + 250
   assert.equal(allResult.productionAudit.unbilledLeakage, 50);
   assert.equal(allResult.clientsSummary.activeClients, 2);

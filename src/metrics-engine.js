@@ -149,7 +149,7 @@ function auditChatStream(chats, { startDate = null, endDate = null } = {}) {
         }
 
         const duration = m.duration || 0;
-        const expectedBill = isVideo ? 250 : calculateAudioBill(duration, 50);
+        const expectedBill = isVideo ? 250 : (duration > 0 ? calculateAudioBill(duration, 50) : 50);
 
         // Check for billing message in forward/backward surrounding messages (claim once)
         let foundBill = null;

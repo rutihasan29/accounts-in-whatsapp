@@ -680,38 +680,45 @@
   <!-- Executive Metric Ribbon -->
   <div class="grid-ribbon">
     <div class="stat-box">
-      <div class="stat-label">যাচাইকৃত বিল রেভিনিউ (Billed)</div>
-      <div class="stat-value stat-highlight-emerald num" id="kpiBilled">৳0</div>
+      <div class="stat-label">কাজের আনুমানিক রেভিনিউ (Estimated Revenue)</div>
+      <div class="stat-value stat-highlight-emerald num" id="kpiEstRevenue">৳0</div>
       <div class="stat-sub">
-        <span>মোট কাজ: <strong class="num" id="kpiTotalJobs">0</strong></span>
-        <span>(🎙️ <span class="num" id="kpiVoiceJobs">0</span> / 🎬 <span class="num" id="kpiVideoJobs">0</span>)</span>
+        <span>বিল করা: <strong class="num" id="kpiBilled">৳0</strong> | অপচয়: <strong class="num" id="kpiLeakageSub" style="color:var(--accent-rose);">৳0</strong></span>
+      </div>
+      <div class="stat-sub" style="margin-top: 4px; font-size: 11px;">
+        <span>মোট কাজ: <strong class="num" id="kpiTotalJobs">0</strong> (🎙️ <span class="num" id="kpiVoiceJobs">0</span> / 🎬 <span class="num" id="kpiVideoJobs">0</span>)</span>
       </div>
     </div>
 
     <div class="stat-box">
-      <div class="stat-label">মোট গ্রস প্রফিট (Gross Profit)</div>
+      <div class="stat-label">মোট গ্রস প্রফিট (Estimated Gross Profit)</div>
       <div class="stat-value stat-highlight-blue num" id="kpiGrossProfit">৳0</div>
       <div class="stat-sub">
-        <span>ব্লেন্ডেড মার্জিন: <strong class="num" id="kpiBlendedMargin">57%</strong></span>
-        <span>(ভয়েস ৬০% / ভিডিও ৩৪%)</span>
+        <span>মার্জিন: <strong class="num" id="kpiBlendedMargin">57%</strong> (ভয়েস ৬০% / ভিডিও ৩৪%)</span>
+      </div>
+      <div class="stat-sub" style="margin-top: 4px; font-size: 11px;">
+        <span>বিল্ড প্রফিট: <strong class="num" id="kpiBilledGp">৳0</strong></span>
       </div>
     </div>
 
     <div class="stat-box">
-      <div class="stat-label">মেটা অ্যাড খরচ (Ad Spend)</div>
+      <div class="stat-label">মেটা অ্যাড খরচ (Meta Ad Spend)</div>
       <div class="stat-value num" id="kpiAdSpend">৳0</div>
       <div class="stat-sub">
-        <span>দৈনিক গড়: <strong class="num" id="kpiDailySpend">৳250</strong></span>
+        <span>দৈনিক গড়: <strong class="num" id="kpiDailySpend">৳0</strong></span>
         <span>দিন: <strong class="num" id="kpiDaysCount">0</strong></span>
       </div>
     </div>
 
     <div class="stat-box">
       <div class="stat-label">অ্যাড রিটার্ন ও আরওআই (ROAS & ROI)</div>
-      <div class="stat-value num" id="kpiRoas">0.00x</div>
+      <div class="stat-value num" id="kpiRoas" style="color: #38bdf8;">0.00x</div>
       <div class="stat-sub">
         <span>নেট আরওআই: <strong class="num" id="kpiNetRoi">0%</strong></span>
         <span>(CAC: <span class="num" id="kpiCac">৳0</span>)</span>
+      </div>
+      <div class="stat-sub" style="margin-top: 4px; font-size: 11px;">
+        <span>বিল্ড ROAS: <strong class="num" id="kpiBilledRoas">0.00x</strong></span>
       </div>
     </div>
   </div>
@@ -994,22 +1001,25 @@
 
       document.getElementById('dataGeneratedAt').textContent = 'আপডেট: ' + new Date(data.meta.generatedAt).toLocaleTimeString();
 
-      // Production & Leakage
+      // Production & Leakage (Estimated from Delivered Files)
       const p = data.productionAudit;
+      document.getElementById('kpiEstRevenue').textContent = '৳' + Number(p.estimatedRevenue).toLocaleString();
       document.getElementById('kpiBilled').textContent = '৳' + Number(p.verifiedBilledRevenue).toLocaleString();
+      document.getElementById('kpiLeakageSub').textContent = '৳' + Number(p.unbilledLeakage).toLocaleString();
       document.getElementById('kpiTotalJobs').textContent = p.totalMediaDelivered;
       document.getElementById('kpiVoiceJobs').textContent = p.voiceDelivered;
       document.getElementById('kpiVideoJobs').textContent = p.videoDelivered;
       document.getElementById('kpiGrossProfit').textContent = '৳' + Number(p.grossProfit).toLocaleString();
+      document.getElementById('kpiBilledGp').textContent = '৳' + Number(p.billedGrossProfit || 0).toLocaleString();
       document.getElementById('kpiBlendedMargin').textContent = p.blendedMarginPercent + '%';
 
       // Leakage Banner
       document.getElementById('leakageAmount').textContent = '৳' + Number(p.unbilledLeakage).toLocaleString();
       if (p.unbilledLeakage > 0) {
-        const pct = p.verifiedBilledRevenue + p.unbilledLeakage > 0
-          ? Math.round((p.unbilledLeakage / (p.verifiedBilledRevenue + p.unbilledLeakage)) * 100)
+        const pct = p.estimatedRevenue > 0
+          ? Math.round((p.unbilledLeakage / p.estimatedRevenue) * 100)
           : 0;
-        document.getElementById('leakageSub').textContent = `${pct}% সম্ভাব্য আয় কর্মীরা ভুলে ক্লেইম করেননি!`;
+        document.getElementById('leakageSub').textContent = `মোট কাজের ৳${Number(p.estimatedRevenue).toLocaleString()} সম্ভাব্য রেভিনিউ এর মধ্যে ${pct}% কর্মীদের ভুলের কারণে এখনো ক্লেইম করা হয়নি!`;
       }
 
       // Ad spend & ROI (Directly from Meta Graph API)
@@ -1018,6 +1028,7 @@
       document.getElementById('kpiDailySpend').textContent = '৳' + Number(a.dailyRate).toLocaleString();
       document.getElementById('kpiDaysCount').textContent = a.daysCount;
       document.getElementById('kpiRoas').textContent = p.roas + 'x';
+      document.getElementById('kpiBilledRoas').textContent = (p.billedRoas || 0) + 'x';
       document.getElementById('kpiNetRoi').textContent = (p.netRoiPercent > 0 ? '+' : '') + p.netRoiPercent + '%';
       document.getElementById('kpiCac').textContent = '৳' + a.cac;
 

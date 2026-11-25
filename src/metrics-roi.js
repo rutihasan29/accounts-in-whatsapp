@@ -85,7 +85,11 @@ function getMetricsAnalytics(db, options = {}) {
       SUM(CASE WHEN job_type = 'video' THEN 1 ELSE 0 END) AS video_jobs,
       COALESCE(SUM(billed_amount_bdt), 0) AS verified_billed,
       COALESCE(SUM(unbilled_leakage_bdt), 0) AS unbilled_leakage,
-      COALESCE(SUM(CASE WHEN job_type = 'voice' THEN billed_amount_bdt * ${VOICE_MARGIN} ELSE billed_amount_bdt * ${VIDEO_MARGIN} END), 0) AS gross_profit,
+      COALESCE(SUM(CASE WHEN billed_amount_bdt > expected_amount_bdt THEN billed_amount_bdt ELSE expected_amount_bdt END), 0) AS estimated_revenue,
+      COALESCE(SUM(CASE WHEN job_type = 'voice' 
+        THEN (CASE WHEN billed_amount_bdt > expected_amount_bdt THEN billed_amount_bdt ELSE expected_amount_bdt END) * ${VOICE_MARGIN} 
+        ELSE (CASE WHEN billed_amount_bdt > expected_amount_bdt THEN billed_amount_bdt ELSE expected_amount_bdt END) * ${VIDEO_MARGIN} END), 0) AS estimated_gross_profit,
+      COALESCE(SUM(CASE WHEN job_type = 'voice' THEN billed_amount_bdt * ${VOICE_MARGIN} ELSE billed_amount_bdt * ${VIDEO_MARGIN} END), 0) AS billed_gross_profit,
       COUNT(DISTINCT phone_number) AS active_clients
     FROM metrics_chat_jobs
     WHERE 1=1 ${jobDateCond}
@@ -96,7 +100,9 @@ function getMetricsAnalytics(db, options = {}) {
   const videoDelivered = jobsStats?.video_jobs || 0;
   const verifiedBilledRevenue = Math.round((jobsStats?.verified_billed || 0) * 10) / 10;
   const unbilledLeakage = Math.round((jobsStats?.unbilled_leakage || 0) * 10) / 10;
-  const grossProfit = Math.round((jobsStats?.gross_profit || 0) * 10) / 10;
+  const estimatedRevenue = Math.round((jobsStats?.estimated_revenue || (verifiedBilledRevenue + unbilledLeakage)) * 10) / 10;
+  const grossProfit = Math.round((jobsStats?.estimated_gross_profit || 0) * 10) / 10;
+  const billedGrossProfit = Math.round((jobsStats?.billed_gross_profit || 0) * 10) / 10;
   const activeClients = jobsStats?.active_clients || 0;
 
   // Product mix margin calculation
@@ -175,7 +181,8 @@ function getMetricsAnalytics(db, options = {}) {
     ? Math.round((totalAdSpend / totalInboundLeads) * 10) / 10
     : null;
 
-  const roas = totalAdSpend > 0 ? Math.round((verifiedBilledRevenue / totalAdSpend) * 100) / 100 : 0;
+  const roas = totalAdSpend > 0 ? Math.round((estimatedRevenue / totalAdSpend) * 100) / 100 : 0;
+  const billedRoas = totalAdSpend > 0 ? Math.round((verifiedBilledRevenue / totalAdSpend) * 100) / 100 : 0;
   const netProfit = Math.round((grossProfit - totalAdSpend) * 10) / 10;
   const netRoiPercent = totalAdSpend > 0 ? Math.round(((grossProfit - totalAdSpend) / totalAdSpend) * 1000) / 10 : 0;
 
@@ -255,10 +262,13 @@ function getMetricsAnalytics(db, options = {}) {
       voiceDelivered,
       videoDelivered,
       blendedMarginPercent,
+      estimatedRevenue,
       verifiedBilledRevenue,
       unbilledLeakage,
       grossProfit,
+      billedGrossProfit,
       roas,
+      billedRoas,
       netProfit,
       netRoiPercent
     },
