@@ -500,7 +500,9 @@ function startWebServer({ db, client = null, port = PORT, onRestart = null, auto
           phone: body.phone || null,
           limit: body.limit || null,
           client: client || null,
-          apiKey: body.apiKey !== undefined ? body.apiKey : null
+          apiKey: body.apiKey !== undefined ? body.apiKey : null,
+          incremental: body.incremental !== undefined ? Boolean(body.incremental) : true,
+          forceFullAudit: Boolean(body.forceFullAudit)
         });
 
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });

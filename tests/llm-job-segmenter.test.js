@@ -7,7 +7,9 @@ const {
   segmentChatWithLlm,
   segmentChatDeterministicFallback,
   saveLlmJobBlocksToDb,
-  runLlmAuditOnAllChats
+  runLlmAuditOnAllChats,
+  getClientWatermark,
+  filterIncrementalMessages
 } = require('../src/llm-job-segmenter');
 
 test('calculateExpectedRate computes accurate pricing tiers', () => {
@@ -256,6 +258,114 @@ test('runLlmAuditOnAllChats audits multiple chats and saves aggregated results t
 
   const clients = db.prepare('SELECT * FROM metrics_chat_clients ORDER BY phone_number ASC').all();
   assert.equal(clients.length, 2);
+
+  db.close();
+});
+
+test('getClientWatermark and filterIncrementalMessages isolate new messages and anchor unbilled jobs', () => {
+  const { initDb } = require('../src/db');
+  const db = initDb(':memory:');
+
+  // Insert existing job at T=1000
+  db.prepare(`
+    INSERT INTO metrics_chat_jobs (
+      phone_number, job_type, delivered_at, media_type, duration_seconds,
+      expected_amount_bdt, billed_amount_bdt, unbilled_leakage_bdt, status, raw_media_msg_id
+    ) VALUES (
+      '8801712345678', 'voice', '2026-11-25T10:00:00.000Z', 'audio', 45,
+      50, 0, 50, 'UNBILLED_LEAKAGE', 'msg_audio_unbilled_1'
+    )
+  `).run();
+
+  const watermark = getClientWatermark(db, '8801712345678');
+  assert.ok(watermark);
+  assert.equal(watermark.hasExistingJobs, true);
+  assert.equal(watermark.lastJobDeliveredAt, '2026-11-25T10:00:00.000Z');
+  assert.ok(watermark.lastUnbilledJob);
+  assert.equal(watermark.lastUnbilledJob.raw_media_msg_id, 'msg_audio_unbilled_1');
+
+  // Test filterIncrementalMessages:
+  // Messages contain old message from 08:00 AM, the unbilled audio from 10:00 AM, and new bill message from 10:20 AM
+  const chat = {
+    phone: '8801712345678',
+    messages: [
+      { id: 'msg_old_1', isoTime: '2026-11-25T08:00:00.000Z', type: 'chat', body: 'হ্যালো' },
+      { id: 'msg_audio_unbilled_1', isoTime: '2026-11-25T10:00:00.000Z', type: 'audio', duration: 45, hasMedia: true, fromMe: true },
+      { id: 'msg_new_bill_1', isoTime: '2026-11-25T10:20:00.000Z', type: 'chat', body: 'বিল ৫০ টাকা', fromMe: true }
+    ]
+  };
+
+  const incremental = filterIncrementalMessages(chat, watermark, 10 * 60 * 1000);
+  assert.equal(incremental.isIncremental, true);
+  // Old 08:00 AM message must be filtered out; unbilled audio and new bill must be preserved
+  assert.equal(incremental.messages.length, 2);
+  assert.equal(incremental.messages[0].id, 'msg_audio_unbilled_1');
+  assert.equal(incremental.messages[1].id, 'msg_new_bill_1');
+
+  db.close();
+});
+
+test('Incremental traversal updates pending unbilled job and appends new job without reprocessing past history', async () => {
+  const { initDb } = require('../src/db');
+  const db = initDb(':memory:');
+
+  const phone = '8801777777777';
+
+  // 1. Initial batch: delivery of unbilled audio at 10:00 AM
+  const initialChat = {
+    phone,
+    messages: [
+      { id: 'm1', t: 1732528800, isoTime: '2026-11-25T10:00:00.000Z', type: 'chat', body: 'হ্যালো' },
+      { id: 'm_audio_1', t: 1732528810, isoTime: '2026-11-25T10:00:10.000Z', type: 'audio', duration: 40, hasMedia: true, fromMe: true }
+    ]
+  };
+
+  const audit1 = await runLlmAuditOnAllChats(db, {
+    chats: [initialChat],
+    apiKey: ''
+  });
+  assert.equal(audit1.totalJobs, 1);
+  assert.equal(audit1.totalLeakage, 50);
+
+  let job1 = db.prepare('SELECT * FROM metrics_chat_jobs WHERE phone_number = ?').get(phone);
+  assert.equal(job1.status, 'UNBILLED_LEAKAGE');
+  assert.equal(job1.billed_amount_bdt, 0);
+
+  // 2. Second batch (later): staff sends bill for job 1, AND delivers a new video job at 11:00 AM
+  const updatedChat = {
+    phone,
+    messages: [
+      { id: 'm1', t: 1732528800, isoTime: '2026-11-25T10:00:00.000Z', type: 'chat', body: 'হ্যালো' },
+      { id: 'm_audio_1', t: 1732528810, isoTime: '2026-11-25T10:00:10.000Z', type: 'audio', duration: 40, hasMedia: true, fromMe: true },
+      { id: 'm_bill_1', t: 1732528830, isoTime: '2026-11-25T10:00:30.000Z', type: 'chat', body: 'বিল ৫০ টাকা', fromMe: true },
+      { id: 'm_video_2', t: 1732532400, isoTime: '2026-11-25T11:00:00.000Z', type: 'video', duration: 20, hasMedia: true, fromMe: true },
+      { id: 'm_bill_2', t: 1732532420, isoTime: '2026-11-25T11:00:20.000Z', type: 'chat', body: 'বিল ২৫০ টাকা', fromMe: true }
+    ]
+  };
+
+  // Run incremental audit
+  const audit2 = await runLlmAuditOnAllChats(db, {
+    chats: [updatedChat],
+    apiKey: '',
+    incremental: true
+  });
+
+  // Verify that job 1 was reconciled to CONFIRMED_BILLED, and job 2 was added
+  const allJobs = db.prepare('SELECT * FROM metrics_chat_jobs WHERE phone_number = ? ORDER BY delivered_at ASC').all(phone);
+  assert.equal(allJobs.length, 2);
+  assert.equal(allJobs[0].status, 'CONFIRMED_BILLED');
+  assert.equal(allJobs[0].billed_amount_bdt, 50);
+  assert.equal(allJobs[0].unbilled_leakage_bdt, 0);
+
+  assert.equal(allJobs[1].job_type, 'video');
+  assert.equal(allJobs[1].status, 'CONFIRMED_BILLED');
+  assert.equal(allJobs[1].billed_amount_bdt, 250);
+
+  // Client stats updated accurately
+  const client = db.prepare('SELECT * FROM metrics_chat_clients WHERE phone_number = ?').get(phone);
+  assert.equal(client.total_jobs_delivered, 2);
+  assert.equal(client.total_billed_bdt, 300);
+  assert.equal(client.total_unbilled_bdt, 0);
 
   db.close();
 });

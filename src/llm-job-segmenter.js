@@ -38,6 +38,23 @@ function calculateExpectedRate(mediaType = 'audio', durationSeconds = 0) {
   return 50 + Math.ceil((dur - 60) / 60) * 25;
 }
 
+function getMessageTimeMs(m) {
+  if (!m) return 0;
+  if (m.isoTime) {
+    const ms = new Date(m.isoTime).getTime();
+    if (!isNaN(ms)) return ms;
+  }
+  if (m.time) {
+    const ms = new Date(m.time).getTime();
+    if (!isNaN(ms)) return ms;
+  }
+  if (m.t) {
+    const n = Number(m.t);
+    return n > 1e11 ? n : n * 1000;
+  }
+  return 0;
+}
+
 /**
  * Pre-processes raw customer chat into structured message stream for LLM
  */
@@ -49,9 +66,7 @@ function formatChatForLlm(chat) {
 
   // Sort chronologically
   const sorted = [...rawMsgs].sort((a, b) => {
-    const ta = a.t || (a.isoTime ? new Date(a.isoTime).getTime() / 1000 : 0);
-    const tb = b.t || (b.isoTime ? new Date(b.isoTime).getTime() / 1000 : 0);
-    return ta - tb;
+    return getMessageTimeMs(a) - getMessageTimeMs(b);
   });
 
   const formattedMessages = sorted.map((m, idx) => {
@@ -484,6 +499,105 @@ function saveLlmJobBlocksToDb(db, auditResult) {
 }
 
 /**
+ * Retrieve the high watermark and pending unbilled job state for a client
+ */
+function getClientWatermark(db, phoneNumber) {
+  if (!db || !phoneNumber) return null;
+  const cleanPhone = String(phoneNumber).replace(/\D/g, '');
+  if (!cleanPhone) return null;
+
+  try {
+    const summary = db.prepare(`
+      SELECT 
+        MAX(delivered_at) AS lastJobDeliveredAt,
+        COUNT(*) AS totalJobsRecorded
+      FROM metrics_chat_jobs
+      WHERE phone_number = ?
+    `).get(cleanPhone);
+
+    if (!summary || !summary.lastJobDeliveredAt) {
+      return {
+        phone: cleanPhone,
+        hasExistingJobs: false,
+        lastJobDeliveredAt: null,
+        totalJobsRecorded: 0,
+        lastUnbilledJob: null
+      };
+    }
+
+    const lastUnbilled = db.prepare(`
+      SELECT id, delivered_at, raw_media_msg_id, expected_amount_bdt, billed_amount_bdt, status
+      FROM metrics_chat_jobs
+      WHERE phone_number = ? AND status = 'UNBILLED_LEAKAGE'
+      ORDER BY delivered_at DESC
+      LIMIT 1
+    `).get(cleanPhone);
+
+    return {
+      phone: cleanPhone,
+      hasExistingJobs: summary.totalJobsRecorded > 0,
+      lastJobDeliveredAt: summary.lastJobDeliveredAt,
+      totalJobsRecorded: summary.totalJobsRecorded,
+      lastUnbilledJob: lastUnbilled || null
+    };
+  } catch (err) {
+    console.warn('[WATERMARK] Error fetching watermark:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Filter messages in a chat so only new or pending-unbilled messages are processed.
+ * Lookback window defaults to 15 minutes (900,000 ms).
+ */
+function filterIncrementalMessages(chat, watermark, lookbackMs = 15 * 60 * 1000) {
+  if (!chat || !Array.isArray(chat.messages) || chat.messages.length === 0) {
+    return chat;
+  }
+
+  if (!watermark || !watermark.hasExistingJobs || !watermark.lastJobDeliveredAt) {
+    return chat;
+  }
+
+  // Determine cutoff timestamp in milliseconds
+  let cutoffTimeMs = new Date(watermark.lastJobDeliveredAt).getTime() - lookbackMs;
+
+  // If there is an unbilled job, anchor from that job's delivery timestamp
+  if (watermark.lastUnbilledJob && watermark.lastUnbilledJob.delivered_at) {
+    const unbilledTimeMs = new Date(watermark.lastUnbilledJob.delivered_at).getTime();
+    if (unbilledTimeMs < cutoffTimeMs) {
+      cutoffTimeMs = unbilledTimeMs;
+    }
+  }
+
+  const unbilledMediaId = watermark.lastUnbilledJob?.raw_media_msg_id || null;
+
+  const filtered = chat.messages.filter(m => {
+    // If it is the exact message ID of the unbilled job, always include it for bill reconciliation
+    const msgId = m.id?._serialized || m.id?.id || (typeof m.id === 'string' ? m.id : null);
+    if (unbilledMediaId && msgId === unbilledMediaId) {
+      return true;
+    }
+
+    const t = getMessageTimeMs(m);
+    if (!t) return true; // If no time available, keep for safety
+    return t >= cutoffTimeMs;
+  });
+
+  // Sort strictly ascending by chronological time
+  filtered.sort((a, b) => getMessageTimeMs(a) - getMessageTimeMs(b));
+
+  return {
+    ...chat,
+    messages: filtered,
+    isIncremental: true,
+    watermarkTimestamp: watermark.lastJobDeliveredAt,
+    originalMessageCount: chat.messages.length,
+    filteredMessageCount: filtered.length
+  };
+}
+
+/**
  * Run full LLM audit on all or filtered client chats and save findings into database
  */
 async function runLlmAuditOnAllChats(db, options = {}) {
@@ -536,7 +650,19 @@ async function runLlmAuditOnAllChats(db, options = {}) {
 
   for (const chat of chatsToAudit) {
     try {
-      const auditRes = await segmentChatWithLlm(chat, options);
+      const cleanPhone = String(chat.phone || chat.rawId || '').replace(/\D/g, '');
+      const useIncremental = options.incremental !== false && !options.forceFullAudit;
+      const watermark = (useIncremental && db) ? getClientWatermark(db, cleanPhone) : null;
+
+      const targetChat = (watermark && watermark.hasExistingJobs)
+        ? filterIncrementalMessages(chat, watermark, options.lookbackMs)
+        : chat;
+
+      if (!targetChat.messages || targetChat.messages.length === 0) {
+        continue;
+      }
+
+      const auditRes = await segmentChatWithLlm(targetChat, options);
       if (auditRes && Array.isArray(auditRes.jobBlocks) && auditRes.jobBlocks.length > 0) {
         const saved = saveLlmJobBlocksToDb(db, auditRes);
         totalAuditedChats++;
@@ -550,7 +676,8 @@ async function runLlmAuditOnAllChats(db, options = {}) {
           jobsCount: saved.savedJobs,
           expectedBdt: saved.totalExpected,
           billedBdt: saved.totalBilled,
-          leakageBdt: saved.totalLeakage
+          leakageBdt: saved.totalLeakage,
+          incremental: Boolean(watermark && watermark.hasExistingJobs)
         });
       }
     } catch (chatErr) {
@@ -575,5 +702,7 @@ module.exports = {
   segmentChatWithLlm,
   segmentChatDeterministicFallback,
   saveLlmJobBlocksToDb,
-  runLlmAuditOnAllChats
+  runLlmAuditOnAllChats,
+  getClientWatermark,
+  filterIncrementalMessages
 };
