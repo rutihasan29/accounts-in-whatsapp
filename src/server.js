@@ -305,6 +305,7 @@ function startWebServer({ db, client = null, port = PORT, onRestart = null, auto
     const parsedUrl = url.parse(req.url, true);
     const pathname = parsedUrl.pathname;
     const method = req.method.toUpperCase();
+    console.log(`[HTTP] ${method} ${pathname}`);
 
     // CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
