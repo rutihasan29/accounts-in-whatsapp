@@ -796,7 +796,26 @@ async function runLlmAuditOnAllChats(db, options = {}) {
   } else if (options.client && options.client.pupPage && typeof options.client.pupPage.evaluate === 'function') {
     try {
       const { extractLiveWhatsAppChats } = require('./metrics-traverser');
-      chats = await extractLiveWhatsAppChats(options.client);
+      const liveChats = await extractLiveWhatsAppChats(options.client);
+      if (liveChats && liveChats.length > 0) {
+        chats = liveChats;
+        const livePath = path.join(__dirname, '..', 'data', 'latest_live_chats.json');
+        try { fs.writeFileSync(livePath, JSON.stringify(liveChats, null, 2), 'utf8'); } catch {}
+
+        // Merge live chats with historical records so no older clients are omitted
+        try {
+          const { loadChatTranscripts } = require('./metrics-traverser');
+          const historical = loadChatTranscripts();
+          const existingPhones = new Set(chats.map(c => String(c.phone || c.rawId || '').replace(/\D/g, '')));
+          for (const h of historical) {
+            const hp = String(h.phone || h.rawId || '').replace(/\D/g, '');
+            if (hp && !existingPhones.has(hp)) {
+              chats.push(h);
+              existingPhones.add(hp);
+            }
+          }
+        } catch {}
+      }
     } catch (e) {
       console.warn('[LLM_AUDIT] Live extraction fallback:', e.message);
     }
@@ -825,6 +844,26 @@ async function runLlmAuditOnAllChats(db, options = {}) {
     });
   });
 
+  // Best Order Traversal Strategy:
+  // 1. Prioritize chats with pending unbilled work (unbilled leakage caught first)
+  // 2. Order by newest activity timestamp descending (today's / recent jobs audited first)
+  targetChats.sort((chatA, chatB) => {
+    const cleanPhoneA = String(chatA.phone || chatA.rawId || '').replace(/\D/g, '');
+    const cleanPhoneB = String(chatB.phone || chatB.rawId || '').replace(/\D/g, '');
+    const wmA = db ? getClientWatermark(db, cleanPhoneA) : null;
+    const wmB = db ? getClientWatermark(db, cleanPhoneB) : null;
+
+    const pendingA = (wmA && wmA.pendingUnbilledJob) ? 1 : 0;
+    const pendingB = (wmB && wmB.pendingUnbilledJob) ? 1 : 0;
+    if (pendingA !== pendingB) {
+      return pendingB - pendingA;
+    }
+
+    const timeA = chatA.messages && chatA.messages.length > 0 ? (chatA.messages[chatA.messages.length - 1].t || 0) : 0;
+    const timeB = chatB.messages && chatB.messages.length > 0 ? (chatB.messages[chatB.messages.length - 1].t || 0) : 0;
+    return timeB - timeA;
+  });
+
   const chatsToAudit = typeof options.limit === 'number' && options.limit > 0
     ? targetChats.slice(0, options.limit)
     : targetChats;
@@ -847,6 +886,8 @@ async function runLlmAuditOnAllChats(db, options = {}) {
       : chat;
 
     if (targetChat.messages && targetChat.messages.length > 0) {
+      // Ensure strictly chronological message ordering within the chat
+      targetChat.messages.sort((a, b) => (a.t || 0) - (b.t || 0));
       preparedChats.push({
         chat: targetChat,
         cleanPhone,

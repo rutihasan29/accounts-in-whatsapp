@@ -493,16 +493,24 @@ async function extractLiveWhatsAppChats(client) {
           hasMedia: Boolean(m.isMedia || m.mimetype)
         }));
 
+        // Sort messages inside each chat chronologically (oldest to newest)
+        extractedMsgs.sort((a, b) => (a.t || 0) - (b.t || 0));
+
         if (extractedMsgs.length > 0) {
           results.push({
             rawId,
             phone: phone || rawId,
             name: chat.name || chat.formattedTitle || '',
+            lastActiveTimestamp: chat.t || extractedMsgs[extractedMsgs.length - 1]?.t || 0,
             firstContactIso: extractedMsgs[0]?.isoTime || null,
             messages: extractedMsgs
           });
         }
       }
+
+      // Sort chats by most recent active timestamp first (recency order)
+      results.sort((a, b) => (b.lastActiveTimestamp || 0) - (a.lastActiveTimestamp || 0));
+
       return results;
     });
     return Array.isArray(res) ? res : [];
